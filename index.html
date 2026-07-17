@@ -472,6 +472,8 @@ function importData(obj) {
     if (obj.progress) state.scripture.progress = obj.progress;
     if (obj.reviewToggles) state.scripture.reviewToggles = obj.reviewToggles;
     if (obj.reviewTimes) state.scripture.reviewTimes = obj.reviewTimes;
+    // carry the streak over when the export includes one; never wipe a running Strive streak with an empty one
+    if (obj.streak && obj.streak.count > state.scripture.streak.count) state.scripture.streak = { count: obj.streak.count, lastDay: obj.streak.lastDay || null };
     state.settings.migratedOldApp = true;
     save();
     return 'old-app';
@@ -823,7 +825,8 @@ function toggleGoal(scope, k, id) { const g = goals(scope, k).find(x => x.id ===
 function removeGoal(scope, k, id) { P()[scope][k] = goals(scope, k).filter(x => x.id !== id); save(); }
 
 function dayStats(dk) {
-  const items = itemsForDate(dk);
+  // projected future plan portions are read-only — they can't be completed, so they don't count
+  const items = itemsForDate(dk).filter(i => !i.readonly);
   return { total: items.length, done: items.filter(i => i.done).length };
 }
 
@@ -1025,8 +1028,6 @@ function setChapterList(b, list) {
     .map(x => ({ title: String(x.title || '').trim(), page: Number(x.page) || 0 }))
     .filter(x => x.title || x.page);
   if (b.chapterList.length) b.chapters = b.chapterList.length;
-  const last = b.chapterList[b.chapterList.length - 1];
-  if (last && last.endPage) b.pages = last.endPage;
   b.updated = Date.now();
   save();
 }
@@ -4510,7 +4511,7 @@ function settings() {
     <input id="s-esv" placeholder="ESV API key" value="${esc(esvKey())}" autocapitalize="off" autocorrect="off" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;margin-bottom:8px">
     <button class="btn secondary" id="s-esv-save">Save & test key</button>
     <div class="muted" id="s-esv-status" style="font-size:12px;margin-top:6px">${Object.keys(esvLoadCache()).length} chapter${Object.keys(esvLoadCache()).length === 1 ? '' : 's'} cached offline</div>
-  </div>`);
+  </div>`).firstElementChild;   // live element, not a fragment — fragments empty on append, which killed the save handler
   const esvStatus = esvC.querySelector('#s-esv-status');
   esvC.querySelector('#s-esv-save').onclick = async () => {
     setEsvKey(esvC.querySelector('#s-esv').value);
@@ -4523,7 +4524,7 @@ function settings() {
   wrap.append(esvC);
 
   wrap.append(h(`<div class="card"><h3>Sync</h3>
-    <div class="muted">Cross-device sync (Supabase) arrives in a later phase. Local data persists on this device and via exports meanwhile.</div></div>`));
+    <div class="muted">Cross-device sync (iCloud) arrives in a later phase. Local data persists on this device and via exports meanwhile.</div></div>`));
 
   const danger = h(`<div class="card"><h3>Danger zone</h3>
     <input id="s-reset-confirm" placeholder='Type "RESET" to enable' style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px">
