@@ -418,7 +418,7 @@ function load() {
       deepMerge(state, JSON.parse(d));
     }
   } catch (e) { console.warn('load failed', e); }
-  migrate();
+  migrateState();
 }
 
 function save() {
@@ -426,9 +426,13 @@ function save() {
   saveTimer = setTimeout(saveNow, 300);
 }
 
+const saveListeners = [];
+function onSaved(fn) { saveListeners.push(fn); }
+
 function saveNow() {
   clearTimeout(saveTimer);
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { console.warn('save failed', e); }
+  saveListeners.forEach(f => { try { f(); } catch (e) { console.warn('save listener failed', e); } });
 }
 
 function deepMerge(target, src) {
@@ -492,7 +496,7 @@ function recordStreakDay(domain = 'sm') {
 }
 
 // ---- Migration: v1 → v2, one pass, idempotent, safe to re-run ----
-function migrate() {
+function migrateState() {
   ensureShapes();
   if (state.meta && state.meta.schema >= SCHEMA && state.meta.migratedAt !== undefined && !legacyKeysPresent()) {
     return;
@@ -584,9 +588,9 @@ function importData(obj) {
     try { localStorage.setItem(PRE_IMPORT_KEY, JSON.stringify(state)); } catch (e) { /* best-effort safety copy */ }
     Object.keys(state).forEach(k => delete state[k]);
     Object.assign(state, defaultState());
-    state.meta = { schema: 0, migratedAt: undefined };   // let migrate() stamp it (backup may be v1)
+    state.meta = { schema: 0, migratedAt: undefined };   // let migrateState() stamp it (backup may be v1)
     deepMerge(state, obj.state);
-    migrate();
+    migrateState();
     saveNow();
     return 'strive';
   }
@@ -599,20 +603,24 @@ function importData(obj) {
       state.streaks.sm = { count: obj.streak.count, lastDay: legacyDayToKey(obj.streak.lastDay) };
     }
     state.settings.migratedOldApp = true;
-    state.meta = { schema: 0, migratedAt: undefined };   // force re-normalization; migrate() is idempotent
-    migrate();   // normalize the merged-in review entries (scope parsing, activity stamps)
+    state.meta = { schema: 0, migratedAt: undefined };   // force re-normalization; migrateState() is idempotent
+    migrateState();   // normalize the merged-in review entries (scope parsing, activity stamps)
     saveNow();
     return 'old-app';
   }
   throw new Error('Unrecognized file format');
 }
 
-// ---- Sync stub (iCloud wires in here in Phase 2) ----
-const sync = {
-  enabled: false,
-  configure() {},
-  push() {}, pull() {}
-};
+// Cross-device sync lives in sync.js (Supabase whole-state blob, Phase 2).
+// It subscribes via onSaved() and replaces state through applyRemoteState().
+function applyRemoteState(remoteState) {
+  Object.keys(state).forEach(k => delete state[k]);
+  Object.assign(state, defaultState());
+  state.meta = { schema: 0, migratedAt: undefined };   // migrateState() re-stamps (remote may be older schema)
+  deepMerge(state, remoteState);
+  migrateState();
+  saveNow();
+}
 
 // Strive — ESV verse text (api.esv.org · key in Settings · chapters cached offline)
 
@@ -1208,7 +1216,7 @@ function removeCategory(name) {
   books().forEach(b => { if (b.category === name) b.category = null; });
   save();
 }
-function setCategory(b, name) { b.category = name || null; if (name) addCategory(name); b.updated = Date.now(); save(); }
+function setBookCategory(b, name) { b.category = name || null; if (name) addCategory(name); b.updated = Date.now(); save(); }
 function addTag(name) {
   name = String(name || '').trim();
   if (!name) return;
@@ -1223,7 +1231,7 @@ function removeTag(name) {
   save();
 }
 
-const RD = {QUEUE_CAP,addBook,addCategory,addQuestion,addQuote,addTag,books,byStatus,chapterInfo,currentChapter,estimate,get,libraryLevel,lifetime,logPage,moveInQueue,pace,pct,removeBook,removeCategory,removeQuestion,removeQuote,removeTag,setCategory,setChapterList,setStatus,setSummary};
+const RD = {QUEUE_CAP,addBook,addCategory,addQuestion,addQuote,addTag,books,byStatus,chapterInfo,currentChapter,estimate,get,libraryLevel,lifetime,logPage,moveInQueue,pace,pct,removeBook,removeCategory,removeQuestion,removeQuote,removeTag,setBookCategory,setChapterList,setStatus,setSummary};
 // Strive — Creeds, Catechisms & Confessions domain.
 // Static texts from the Van Dixhoorn edition; per-document track (read/memorize) and section progress.
 
@@ -1754,7 +1762,253 @@ function upNext(plan) {
 }
 
 const RP = {PLAN_PRESETS,PREFABS,booksForPreset,chaptersOf,completeToday,createPlan,createPrefab,estFinish,getPlan,isDoneToday,isReadingDay,mcheyneRef,planItemsForDate,planStats,planTotal,plans,portionRef,projectedPortion,refFor,refForRange,removePlan,todaysPortion,togglePlanDay,uncompleteToday,upNext};
+// Strive — cross-device sync (Phase 2). Whole-state blob → Supabase, last-write-wins
+// with a conflict guard. Dependency-free: raw fetch against Supabase Auth + REST.
+// Because the entire state object syncs as one blob, later schema additions never
+// break sync — new fields simply ride along and migrate() runs after every pull.
+//
+// Per-device keys (NOT inside synced state, by design):
+//   strive-sync-cfg     {url, anonKey}
+//   strive-sync-session {access_token, refresh_token, expiresAt, userId, email}
+//   strive-sync-meta    {lastRemoteTs, dirty}
+//   strive-device-id    random id, tags pushes for the conflict prompt
+
+
+const CFG_KEY = 'strive-sync-cfg';
+const SES_KEY = 'strive-sync-session';
+const META_KEY = 'strive-sync-meta';
+const DEV_KEY = 'strive-device-id';
+const TABLE = 'strive_state';
+const PUSH_DEBOUNCE = 3000;
+
+function readJson(k) { try { return JSON.parse(localStorage.getItem(k)) || null; } catch (e) { return null; } }
+function writeJson(k, v) { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch (e) { console.warn('sync store failed', e); } }
+
+function getConfig() { return readJson(CFG_KEY); }
+function setConfig(url, anonKey) {
+  url = String(url || '').trim().replace(/\/+$/, '');
+  anonKey = String(anonKey || '').trim();
+  if (!url || !anonKey) { writeJson(CFG_KEY, null); return; }
+  writeJson(CFG_KEY, { url, anonKey });
+}
+function getSession() { return readJson(SES_KEY); }
+function setSession(s) { writeJson(SES_KEY, s); }
+function meta() { return readJson(META_KEY) || { lastRemoteTs: 0, dirty: false }; }
+function setMeta(m) { writeJson(META_KEY, m); }
+function deviceId() {
+  let d = localStorage.getItem(DEV_KEY);
+  if (!d) { d = Math.random().toString(36).slice(2, 10); localStorage.setItem(DEV_KEY, d); }
+  return d;
+}
+function isConfigured() { return !!getConfig(); }
+function isSignedIn() { return !!getSession(); }
+function status() {
+  const s = getSession(), m = meta();
+  return {
+    configured: isConfigured(), signedIn: !!s, email: s ? s.email : null,
+    dirty: !!m.dirty, lastRemoteTs: m.lastRemoteTs || 0, lastError
+  };
+}
+
+let lastError = null;
+let pushTimer = null;
+let applying = false;      // true while applyRemoteState writes — suppresses the save listener
+let syncing = false;       // no overlapping pushes/pulls
+let onChange = null;       // UI callback (status updates)
+let onPulledCb = null;     // UI callback (remote state was applied — rerender!)
+function onStatusChange(fn) { onChange = fn; }
+function onPulled(fn) { onPulledCb = fn; }
+function changed() { if (onChange) { try { onChange(status()); } catch (e) {} } }
+
+async function req(path, { method = 'GET', body = null, auth = true, timeout = 12000 } = {}) {
+  const cfg = getConfig();
+  if (!cfg) throw new Error('not-configured');
+  const headers = { apikey: cfg.anonKey, 'Content-Type': 'application/json' };
+  if (auth) {
+    const tok = await accessToken();
+    headers.Authorization = 'Bearer ' + tok;
+  }
+  if (method === 'POST' && path.startsWith('/rest/')) headers.Prefer = 'resolution=merge-duplicates,return=minimal';
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), timeout);
+  let res;
+  try {
+    res = await fetch(cfg.url + path, { method, headers, body: body ? JSON.stringify(body) : null, signal: ctl.signal });
+  } catch (e) { throw new Error('network'); }
+  finally { clearTimeout(t); }
+  if (res.status === 401) throw new Error('unauthorized');
+  if (!res.ok) {
+    let msg = 'http-' + res.status;
+    try { const j = await res.json(); msg = j.error_description || j.msg || j.message || msg; } catch (e) {}
+    throw new Error(msg);
+  }
+  if (res.status === 204) return null;
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+// ---- auth (Supabase GoTrue, email + password) ----
+function sessionFromResponse(j) {
+  return {
+    access_token: j.access_token, refresh_token: j.refresh_token,
+    expiresAt: Date.now() + ((j.expires_in || 3600) - 60) * 1000,
+    userId: j.user && j.user.id, email: j.user && j.user.email
+  };
+}
+async function authCall(path, body) {
+  const cfg = getConfig();
+  if (!cfg) throw new Error('not-configured');
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 12000);
+  let res;
+  try {
+    res = await fetch(cfg.url + path, {
+      method: 'POST', headers: { apikey: cfg.anonKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body), signal: ctl.signal
+    });
+  } catch (e) { throw new Error('network'); }
+  finally { clearTimeout(t); }
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error_description || j.msg || j.message || ('http-' + res.status));
+  return j;
+}
+async function signUp(email, password) {
+  const j = await authCall('/auth/v1/signup', { email, password });
+  if (!j.access_token) throw new Error('Account created — confirm the email Supabase sent you, then sign in. (Or disable "Confirm email" in Supabase Auth settings.)');
+  setSession(sessionFromResponse(j));
+  changed();
+}
+async function signIn(email, password) {
+  const j = await authCall('/auth/v1/token?grant_type=password', { email, password });
+  setSession(sessionFromResponse(j));
+  lastError = null;
+  changed();
+}
+function signOut() {
+  setSession(null);
+  setMeta({ lastRemoteTs: 0, dirty: meta().dirty });
+  changed();
+}
+async function accessToken() {
+  let s = getSession();
+  if (!s) throw new Error('signed-out');
+  if (Date.now() < s.expiresAt) return s.access_token;
+  const j = await authCall('/auth/v1/token?grant_type=refresh_token', { refresh_token: s.refresh_token });
+  s = sessionFromResponse(j);
+  setSession(s);
+  return s.access_token;
+}
+
+// ---- blob transfer ----
+async function fetchRemote() {
+  const rows = await req('/rest/v1/' + TABLE + '?select=data,ts,device&limit=1');
+  return rows && rows.length ? rows[0] : null;
+}
+async function pushNow() {
+  const s = getSession();
+  if (!s) return;
+  const ts = Date.now();
+  await req('/rest/v1/' + TABLE + '?on_conflict=user_id', {
+    method: 'POST',
+    body: [{ user_id: s.userId, data: state, ts, device: deviceId() }]
+  });
+  setMeta({ lastRemoteTs: ts, dirty: false });
+  lastError = null;
+  changed();
+}
+
+function applyRemote(row) {
+  applying = true;
+  try { applyRemoteState(row.data); } finally { applying = false; }
+  setMeta({ lastRemoteTs: row.ts, dirty: false });
+  lastError = null;
+  changed();
+  if (onPulledCb) { try { onPulledCb(); } catch (e) {} }
+}
+
+// does local state hold anything worth keeping? (first-link guard)
+function looksEmpty(st = state) {
+  const sc = st.scripture || {};
+  const anyProgress = Object.values(sc.progress || {}).some(b => Object.values(b || {}).some(Boolean));
+  const anyReviews = Object.values(sc.reviewTimes || {}).some(a => (a || []).length);
+  const rd = (st.reading && st.reading.books || []).length;
+  const cr = Object.values((st.creeds && st.creeds.progress) || {}).some(d => Object.values(d || {}).some(Boolean));
+  const ft = (st.fitness && st.fitness.logs || []).length;
+  const pw = (st.pathways || []).length;
+  const pl = st.planner && (Object.keys(st.planner.dayItems || {}).length || (st.planner.rules || []).length);
+  return !(anyProgress || anyReviews || rd || cr || ft || pw || pl);
+}
+
+// ---- the sync cycle ----
+// confirmFn(message) → Promise<bool> | bool — UI supplies window.confirm; tests supply stubs.
+async function syncNow({ confirmFn = (m) => confirm(m), interactive = false } = {}) {
+  if (syncing || !isConfigured() || !isSignedIn()) return 'skipped';
+  syncing = true;
+  try {
+    const m = meta();
+    const remote = await fetchRemote();
+
+    if (!remote) {                                   // brand-new cloud
+      await pushNow();
+      return 'pushed-first';
+    }
+    if (!m.lastRemoteTs) {                           // first link on this device
+      if (looksEmpty()) { applyRemote(remote); return 'pulled-first'; }
+      const useCloud = await confirmFn(
+        'Cloud data exists (last saved ' + new Date(remote.ts).toLocaleString() + ' by device "' + (remote.device || '?') + '").\n\n' +
+        'OK = REPLACE this device with the cloud copy.\nCancel = keep this device’s data and OVERWRITE the cloud.');
+      if (useCloud) { applyRemote(remote); return 'pulled-first'; }
+      await pushNow(); return 'pushed-first';
+    }
+    if (remote.ts === m.lastRemoteTs) {              // cloud unchanged since we last saw it
+      if (m.dirty) { await pushNow(); return 'pushed'; }
+      return 'in-sync';
+    }
+    if (remote.ts > m.lastRemoteTs) {                // cloud moved ahead
+      if (!m.dirty) { applyRemote(remote); return 'pulled'; }
+      // both sides changed since last sync → conflict guard; user picks, cloud offered first (LWW default)
+      const keepCloud = await confirmFn(
+        'Both this device and another changed since the last sync.\n\n' +
+        'OK = use the cloud copy (' + new Date(remote.ts).toLocaleString() + ', device "' + (remote.device || '?') + '") — this device’s recent changes are lost.\n' +
+        'Cancel = keep THIS device and overwrite the cloud.');
+      if (keepCloud) { applyRemote(remote); return 'pulled-conflict'; }
+      await pushNow(); return 'pushed-conflict';
+    }
+    // remote.ts < lastRemoteTs — clock skew or restored cloud; treat our copy as source
+    await pushNow();
+    return 'pushed';
+  } catch (e) {
+    lastError = e.message;
+    changed();
+    if (interactive) throw e;
+    return 'error';
+  } finally {
+    syncing = false;
+  }
+}
+
+function schedulePush() {
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => { syncNow(); }, PUSH_DEBOUNCE);
+}
+
+// ---- wiring ----
+function init() {
+  onSaved(() => {
+    if (applying) return;                    // pulls must not re-push what they just wrote
+    setMeta({ ...meta(), dirty: true });
+    if (isConfigured() && isSignedIn()) schedulePush();
+  });
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncNow(); });
+    window.addEventListener('online', () => syncNow());
+  }
+  if (isConfigured() && isSignedIn()) syncNow();
+}
+
+const SY = {deviceId,getConfig,getSession,init,isConfigured,isSignedIn,looksEmpty,onPulled,onStatusChange,schedulePush,setConfig,signIn,signOut,signUp,status,syncNow};
 // Strive — shell, navigation, screens
+
 
 
 
@@ -4704,8 +4958,7 @@ function settings() {
   };
   wrap.append(esvC);
 
-  wrap.append(h(`<div class="card"><h3>Sync</h3>
-    <div class="muted">Cross-device sync (iCloud) arrives in a later phase. Local data persists on this device and via exports meanwhile.</div></div>`));
+  wrap.append(syncCard());
 
   const danger = h(`<div class="card"><h3>Danger zone</h3>
     <input id="s-reset-confirm" placeholder='Type "RESET" to enable' style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px">
@@ -4713,10 +4966,85 @@ function settings() {
   </div>`);
   const rc = danger.querySelector('#s-reset-confirm'), rb = danger.querySelector('#s-reset');
   rc.oninput = () => { const ok = rc.value.trim() === 'RESET'; rb.disabled = !ok; rb.style.opacity = ok ? '1' : '.4'; };
-  rb.onclick = () => { localStorage.removeItem('strive-v1'); localStorage.removeItem('strive-esv-v1'); location.reload(); };
+  rb.onclick = () => {
+    ['strive-v1', 'strive-esv-v1', 'strive-sync-session', 'strive-sync-meta'].forEach(k => localStorage.removeItem(k));
+    location.reload();   // sync config (URL/key) survives; sign back in to re-link — the first-link guard decides cloud vs device
+  };
   wrap.append(danger);
 
   main().append(wrap);
+}
+
+// ---------- Settings: sync card (Supabase whole-state blob) ----------
+function syncCard() {
+  const inp = 'width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;margin-bottom:8px';
+  const st = SY.status();
+
+  if (!st.configured) {
+    const c = h(`<div class="card"><h3>Sync</h3>
+      <div class="muted" style="font-size:12px;margin-bottom:8px">Cross-device sync via your own free Supabase project — see SUPABASE-SETUP.md in the deploy folder. Paste the project's URL and anon key once per device.</div>
+      <input id="sy-url" placeholder="https://xxxx.supabase.co" autocapitalize="off" autocorrect="off" style="${inp}">
+      <input id="sy-key" placeholder="anon public key" autocapitalize="off" autocorrect="off" style="${inp}">
+      <button class="btn secondary" id="sy-connect">Connect</button>
+    </div>`).firstElementChild;
+    c.querySelector('#sy-connect').onclick = () => {
+      const url = c.querySelector('#sy-url').value.trim(), key = c.querySelector('#sy-key').value.trim();
+      if (!url || !key) { toast('Enter both the URL and the anon key'); return; }
+      SY.setConfig(url, key);
+      toast('Connected — now sign in');
+      rerender();
+    };
+    return c;
+  }
+
+  if (!st.signedIn) {
+    const c = h(`<div class="card"><h3>Sync</h3>
+      <div class="muted" style="font-size:12px;margin-bottom:8px">Sign in once on each device — same email + password everywhere. First device: Create account.</div>
+      <input id="sy-em" type="email" placeholder="email" autocapitalize="off" autocorrect="off" style="${inp}">
+      <input id="sy-pw" type="password" placeholder="password" style="${inp}">
+      <button class="btn secondary" id="sy-in">Sign in</button>
+      <button class="btn secondary" id="sy-up">Create account</button>
+      <button class="btn secondary" id="sy-cfg" style="margin-top:8px;font-size:12px">Change server</button>
+      <div class="muted" id="sy-msg" style="font-size:12px;margin-top:6px"></div>
+    </div>`).firstElementChild;
+    const msg = c.querySelector('#sy-msg');
+    const go = async (fn) => {
+      const em = c.querySelector('#sy-em').value.trim(), pw = c.querySelector('#sy-pw').value;
+      if (!em || !pw) { msg.textContent = 'Email and password required.'; return; }
+      msg.textContent = 'Working…';
+      try {
+        await fn(em, pw);
+        msg.textContent = 'Signed in — syncing…';
+        const r = await SY.syncNow({ interactive: true });
+        toast(r === 'pushed-first' ? 'This device is now the cloud copy ✓' : r === 'pulled-first' ? 'Cloud data loaded ✓' : 'Sync ready ✓');
+        rerender();
+      } catch (e) { msg.textContent = '✗ ' + e.message; }
+    };
+    c.querySelector('#sy-in').onclick = () => go(SY.signIn);
+    c.querySelector('#sy-up').onclick = () => go(SY.signUp);
+    c.querySelector('#sy-cfg').onclick = () => { if (confirm('Forget the saved Supabase URL/key on this device?')) { SY.setConfig('', ''); rerender(); } };
+    return c;
+  }
+
+  const last = st.lastRemoteTs ? new Date(st.lastRemoteTs).toLocaleString() : 'never';
+  const c = h(`<div class="card"><h3>Sync</h3>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">Signed in as <b>${esc(st.email || '')}</b><br>Last sync: <span id="sy-last">${esc(last)}</span>${st.dirty ? ' · unsynced changes' : ''}${st.lastError ? '<br>⚠️ ' + esc(st.lastError) : ''}</div>
+    <button class="btn secondary" id="sy-now">Sync now</button>
+    <button class="btn secondary" id="sy-out">Sign out</button>
+  </div>`).firstElementChild;
+  c.querySelector('#sy-now').onclick = async () => {
+    const b = c.querySelector('#sy-now');
+    b.textContent = 'Syncing…';
+    try {
+      const r = await SY.syncNow({ interactive: true });
+      if (r === 'in-sync') toast('Up to date ✓');
+      else if (r && r.startsWith('pushed')) toast('Pushed to cloud ✓');
+      // pulled* toasts arrive via onPulled
+    } catch (e) { toast('Sync failed: ' + e.message); }
+    rerender();
+  };
+  c.querySelector('#sy-out').onclick = () => { SY.signOut(); toast('Signed out — data stays on this device'); rerender(); };
+  return c;
 }
 
 // ---------- boot ----------
@@ -4725,6 +5053,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('h-back').onclick = goBack;
   document.querySelectorAll('nav.tabbar button').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
   switchTab('home');
+  SY.onPulled(() => { SC.ensureKeys(); toast('Synced from cloud ☁️'); rerender(); });
+  SY.init();
   
 });
 
