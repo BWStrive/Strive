@@ -512,6 +512,22 @@ function recordStreakDay(domain = 'sm') {
   save();
 }
 
+// ---- Weeks & counters (Phase 5 · D1/D2) — weeks run Sunday–Saturday (Baruch's call) ----
+function weekStartKey(dk = todayKey()) {
+  const [y, m, d] = dk.split('-').map(Number);
+  return addDaysKey(dk, -new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay());   // 0 = Sunday
+}
+// days with activity for a domain in [fromKey, toKey] inclusive (day-keys sort lexically)
+function activityDays(domain, fromKey, toKey) {
+  let n = 0;
+  for (const dk of Object.keys(state.activity)) {
+    if (dk >= fromKey && dk <= toKey && state.activity[dk][domain]) n++;
+  }
+  return n;
+}
+function weekDays(domain) { return activityDays(domain, weekStartKey(), todayKey()); }
+function activeToday(domain) { const a = state.activity[todayKey()]; return !!(a && a[domain]); }
+
 // ---- Migration: v1 → v2, one pass, idempotent, safe to re-run ----
 function migrateState() {
   ensureShapes();
@@ -765,15 +781,37 @@ function globalStats() {
   return { done, total, booksComplete, chaptersComplete, pct: total ? (done / total * 100) : 0 };
 }
 
+// Net verses marked per local day (Phase 6 strip stats). Marks/unmarks via the normal
+// UI count ±; resets & restores deliberately don't. History starts July 2026 — older
+// marks were never timestamped, so past days read 0.
+function scMarkBump(n) {
+  if (!S().markLog) S().markLog = {};
+  const dk = todayKey();
+  S().markLog[dk] = (S().markLog[dk] || 0) + n;
+}
+function versesMarked(fromKey, toKey) {
+  const log = S().markLog || {};
+  let n = 0;
+  for (const dk of Object.keys(log)) if (dk >= fromKey && dk <= toKey) n += log[dk];
+  return Math.max(0, n);
+}
+
 function toggleVerse(book, ci, v) {
   const k = ci + '_' + v;
   S().progress[book.name][k] = !S().progress[book.name][k];
+  scMarkBump(S().progress[book.name][k] ? 1 : -1);
   if (S().progress[book.name][k]) recordStreakDay();
   save();
 }
 
 function setChapter(book, ci, val) {
-  for (let v = 1; v <= book.verses[ci]; v++) S().progress[book.name][ci + '_' + v] = val;
+  let delta = 0;
+  for (let v = 1; v <= book.verses[ci]; v++) {
+    const k = ci + '_' + v;
+    if (!!S().progress[book.name][k] !== val) delta += val ? 1 : -1;
+    S().progress[book.name][k] = val;
+  }
+  scMarkBump(delta);
   if (val) recordStreakDay();
   save();
 }
@@ -852,7 +890,9 @@ function parseScopeInput(str, book) {
 // ---- bulk marks & resets (SM3) ----
 function markBookMemorized(book) {
   const snap = JSON.parse(JSON.stringify(S().progress[book.name] || {}));
-  book.verses.forEach((n, ci) => { for (let v = 1; v <= n; v++) S().progress[book.name][ci + '_' + v] = true; });
+  let delta = 0;
+  book.verses.forEach((n, ci) => { for (let v = 1; v <= n; v++) { const k = ci + '_' + v; if (!S().progress[book.name][k]) delta++; S().progress[book.name][k] = true; } });
+  scMarkBump(delta);
   recordStreakDay();
   save();
   return snap;   // caller keeps this for undo
@@ -863,6 +903,15 @@ function resetCorpus(t) { allBooks.filter(b => b.t === t).forEach(b => { S().pro
 
 function reviewHistory(bookName) {
   return [...(S().reviewTimes[bookName] || [])].sort((a, b) => b.ts - a.ts);
+}
+
+// Review time logged between two instants (Phase 5 · Trends)
+function reviewSecsBetween(fromTs, toTs = Date.now()) {
+  let secs = 0, count = 0;
+  Object.values(S().reviewTimes).forEach(arr => (arr || []).forEach(e => {
+    if (e.ts >= fromTs && e.ts <= toTs) { secs += e.secs; count++; }
+  }));
+  return { secs, count };
 }
 
 function memorizedBooks() {
@@ -969,7 +1018,7 @@ const ABBR = { Genesis: 'Gen', Exodus: 'Ex', Leviticus: 'Lev', Numbers: 'Num', D
 function abbr(name) { return ABBR[name] || name.slice(0, 3); }
 
 
-const SC = {BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookStats,bookXP,chapterStats,corpusStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,parseDuration,parseScopeInput,removeCurrentItem,removeReviewTime,resetBook,resetCorpus,restoreBookProgress,reviewHistory,reviewIntervalDays,scopeLabel,setChapter,setCurrentBook,setReviewInterval,toggleVerse,totalVerses,verseDone};
+const SC = {BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookStats,bookXP,chapterStats,corpusStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,parseDuration,parseScopeInput,removeCurrentItem,removeReviewTime,resetBook,resetCorpus,restoreBookProgress,reviewHistory,reviewIntervalDays,reviewSecsBetween,scopeLabel,setChapter,setCurrentBook,setReviewInterval,toggleVerse,totalVerses,verseDone,versesMarked};
 // Strive — planner: day/week/month/year items, recurring rules
 
 
@@ -1192,7 +1241,7 @@ function setStatus(b, status) {
     b.queuePos = Math.max(0, ...byStatus('upnext').map(x => x.queuePos || 0)) + 1;
   }
   if (status === 'reading' && !b.startedTs) b.startedTs = Date.now();
-  if (status === 'finished') { b.finishedTs = Date.now(); if (b.pages) b.currentPage = b.pages; }
+  if (status === 'finished') { b.finishedTs = Date.now(); if (b.pages) b.currentPage = b.pages; if (b.prefacePages) b.prefaceRead = b.prefacePages; }
   b.status = status;
   b.updated = Date.now();
   save();
@@ -1216,7 +1265,48 @@ function logPage(b, page) {
   save();
 }
 
-function pct(b) { return b.pages ? Math.min(100, Math.round((b.currentPage || 0) / b.pages * 100)) : 0; }
+// % includes prefatory (roman-numeral) pages when the book has them (R1)
+function pct(b) {
+  const total = (b.pages || 0) + (b.prefacePages || 0);
+  if (!total) return 0;
+  return Math.min(100, Math.round(((b.currentPage || 0) + (b.prefaceRead || 0)) / total * 100));
+}
+
+// front matter progress (R1) — counts toward % and the rd streak, not page-count stats
+function logPreface(b, read) {
+  b.prefaceRead = Math.max(0, Math.min(b.prefacePages || 0, Number(read) || 0));
+  b.updated = Date.now();
+  if (b.prefaceRead > 0) recordStreakDay('rd');
+  save();
+}
+function setPrefacePages(b, n) {
+  b.prefacePages = Math.max(0, Number(n) || 0);
+  if (b.prefaceRead > b.prefacePages) b.prefaceRead = b.prefacePages;
+  b.updated = Date.now();
+  save();
+}
+
+// author last name for sorting (R5) — last word, ignoring common suffixes
+function authorLastName(a) {
+  const parts = String(a || '').trim().replace(/,?\s+(jr\.?|sr\.?|iii?|iv)$/i, '').split(/\s+/).filter(Boolean);
+  return parts.length ? parts[parts.length - 1].toLowerCase() : '';
+}
+
+// every book, one list, sorted (R4/R5). 'status' groups reading → upnext(queue order) → library → finished.
+function allSorted(sort) {
+  const list = [...books()];
+  const t = b => b.title.toLowerCase();
+  if (sort === 'title') list.sort((a, b) => t(a).localeCompare(t(b)));
+  else if (sort === 'author') list.sort((a, b) => (authorLastName(a.author) || '￿').localeCompare(authorLastName(b.author) || '￿') || t(a).localeCompare(t(b)));
+  else if (sort === 'category') list.sort((a, b) => ((a.category || '￿').toLowerCase()).localeCompare((b.category || '￿').toLowerCase()) || t(a).localeCompare(t(b)));
+  else {
+    const rank = { reading: 0, upnext: 1, library: 2, finished: 3 };
+    list.sort((a, b) => (rank[a.status] ?? 2) - (rank[b.status] ?? 2)
+      || (a.status === 'upnext' ? (a.queuePos || 0) - (b.queuePos || 0) : 0)
+      || t(a).localeCompare(t(b)));
+  }
+  return list;
+}
 
 // pages/day from logs in the last 21 days (falls back to all logs)
 function pace(b) {
@@ -1236,6 +1326,22 @@ function estimate(b) {
   const remaining = b.pages - (b.currentPage || 0);
   const days = Math.ceil(remaining / p);
   return { days, finish: new Date(Date.now() + days * 86400000), pace: p };
+}
+
+// Pages read across all books between two instants (Phase 5 · D2).
+// Logs store cumulative positions, so per book: (last position in window) − (position at window start).
+function pagesBetween(fromTs, toTs = Date.now()) {
+  let total = 0;
+  books().forEach(b => {
+    const logs = [...(b.logs || [])].sort((a, c) => a.ts - c.ts);
+    let before = 0, last = null;
+    logs.forEach(l => {
+      if (l.ts < fromTs) before = l.page;
+      else if (l.ts <= toTs) last = l.page;
+    });
+    if (last !== null && last > before) total += last - before;
+  });
+  return total;
 }
 
 // Library Level: % of everything entered that's been finished — honest, fluctuates as the list grows.
@@ -1261,12 +1367,20 @@ function setChapterList(b, list) {
   b.updated = Date.now();
   save();
 }
-function chapterInfo(b, ch) { return (b.chapterList && b.chapterList[ch - 1]) || null; }
-// which chapter the current page falls in
+// numbered chapters only — intro/conclusion rows exist in the list but carry no number (R2)
+function numberedChapters(b) {
+  return (b.chapterList || []).filter(r => !r.role || r.role === 'chapter');
+}
+function chapterInfo(b, ch) { return numberedChapters(b)[ch - 1] || null; }
+// which milestone the current page falls in; numbered chapters get n, intro/conclusion get their role
 function currentChapter(b) {
   if (!b.chapterList || !b.chapterList.length || !b.currentPage) return null;
-  let cur = null;
-  b.chapterList.forEach((c, i) => { if (c.page && b.currentPage >= c.page) cur = { n: i + 1, ...c }; });
+  let cur = null, num = 0;
+  b.chapterList.forEach(c => {
+    const numbered = !c.role || c.role === 'chapter';
+    if (numbered) num++;
+    if (c.page && b.currentPage >= c.page) cur = { n: numbered ? num : null, ...c };
+  });
   return cur;
 }
 
@@ -1307,7 +1421,7 @@ function removeTag(name) {
   save();
 }
 
-const RD = {QUEUE_CAP,addBook,addCategory,addQuestion,addQuote,addTag,books,byStatus,chapterInfo,currentChapter,estimate,get,libraryLevel,lifetime,logPage,moveInQueue,pace,pct,removeBook,removeCategory,removeQuestion,removeQuote,removeTag,setBookCategory,setChapterList,setStatus,setSummary};
+const RD = {QUEUE_CAP,addBook,addCategory,addQuestion,addQuote,addTag,allSorted,authorLastName,books,byStatus,chapterInfo,currentChapter,estimate,get,libraryLevel,lifetime,logPage,logPreface,moveInQueue,numberedChapters,pace,pagesBetween,pct,removeBook,removeCategory,removeQuestion,removeQuote,removeTag,setBookCategory,setChapterList,setPrefacePages,setStatus,setSummary};
 // Strive — Creeds, Catechisms & Confessions domain.
 // Static texts from the Van Dixhoorn edition; per-document track (read/memorize) and section progress.
 
@@ -1333,10 +1447,26 @@ function currentDoc() { ensure(); return C().current ? getDoc(C().current) : nul
 function setCurrentDoc(id) { ensure(); C().current = id; save(); }
 
 function isDone(id, n) { ensure(); return !!(C().progress[id] && C().progress[id][n]); }
+
+// Net sections/questions marked per local day (Phase 6 strip stats).
+// History starts July 2026 — older marks were never timestamped.
+function crMarkBump(n) {
+  if (!C().markLog) C().markLog = {};
+  const dk = todayKey();
+  C().markLog[dk] = (C().markLog[dk] || 0) + n;
+}
+function sectionsMarked(fromKey, toKey) {
+  const log = C().markLog || {};
+  let n = 0;
+  for (const dk of Object.keys(log)) if (dk >= fromKey && dk <= toKey) n += log[dk];
+  return Math.max(0, n);
+}
+
 function toggleSection(id, n) {
   ensure();
   if (!C().progress[id]) C().progress[id] = {};
   C().progress[id][n] = !C().progress[id][n];
+  crMarkBump(C().progress[id][n] ? 1 : -1);
   if (C().progress[id][n]) recordStreakDay('cr');
   save();
 }
@@ -1371,6 +1501,15 @@ function logPractice(docId, n, mode, score) {
 
 function practiceHistory(docId, n) { return (PRC()[docId] && PRC()[docId][n]) || []; }
 
+// Practice attempts between two instants (Phase 5 · Trends)
+function practiceCountBetween(fromTs, toTs = Date.now()) {
+  let n = 0;
+  Object.values(PRC()).forEach(doc => Object.values(doc || {}).forEach(arr => (arr || []).forEach(e => {
+    if (e.ts >= fromTs && e.ts <= toTs) n++;
+  })));
+  return n;
+}
+
 // Mastery = average of the last 10 scored attempts (typer + flashcards; fade never scores).
 function mastery(docId, n) {
   const arr = practiceHistory(docId, n);
@@ -1384,7 +1523,7 @@ function lastPracticeTs(docId, n) {
   return arr.length ? arr[arr.length - 1].ts : 0;
 }
 
-const CR = {GROUPS,currentDoc,docStats,docs,getDoc,isDone,lastPracticeTs,logPractice,mastery,practiceHistory,sectionLabel,setCurrentDoc,setTrack,toggleSection,trackOf};
+const CR = {GROUPS,currentDoc,docStats,docs,getDoc,isDone,lastPracticeTs,logPractice,mastery,practiceCountBetween,practiceHistory,sectionLabel,sectionsMarked,setCurrentDoc,setTrack,toggleSection,trackOf};
 // Strive — Fitness domain: workout database (seeded from btwb export), logbook,
 // custom workout builder, weight log. Assessment scoring arrives in a later phase.
 
@@ -1663,6 +1802,16 @@ function readingDaysBetween(plan, a, b) {
 }
 function removePlan(id) { state.scripture.readingPlans = RPs().filter(p => p.id !== id); save(); }
 
+// Chapters read across all plans between two day-keys inclusive (Phase 6 strip stats).
+// plan.log[dk] = chapters completed that day, so this has real history.
+function chaptersRead(fromKey, toKey) {
+  let n = 0;
+  RPs().forEach(p => {
+    for (const dk of Object.keys(p.log || {})) if (dk >= fromKey && dk <= toKey) n += p.log[dk] || 0;
+  });
+  return n;
+}
+
 // flattened chapter list, canonical order of the chosen books
 function chaptersOf(plan) {
   const out = [];
@@ -1837,7 +1986,7 @@ function upNext(plan) {
   return c ? c.book + ' ' + c.ch : null;
 }
 
-const RP = {PLAN_PRESETS,PREFABS,booksForPreset,chaptersOf,completeToday,createPlan,createPrefab,estFinish,getPlan,isDoneToday,isReadingDay,mcheyneRef,planItemsForDate,planStats,planTotal,plans,portionRef,projectedPortion,refFor,refForRange,removePlan,todaysPortion,togglePlanDay,uncompleteToday,upNext};
+const RP = {PLAN_PRESETS,PREFABS,booksForPreset,chaptersOf,chaptersRead,completeToday,createPlan,createPrefab,estFinish,getPlan,isDoneToday,isReadingDay,mcheyneRef,planItemsForDate,planStats,planTotal,plans,portionRef,projectedPortion,refFor,refForRange,removePlan,todaysPortion,togglePlanDay,uncompleteToday,upNext};
 // Strive — cross-device sync (Phase 2). Whole-state blob → Supabase, last-write-wins
 // with a conflict guard. Dependency-free: raw fetch against Supabase Auth + REST.
 // Because the entire state object syncs as one blob, later schema additions never
@@ -2214,6 +2363,117 @@ function sectionTitle(t) {
 }
 
 // ---------- Dashboard ----------
+
+// ---- Daily verse (Phase 5 — Baruch's rotating header verse; Hebrews 4:11 charter member) ----
+const DEFAULT_DAILY_VERSES = [
+  'Hebrews 4:11', 'Genesis 1:1', 'Deuteronomy 6:4-5', 'Joshua 1:8-9', 'Psalms 1:1-2',
+  'Psalms 19:14', 'Psalms 23:1', 'Psalms 27:1', 'Psalms 46:1', 'Psalms 119:11',
+  'Psalms 119:105', 'Proverbs 3:5-6', 'Isaiah 26:3', 'Isaiah 40:31', 'Isaiah 41:10',
+  'Lamentations 3:22-23', 'Micah 6:8', 'Matthew 6:33', 'Matthew 11:28-30', 'John 3:16',
+  'John 14:6', 'Romans 5:8', 'Romans 8:1', 'Romans 8:28', 'Romans 12:1-2',
+  '1 Corinthians 10:13', 'Galatians 2:20', 'Ephesians 2:8-9', 'Philippians 4:6-7', 'Philippians 4:13',
+  'Colossians 3:23', '2 Timothy 3:16-17', 'Hebrews 4:12', 'Hebrews 11:1', 'Hebrews 12:1-2',
+  'James 1:22', '1 Peter 5:6-7', '1 John 1:9'
+];
+function dailyVerseList() {
+  if (!Array.isArray(state.settings.dailyVerses) || !state.settings.dailyVerses.length) {
+    state.settings.dailyVerses = [...DEFAULT_DAILY_VERSES];
+    save();
+  }
+  return state.settings.dailyVerses;
+}
+// "Hebrews 4:11" / "Romans 12:1-2" (single chapter) → {b, ch, from, to}
+function parseVerseRef(ref) {
+  const m = String(ref).trim().match(/^(.+?)\s+(\d+):(\d+)(?:\s*[-–—]\s*(\d+))?$/);
+  if (!m) return null;
+  const name = m[1].trim().toLowerCase();
+  const b = allBooks.find(x => x.name.toLowerCase() === name);
+  if (!b) return null;
+  const ch = Number(m[2]), from = Number(m[3]), to = m[4] ? Number(m[4]) : Number(m[3]);
+  if (ch < 1 || ch > b.chapters || from > to || from < 1) return null;
+  return { b, ch, from, to };
+}
+function dailyVerseCard() {
+  const list = dailyVerseList();
+  const idx = ((diffDaysKeys('2026-01-01', todayKey()) % list.length) + list.length) % list.length;
+  const ref = list[idx];
+  const p = parseVerseRef(ref);
+  const el = h(`<div class="card" id="d-verse">
+    <div id="dv-text" style="font-family:var(--serif-body);font-size:16.5px;line-height:1.55"></div>
+    <div style="font-family:var(--serif-display);font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--gold);margin-top:8px">${esc(ref)} · ESV</div>
+  </div>`).firstElementChild;
+  const textEl = el.querySelector('#dv-text');
+  if (!p) { textEl.innerHTML = '<span class="muted" style="font-style:normal">Unrecognized reference — edit the daily verse list in Settings.</span>'; return el; }
+  const show = entry => {
+    const vv = [];
+    for (let v = p.from; v <= p.to; v++) if (entry.verses[v]) vv.push(entry.verses[v]);
+    if (vv.length) textEl.textContent = '“' + vv.join(' ') + '”';
+    else textEl.innerHTML = '<span class="muted" style="font-style:normal">Verse text unavailable for this reference.</span>';
+  };
+  const tryFetch = async () => {
+    textEl.innerHTML = '<span class="muted" style="font-style:normal">Fetching…</span>';
+    try { show(await esvFetchChapter(p.b.name, p.ch)); el.style.cursor = ''; el.onclick = null; }
+    catch (e) {
+      textEl.innerHTML = '<span class="muted" style="font-style:normal">Could not fetch the verse — tap to retry.</span>';
+      el.style.cursor = 'pointer';
+      el.onclick = tryFetch;
+    }
+  };
+  const cached = esvChapterCached(p.b.name, p.ch);
+  if (cached) show(cached);
+  else if (esvKey()) tryFetch();
+  else textEl.innerHTML = '<span class="muted" style="font-style:normal">Add your free ESV API key in Settings to see the daily verse text.</span>';
+  return el;
+}
+
+// ---- Check-in strip (Phase 5 · F3, revised Phase 6) — five stat chips, D = today, W = this week ----
+function checkinStrip() {
+  const today = todayKey(), wk = weekStartKey();
+  const dayTs = k => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
+  const ftCount = fromTs => FT.allLogs().filter(l => l.ts >= fromTs).length;
+  const chips = [
+    ['mem', 'Memorize', SC.versesMarked(today, today), SC.versesMarked(wk, today)],
+    ['bible', 'Bible', RP.chaptersRead(today, today), RP.chaptersRead(wk, today)],
+    ['read', 'Reading', RD.pagesBetween(dayTs(today)), RD.pagesBetween(dayTs(wk))],
+    ['creeds', 'Creeds', CR.sectionsMarked(today, today), CR.sectionsMarked(wk, today)],
+    ['fit', 'Fitness', ftCount(dayTs(today)), ftCount(dayTs(wk))]
+  ];
+  const el = h(`<div style="display:flex;gap:6px;margin-bottom:13px">
+    ${chips.map(([k, label, d, w]) => `
+      <div class="chk-chip" data-k="${k}" style="flex:1;min-width:0;cursor:pointer;text-align:center;padding:8px 2px 7px;border:1px solid ${d > 0 ? 'var(--gold)' : 'var(--line)'};border-radius:var(--radius);background:var(--card)">
+        <div style="font-family:var(--serif-display);font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</div>
+        <div style="font-size:12.5px;margin-top:3px;line-height:1.2;font-variant-numeric:tabular-nums;white-space:nowrap">
+          <span class="muted" style="font-size:9.5px">D</span> <b>${d}</b>
+          <span class="muted" style="font-size:9.5px;margin-left:3px">W</span> <b>${w}</b>
+        </div>
+      </div>`).join('')}
+  </div>`).firstElementChild;
+  el.querySelectorAll('.chk-chip').forEach(c => c.onclick = () => {
+    const k = c.dataset.k;
+    if (k === 'mem') { const b = SC.currentBook(); render(b ? () => bookScreen(b) : scriptureHome); }
+    if (k === 'bible') render(plansScreen);
+    if (k === 'read') { const rb = RD.byStatus('reading')[0]; render(rb ? () => bookDetail(rb) : readingHome); }
+    if (k === 'creeds') { const doc = CR.currentDoc(); render(doc ? () => creedDocScreen(doc) : creedsHome); }
+    if (k === 'fit') render(fitnessHome);
+  });
+  return el;
+}
+
+// small brass-ring level radial (Phase 5 · D4) — plain numbers, arc only, never a fill
+function ftRadial(label, level) {
+  const r = 13, c = 2 * Math.PI * r;
+  const pct = level === null ? 0 : Math.min(1, level / 99);
+  return `<div style="text-align:center;flex:1;min-width:0">
+    <svg width="34" height="34" viewBox="0 0 34 34" style="display:block;margin:0 auto">
+      <circle cx="17" cy="17" r="${r}" fill="none" stroke="var(--track)" stroke-width="2.5"/>
+      ${level === null ? '' : `<circle cx="17" cy="17" r="${r}" fill="none" stroke="var(--gold)" stroke-width="2.5"
+        stroke-dasharray="${(pct * c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 17 17)"/>`}
+      <text x="17" y="21" text-anchor="middle" style="font-family:var(--serif-display);font-size:10.5px;font-weight:700;fill:${level === null ? 'var(--text-3)' : 'var(--text)'}">${level === null ? '–' : level}</text>
+    </svg>
+    <div style="font-family:var(--serif-display);font-size:7px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);font-weight:700;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</div>
+  </div>`;
+}
+
 function levelRow(label, cx, color, cs = null) {
   // cs = plain corpus % memorized (review-status-independent) shown at right (Phase 4B)
   const pctTxt = cs ? (cs.pct > 0 && cs.pct < 10 ? cs.pct.toFixed(1) : Math.round(cs.pct)) + '%' : '';
@@ -2284,6 +2544,8 @@ function currentBookSection() {
 
 function dashboard() {
   setHeader('Strive');
+  main().append(dailyVerseCard());
+  main().append(checkinStrip());
   const g = SC.globalStats();
   const xot = SC.corpusXP('ot'), xnt = SC.corpusXP('nt'), xall = SC.corpusXP(null);
   const streak = getStreak();
@@ -2316,6 +2578,7 @@ function dashboard() {
         <div style="text-align:right">
           <div class="big" style="color:var(--gold)">${streak}</div>
           <div class="muted">day streak</div>
+          <div class="muted" style="font-size:11px">${weekDays('sm')} of 7 this week</div>
         </div>
       </div>
       ${levelRow('Old Testament', xot, 'var(--ot)', SC.corpusStats('ot'))}
@@ -2353,8 +2616,9 @@ function dashboard() {
           <div style="width:42px;height:42px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${st.level}</div>
           <div class="grow">
             <div style="font-weight:700;font-size:14px">${esc(d.name)}</div>
-            <div class="muted" style="font-size:12px">${tr === 'memorize' ? 'memorizing' : tr === 'read' ? 'reading' : ''} · ${st.done}/${st.total} ${d.group === 'catechisms' ? 'Q&As' : 'sections'}</div>
+            <div class="muted" style="font-size:12px">${tr === 'memorize' ? 'memorizing' : tr === 'read' ? 'reading' : ''} · ${st.done}/${st.total} ${d.group === 'catechisms' ? 'Q&As' : 'sections'} · ${st.pct}%</div>
             <div class="progressbar" style="margin-top:5px"><div style="width:${st.pct}%"></div></div>
+            <div class="muted" style="font-size:11px;margin-top:4px">${getStreak('cr')} day streak · ${weekDays('cr')} of 7 this week</div>
           </div>
           <span class="chev">›</span>
         </div>`;
@@ -2362,9 +2626,19 @@ function dashboard() {
     </div>
     <div class="card" id="d-reading" style="cursor:pointer">
       <h3>Reading</h3>
+      <div class="row" style="margin-bottom:10px">
+        <div class="grow muted" style="font-size:12px">${(() => {
+          const dayTs = k => { const [y, m, dd] = k.split('-').map(Number); return new Date(y, m - 1, dd).getTime(); };
+          return RD.pagesBetween(dayTs(todayKey())) + ' pages today · ' + RD.pagesBetween(dayTs(weekStartKey())) + ' this week';
+        })()}</div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-weight:700;color:var(--gold);font-size:14px">${getStreak('rd')}</div>
+          <div class="muted" style="font-size:10px">day streak</div>
+        </div>
+      </div>
       ${rdReading.length ? rdReading.map(b => {
         const est = RD.estimate(b);
-        return `<div style="margin-bottom:10px">
+        return `<div class="d-read-row" data-bid="${b.id}" style="margin-bottom:10px">
           <div class="row"><div class="grow" style="font-weight:700;font-size:14px">${esc(b.title)}</div>
           <div style="font-weight:700;color:var(--accent)">${RD.pct(b)}%</div></div>
           <div class="muted" style="font-size:12px">p. ${b.currentPage || 0} of ${b.pages || '?'}${est ? ' · ~' + est.days + ' days left (' + est.finish.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ')' : ''}</div>
@@ -2383,26 +2657,48 @@ function dashboard() {
         const fs = FT.ftStats();
         const lw = FT.latestWeight();
         const lastW = fs.lastLog ? FT.getWorkout(fs.lastLog.wid) : null;
+        const now = new Date();
+        const thisMonth = FT.allLogs().filter(l => { const d2 = new Date(l.ts); return d2.getFullYear() === now.getFullYear() && d2.getMonth() === now.getMonth(); }).length;
+        const asm = FT.assessment().live;
         return `<div class="row">
           <div class="grow">
             ${lastW ? `<div style="font-weight:700;font-size:14px">${esc(lastW.name)}</div>
             <div class="muted" style="font-size:12px">${esc(fs.lastLog.result)} · ${new Date(fs.lastLog.ts).toLocaleDateString()}</div>` : '<div class="muted">No workouts logged yet.</div>'}
           </div>
           <div style="text-align:right;flex-shrink:0">
+            ${asm.overall !== null ? `<div style="font-family:var(--serif-display);font-weight:700;font-size:15px">${asm.overall}</div><div class="muted" style="font-size:10px">level</div>` : ''}
+          </div>
+          <div style="text-align:right;flex-shrink:0">
             ${lw ? `<div style="font-weight:700">${lw.lbs} lbs</div><div class="muted" style="font-size:11px">weight</div>` : ''}
           </div>
           <span class="chev">›</span>
         </div>
-        <div class="muted" style="font-size:12px;margin-top:6px">${fs.totalLogs} logged · ${fs.totalWorkouts} workouts in database · ${fs.thisYear} this year</div>`;
+        <div style="display:flex;gap:2px;margin-top:10px">${FT.ASSESS_DOMAINS.map(([dk2, dl]) => {
+          const dom = asm.domains[dk2];
+          return ftRadial(dl, dom && dom.unlocked ? dom.level : null);
+        }).join('')}</div>
+        <div class="muted" style="font-size:12px;margin-top:8px">${fs.totalLogs} logged · ${thisMonth} this month · ${fs.thisYear} this year</div>`;
       })()}
     </div>
+    <div class="card" id="d-trends" style="cursor:pointer">
+      <div class="row"><h3 style="border:none;margin:0;padding:0">Trends</h3>
+      <div class="grow muted" style="font-size:12px;text-align:right;margin-right:4px">8 weeks · week over week</div>
+      <span class="chev">›</span></div>
+    </div>
   `));
+  main().querySelector('#d-trends').onclick = () => render(trendsScreen);
   main().querySelector('#d-fitness').onclick = () => render(fitnessHome);
   main().querySelector('#d-creeds').onclick = () => {
     const d = CR.currentDoc();
     if (d) render(() => creedDocScreen(d)); else render(creedsHome);
   };
   main().querySelector('#d-reading').onclick = () => render(readingHome);
+  // Phase 6 bug fix — a currently-reading row opens that book's detail, not the general tab
+  main().querySelectorAll('.d-read-row').forEach(r => r.onclick = e => {
+    e.stopPropagation();
+    const b = RD.get(r.dataset.bid);
+    if (b) render(() => bookDetail(b));
+  });
   main().querySelector('#d-pathways').onclick = () => render(pathwaysHome);
   main().querySelector('#d-plans').onclick = () => render(plansScreen);
   const dcur = main().querySelector('#d-current');   // absent when no projects (SM2)
@@ -2419,6 +2715,70 @@ function dashboard() {
   }
 }
 
+// ---------- Trends (Phase 5 · F5) ----------
+function trendsScreen() {
+  setHeader('Trends', { back: true });
+  const wrap = document.createElement('div');
+
+  if (!Object.keys(state.activity).length) {
+    wrap.append(h(`<div class="empty">Nothing logged yet — trends appear once you start recording reviews, pages, practice, or workouts.</div>`));
+    main().append(wrap);
+    return;
+  }
+
+  const thisWk = weekStartKey();
+  const dayTs = k => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
+
+  // ---- 8-week activity: days active per domain per week ----
+  wrap.append(sectionTitle('Active days — last 8 weeks'));
+  const weeks = Array.from({ length: 8 }, (_, i) => addDaysKey(thisWk, -7 * (7 - i)));   // oldest → this week
+  const doms = [['sm', 'Scripture'], ['rd', 'Reading'], ['cr', 'Creeds'], ['ft', 'Fitness']];
+  const actCard = document.createElement('div');
+  actCard.className = 'card';
+  doms.forEach(([d, label]) => {
+    const counts = weeks.map(wk => {
+      const end = wk === thisWk ? todayKey() : addDaysKey(wk, 6);
+      return activityDays(d, wk, end);
+    });
+    actCard.append(h(`<div class="row" style="margin-bottom:9px">
+      <div style="width:74px;font-family:var(--serif-display);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-2)">${label}</div>
+      <div class="grow" style="display:flex;gap:4px;align-items:flex-end;height:26px">
+        ${counts.map((n, i) => `<div style="flex:1;background:${i === 7 ? 'var(--gold)' : 'var(--track)'};height:${n ? Math.max(3, Math.round(n / 7 * 26)) : 1}px" title="${n} day${n === 1 ? '' : 's'}"></div>`).join('')}
+      </div>
+      <div style="width:34px;text-align:right;font-weight:700;font-size:13px;font-variant-numeric:tabular-nums">${counts[7]}<span class="muted" style="font-weight:400">/7</span></div>
+    </div>`));
+  });
+  actCard.append(h(`<div class="muted" style="font-size:11px">Bars show days active per week (Sun–Sat) · brass = this week.</div>`));
+  wrap.append(actCard);
+
+  // ---- week over week ----
+  wrap.append(sectionTitle('This week vs last'));
+  const t0 = dayTs(thisWk), tPrev = dayTs(addDaysKey(thisWk, -7));
+  const rvNow = SC.reviewSecsBetween(t0), rvPrev = SC.reviewSecsBetween(tPrev, t0 - 1);
+  const pgNow = RD.pagesBetween(t0), pgPrev = RD.pagesBetween(tPrev, t0 - 1);
+  const prNow = CR.practiceCountBetween(t0), prPrev = CR.practiceCountBetween(tPrev, t0 - 1);
+  const ftNow = FT.allLogs().filter(l => l.ts >= t0).length;
+  const ftPrev = FT.allLogs().filter(l => l.ts >= tPrev && l.ts < t0).length;
+  const delta = (a, b) => a === b ? '<span class="muted">—</span>'
+    : a > b ? `<span style="color:var(--forest);font-weight:700">+${a - b}</span>`
+    : `<span style="color:var(--danger);font-weight:700">−${b - a}</span>`;
+  const wow = h(`<div class="card">
+    ${[
+      ['Review sessions', rvNow.count, rvPrev.count, rvNow.secs ? SC.fmtSecs(rvNow.secs) + ' this week' : ''],
+      ['Pages read', pgNow, pgPrev, ''],
+      ['Practice attempts', prNow, prPrev, ''],
+      ['Workouts', ftNow, ftPrev, '']
+    ].map(([label, a, b, sub]) => `<div class="row" style="margin-bottom:8px">
+      <div class="grow"><div style="font-weight:600;font-size:14px">${label}</div>${sub ? `<div class="muted" style="font-size:11px">${sub}</div>` : ''}</div>
+      <div style="text-align:right"><span style="font-weight:700;font-size:15px;font-variant-numeric:tabular-nums">${a}</span>
+      <span class="muted" style="font-size:12px"> vs ${b}</span> ${delta(a, b)}</div>
+    </div>`).join('')}
+    <div class="muted" style="font-size:11px">Weeks run Sunday–Saturday · this week is still in progress.</div>
+  </div>`);
+  wrap.append(wow);
+
+  main().append(wrap);
+}
 // ---------- Today ----------
 function today() {
   setHeader('Today · ' + PL.fmtDate(todayKey()), { action: { label: 'Planner', fn: () => switchTab('plan') } });
@@ -3515,8 +3875,12 @@ function renderTimes(container) {
 }
 
 // ---------- Reading ----------
-let rdMode = 'reading';
-const RD_MODES = [['reading', 'Reading'], ['upnext', 'Up Next'], ['library', 'Library'], ['finished', 'Finished']];
+let rdSort = 'status';   // Phase 6 (R4/R5): one list, every book, sortable
+const RD_SORTS = [['status', 'Status'], ['title', 'Title'], ['author', 'Author'], ['category', 'Category']];
+const RD_BADGE = {
+  reading: ['READING', 'var(--accent)'], upnext: ['UP NEXT', 'var(--midnight)'],
+  library: ['LIBRARY', 'var(--text-3)'], finished: ['FINISHED', 'var(--forest)']
+};
 
 function readingHome() {
   setHeader('Reading', { back: true });
@@ -3531,25 +3895,36 @@ function readingHome() {
       <div class="progressbar" style="margin-top:8px"><div style="width:${lib.level}%"></div></div>
     </div>`));
 
-  const pills = h(`<div class="pillrow">${RD_MODES.map(([m, l]) =>
-    `<button class="pill ${rdMode === m ? 'on' : ''}" data-m="${m}">${l}${m === 'upnext' ? ' (' + RD.byStatus('upnext').length + '/' + RD.QUEUE_CAP + ')' : ''}</button>`).join('')}</div>`);
-  pills.querySelectorAll('.pill').forEach(b => b.onclick = () => { rdMode = b.dataset.m; rerender(); });
+  const research = h(`<div class="list-item" style="margin-bottom:12px"><div class="grow">
+    <div class="title" style="font-size:14px">Research</div>
+    <div class="sub">Search quotes &amp; questions across every book by tag or text.</div></div><span class="chev">›</span></div>`);
+  research.querySelector('.list-item').onclick = () => render(researchScreen);
+  wrap.append(research);
+
+  const pills = h(`<div class="pillrow">${RD_SORTS.map(([m, l]) =>
+    `<button class="pill ${rdSort === m ? 'on' : ''}" data-m="${m}">${l}</button>`).join('')}</div>`);
+  pills.querySelectorAll('.pill').forEach(b => b.onclick = () => { rdSort = b.dataset.m; rerender(); });
   wrap.append(pills);
 
-  const list = RD.byStatus(rdMode);
-  list.forEach((b, i) => {
+  const list = RD.allSorted(rdSort);
+  const upnextOrder = RD.byStatus('upnext');
+  list.forEach(b => {
     const est = RD.estimate(b);
+    const [bl, bc] = RD_BADGE[b.status] || RD_BADGE.library;
+    const qPos = b.status === 'upnext' ? upnextOrder.indexOf(b) + 1 : 0;
+    const showQueue = rdSort === 'status' && b.status === 'upnext';
     const el = h(`
       <div class="list-item">
-        ${rdMode === 'upnext' ? `<div style="display:flex;flex-direction:column;gap:2px">
+        ${showQueue ? `<div style="display:flex;flex-direction:column;gap:2px">
           <button data-a="up" style="border:1px solid var(--line);background:var(--card);border-radius:3px;font-size:11px;padding:2px 7px;cursor:pointer;color:var(--text)">▲</button>
           <button data-a="down" style="border:1px solid var(--line);background:var(--card);border-radius:3px;font-size:11px;padding:2px 7px;cursor:pointer;color:var(--text)">▼</button>
         </div>` : ''}
         <div class="grow">
-          <div class="title">${rdMode === 'upnext' ? (i + 1) + '. ' : ''}${esc(b.title)}</div>
-          <div class="sub">${esc(b.author || '')}${b.pages ? (b.author ? ' · ' : '') + b.pages + ' pages' : ''}${rdMode === 'reading' ? ' · p. ' + (b.currentPage || 0) + ' · ' + RD.pct(b) + '%' + (est ? ' · ~' + est.days + 'd left' : '') : ''}${rdMode === 'finished' && b.finishedTs ? ' · finished ' + new Date(b.finishedTs).toLocaleDateString() : ''}</div>
-          ${rdMode === 'reading' ? `<div class="progressbar" style="margin-top:6px"><div style="width:${RD.pct(b)}%"></div></div>` : ''}
+          <div class="title">${esc(b.title)}</div>
+          <div class="sub">${esc(b.author || '')}${b.category ? (b.author ? ' · ' : '') + esc(b.category) : ''}${b.pages ? ((b.author || b.category) ? ' · ' : '') + b.pages + ' pages' : ''}${b.status === 'reading' ? ' · ' + RD.pct(b) + '%' + (est ? ' · ~' + est.days + 'd left' : '') : ''}${b.status === 'finished' && b.finishedTs ? ' · ' + new Date(b.finishedTs).toLocaleDateString() : ''}</div>
+          ${b.status === 'reading' ? `<div class="progressbar" style="margin-top:6px"><div style="width:${RD.pct(b)}%"></div></div>` : ''}
         </div>
+        <span class="badge" style="background:${bc}">${bl}${qPos ? ' ' + qPos : ''}</span>
         <span class="chev">›</span>
       </div>`);
     el.querySelector('.list-item').onclick = () => render(() => bookDetail(b));
@@ -3558,12 +3933,7 @@ function readingHome() {
     if (down) down.onclick = e => { e.stopPropagation(); RD.moveInQueue(b, 1); rerender(); };
     wrap.append(el);
   });
-  if (!list.length) wrap.append(h(`<div class="empty">${{
-    reading: 'Nothing being read. Promote a book from Up Next.',
-    upnext: 'Queue is empty — promote up to ' + RD.QUEUE_CAP + ' books from the Library.',
-    library: 'No books yet. Add everything you want to read — the Library is unlimited.',
-    finished: 'Nothing finished yet.'
-  }[rdMode]}</div>`));
+  if (!list.length) wrap.append(h(`<div class="empty">No books yet. Add everything you want to read — the Library is unlimited.</div>`));
 
   const addCard = h(`
     <div class="card" style="margin-top:14px"><h3>Add a book</h3>
@@ -3573,16 +3943,21 @@ function readingHome() {
         <input data-a="pages" placeholder="Pages" inputmode="numeric" style="width:70px;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
         <input data-a="chapters" placeholder="Ch." inputmode="numeric" style="width:56px;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
       </div>
+      <input data-a="cat" list="rd-cats" placeholder="Category (type to create or pick)" style="width:100%;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;margin-bottom:8px">
+      <datalist id="rd-cats">${(state.reading.categories || []).map(c => `<option value="${esc(c)}">`).join('')}</datalist>
       <button class="btn" data-a="add">Add to Library</button>
     </div>`).firstElementChild;
   addCard.querySelector('[data-a=add]').onclick = () => {
     const title = addCard.querySelector('[data-a=title]').value.trim();
     if (!title) { toast('Give the book a title'); return; }
+    const cat = addCard.querySelector('[data-a=cat]').value.trim();
+    if (cat) RD.addCategory(cat);
     RD.addBook({
       title,
       author: addCard.querySelector('[data-a=author]').value,
       pages: addCard.querySelector('[data-a=pages]').value,
-      chapters: addCard.querySelector('[data-a=chapters]').value
+      chapters: addCard.querySelector('[data-a=chapters]').value,
+      category: cat || null
     });
     toast('Added to Library');
     rerender();
@@ -3615,6 +3990,32 @@ function bookDetail(b) {
   const chBtn = h(`<button class="btn secondary" style="margin-bottom:4px">${b.chapterList && b.chapterList.length ? '📑 Edit chapters (' + b.chapterList.length + ')' : '📷 Scan TOC / add chapter milestones'}</button>`);
   chBtn.firstChild.onclick = () => render(() => chapterEditor(b));
   wrap.append(chBtn);
+
+  // Phase 6 — category (R5) + front matter (R1)
+  const FIN2 = 'padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px';
+  const det = h(`<div class="card"><h3>Details</h3>
+    <div class="row" style="margin-bottom:8px">
+      <span class="muted" style="width:74px;font-size:13px">Category</span>
+      <input data-a="cat" list="rd-cats-d" value="${esc(b.category || '')}" placeholder="type to create or pick" style="flex:1;min-width:0;${FIN2}">
+      <datalist id="rd-cats-d">${(state.reading.categories || []).map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+    </div>
+    <div class="row">
+      <span class="muted" style="width:74px;font-size:13px">Preface</span>
+      <input data-a="pr" value="${b.prefaceRead || ''}" placeholder="read" inputmode="numeric" style="width:64px;${FIN2};text-align:center">
+      <span class="muted" style="font-size:13px">of</span>
+      <input data-a="pp" value="${b.prefacePages || ''}" placeholder="pages" inputmode="numeric" style="width:64px;${FIN2};text-align:center">
+      <div class="grow muted" style="font-size:11px">roman-numeral pages — count toward %</div>
+    </div>
+    <button class="btn secondary" data-a="save" style="margin-top:10px">Save details</button>
+  </div>`).firstElementChild;
+  det.querySelector('[data-a=save]').onclick = () => {
+    RD.setBookCategory(b, det.querySelector('[data-a=cat]').value.trim());
+    RD.setPrefacePages(b, det.querySelector('[data-a=pp]').value);
+    RD.logPreface(b, det.querySelector('[data-a=pr]').value);
+    toast('Details saved — ' + RD.pct(b) + '%');
+    rerender();
+  };
+  wrap.append(det);
 
   // progress logging
   if (b.status === 'reading') {
@@ -3713,45 +4114,65 @@ function chapterEditor(b, initialRows = null) {
 
   wrap.append(h(`<div class="muted" style="margin:2px 4px 10px">Chapter titles and the page each starts on. These become the book's milestones — edit freely.</div>`));
 
+  // R3 — multi-image scan: photograph pages one at a time, or choose several photos at once.
+  // Results append to whatever is already in the editor, so long TOCs build up across pages.
   const scan = h(`
     <div class="card"><h3>Scan a table of contents</h3>
-      <input data-a="file" type="file" accept="image/*" capture="environment" style="display:none">
-      <button class="btn secondary" data-a="scan">📷 Photograph / choose TOC image</button>
-      <div class="muted" data-a="status" style="font-size:12px;margin-top:6px"></div>
+      <input data-a="cam" type="file" accept="image/*" capture="environment" style="display:none">
+      <input data-a="files" type="file" accept="image/*" multiple style="display:none">
+      <div class="row">
+        <button class="btn secondary" data-a="shoot" style="flex:1;margin-top:0">📷 Photograph a page</button>
+        <button class="btn secondary" data-a="pick" style="flex:1;margin-top:0">🖼 Choose photos</button>
+      </div>
+      <div class="muted" data-a="status" style="font-size:12px;margin-top:6px">Multi-page TOC? Scan page after page — new chapters are added below the ones already found.</div>
     </div>`).firstElementChild;
-  const fileInp = scan.querySelector('[data-a=file]');
+  const camInp = scan.querySelector('[data-a=cam]');
+  const filesInp = scan.querySelector('[data-a=files]');
   const status = scan.querySelector('[data-a=status]');
-  scan.querySelector('[data-a=scan]').onclick = () => fileInp.click();
-  fileInp.onchange = async (e) => {
-    const f = e.target.files[0];
-    if (!f) return;
+  scan.querySelector('[data-a=shoot]').onclick = () => camInp.click();
+  scan.querySelector('[data-a=pick]').onclick = () => filesInp.click();
+  const runOcr = async files => {
+    if (!files.length) return;
     status.textContent = 'Loading OCR engine…';
     try {
       const T = await loadTesseract();
-      status.textContent = 'Reading the page… (this takes a moment)';
-      const r = await T.recognize(f, 'eng', { logger: m => { if (m.status === 'recognizing text') status.textContent = 'Reading… ' + Math.round(m.progress * 100) + '%'; } });
-      const found = parseTocText(r.data.text);
-      if (!found.length) { status.textContent = 'Couldn\'t find "title … page" lines — try a straighter, closer photo, or enter manually below.'; return; }
-      status.textContent = 'Found ' + found.length + ' chapters — review below.';
-      render(() => chapterEditor(b, found), false);
+      const found = [];
+      for (let i = 0; i < files.length; i++) {
+        const tag = files.length > 1 ? 'Image ' + (i + 1) + ' of ' + files.length + ' — ' : '';
+        status.textContent = tag + 'reading…';
+        const r = await T.recognize(files[i], 'eng', { logger: m => { if (m.status === 'recognizing text') status.textContent = tag + 'reading… ' + Math.round(m.progress * 100) + '%'; } });
+        found.push(...parseTocText(r.data.text));
+      }
+      if (!found.length) { status.textContent = 'Couldn\'t find "title … page" lines — try straighter, closer photos, or enter manually below.'; return; }
+      const kept = rows.filter(r => String(r.title).trim() || r.page);
+      status.textContent = 'Found ' + found.length + ' rows — review below.';
+      render(() => chapterEditor(b, [...kept, ...found]), false);
     } catch (err) {
       status.textContent = 'OCR unavailable (offline?). Enter chapters manually below.';
     }
-    e.target.value = '';
   };
+  camInp.onchange = e => { runOcr([...e.target.files]); e.target.value = ''; };
+  filesInp.onchange = e => { runOcr([...e.target.files]); e.target.value = ''; };
   wrap.append(scan);
 
   const list = document.createElement('div');
+  const ROLE_LABEL = { chapter: 'Ch', intro: 'Intro', conclusion: 'Concl' };
+  const nextRole = r => r === 'chapter' ? 'intro' : r === 'intro' ? 'conclusion' : 'chapter';
   function drawRows() {
     list.innerHTML = '';
+    let num = 0;
     rows.forEach((r, i) => {
+      if (!r.role) r.role = 'chapter';
+      if (r.role === 'chapter') num++;
       const row = h(`
         <div class="row" style="margin-bottom:8px">
-          <span class="muted" style="width:22px;text-align:right;font-size:12px">${i + 1}</span>
-          <input data-a="t" value="${esc(r.title)}" placeholder="Chapter title" style="flex:1;min-width:0;${FIN}">
+          <span class="muted" style="width:22px;text-align:right;font-size:12px">${r.role === 'chapter' ? num : '–'}</span>
+          <button data-a="r" title="chapter / intro / conclusion — intro & conclusion carry no number" style="width:46px;border:1px solid ${r.role === 'chapter' ? 'var(--line)' : 'var(--gold)'};background:var(--card);border-radius:3px;font-size:10px;padding:9px 2px;cursor:pointer;color:${r.role === 'chapter' ? 'var(--text-2)' : 'var(--gold)'};font-family:var(--serif-display);font-weight:700">${ROLE_LABEL[r.role]}</button>
+          <input data-a="t" value="${esc(r.title)}" placeholder="${r.role === 'chapter' ? 'Chapter title' : r.role === 'intro' ? 'Introduction' : 'Conclusion'}" style="flex:1;min-width:0;${FIN}">
           <input data-a="p" value="${esc(r.page || '')}" placeholder="Pg" inputmode="numeric" style="width:62px;${FIN};text-align:center">
           <button data-a="x" style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button>
         </div>`).firstElementChild;
+      row.querySelector('[data-a=r]').onclick = () => { r.role = nextRole(r.role); drawRows(); };
       row.querySelector('[data-a=t]').oninput = e => r.title = e.target.value;
       row.querySelector('[data-a=p]').oninput = e => r.page = e.target.value;
       row.querySelector('[data-a=x]').onclick = () => { rows.splice(i, 1); drawRows(); };
@@ -3809,11 +4230,27 @@ function renderSummaries(body, b) {
   }
 }
 
+// R7 — tag chips + comma-separated tag input backed by the managed tag list
+function tagChips(tags) {
+  if (!tags || !tags.length) return '';
+  return `<div style="margin-top:6px">${tags.map(t => `<span style="display:inline-block;border:1px solid var(--gold);color:var(--gold);border-radius:999px;font-size:10.5px;font-weight:700;padding:2px 9px;margin:0 4px 4px 0">${esc(t)}</span>`).join('')}</div>`;
+}
+function parseTagInput(v) {
+  const tags = String(v || '').split(',').map(x => x.trim()).filter(Boolean);
+  tags.forEach(t => RD.addTag(t));
+  return tags;
+}
+function tagInputRow(id) {
+  return `<input data-a="tags" list="${id}" placeholder="Tags — comma-separated (e.g. prayer, providence)" autocapitalize="off" style="width:100%;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:13px;margin-bottom:8px">
+    <datalist id="${id}">${(state.reading.tags || []).map(t => `<option value="${esc(t)}">`).join('')}</datalist>`;
+}
+
 function renderQuotes(body, b) {
   b.quotes.forEach(q => {
     const row = h(`
       <div class="card" style="padding:12px 14px;margin-bottom:8px">
         <div style="font-size:14px;line-height:1.5">“${esc(q.text)}”</div>
+        ${tagChips(q.tags)}
         <div class="row" style="margin-top:6px">
           <div class="grow muted" style="font-size:12px">${q.ch ? 'ch. ' + esc(q.ch) : ''}${q.page ? (q.ch ? ' · ' : '') + 'p. ' + esc(q.page) : ''}</div>
           <button style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button>
@@ -3826,6 +4263,7 @@ function renderQuotes(body, b) {
   const add = h(`
     <div class="card"><h3>Add quote</h3>
       <textarea data-a="text" rows="3" placeholder="The quote…" style="width:100%;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;font-family:inherit;margin-bottom:8px;resize:vertical"></textarea>
+      ${tagInputRow('rd-tags-q')}
       <div class="row">
         <input data-a="ch" placeholder="Ch." inputmode="numeric" style="width:60px;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
         <input data-a="page" placeholder="Page" inputmode="numeric" style="width:70px;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
@@ -3835,7 +4273,7 @@ function renderQuotes(body, b) {
   add.querySelector('[data-a=add]').onclick = () => {
     const text = add.querySelector('[data-a=text]').value.trim();
     if (!text) { toast('Write the quote first'); return; }
-    RD.addQuote(b, { ch: add.querySelector('[data-a=ch]').value.trim(), page: add.querySelector('[data-a=page]').value.trim(), text });
+    RD.addQuote(b, { ch: add.querySelector('[data-a=ch]').value.trim(), page: add.querySelector('[data-a=page]').value.trim(), text, tags: parseTagInput(add.querySelector('[data-a=tags]').value) });
     rerender();
   };
   body.append(add);
@@ -3846,6 +4284,7 @@ function renderQuestions(body, b) {
     const row = h(`
       <div class="card" style="padding:12px 14px;margin-bottom:8px">
         <div style="font-size:14px;line-height:1.5">${esc(q.text)}</div>
+        ${tagChips(q.tags)}
         <div class="row" style="margin-top:6px">
           <div class="grow muted" style="font-size:12px">${q.ch ? 'ch. ' + esc(q.ch) : ''}</div>
           <button style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button>
@@ -3858,6 +4297,7 @@ function renderQuestions(body, b) {
   const add = h(`
     <div class="card"><h3>Add question</h3>
       <textarea data-a="text" rows="3" placeholder="The question…" style="width:100%;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;font-family:inherit;margin-bottom:8px;resize:vertical"></textarea>
+      ${tagInputRow('rd-tags-qs')}
       <div class="row">
         <input data-a="ch" placeholder="Ch." inputmode="numeric" style="width:60px;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
         <button class="pill on" data-a="add" style="flex:1;padding:10px">Add question</button>
@@ -3866,10 +4306,65 @@ function renderQuestions(body, b) {
   add.querySelector('[data-a=add]').onclick = () => {
     const text = add.querySelector('[data-a=text]').value.trim();
     if (!text) { toast('Write the question first'); return; }
-    RD.addQuestion(b, { ch: add.querySelector('[data-a=ch]').value.trim(), text });
+    RD.addQuestion(b, { ch: add.querySelector('[data-a=ch]').value.trim(), text, tags: parseTagInput(add.querySelector('[data-a=tags]').value) });
     rerender();
   };
   body.append(add);
+}
+
+// ---------- Research (Phase 6 · R7) — search quotes & questions across all books ----------
+let researchSel = {};   // tag → true
+let researchText = '';
+function researchScreen() {
+  setHeader('Research', { back: true });
+  const wrap = document.createElement('div');
+  const tags = state.reading.tags || [];
+
+  const search = h(`<input data-a="q" value="${esc(researchText)}" placeholder="Search text…" style="width:100%;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:15px;margin-bottom:10px">`).firstElementChild;
+  search.oninput = e => { researchText = e.target.value; drawResults(); };
+  wrap.append(search);
+
+  if (tags.length) {
+    const pillrow = document.createElement('div');
+    pillrow.className = 'pillrow';
+    tags.forEach(t => {
+      const p = h(`<button class="pill ${researchSel[t] ? 'on' : ''}">${esc(t)}</button>`).firstElementChild;
+      p.onclick = () => { researchSel[t] = !researchSel[t]; p.classList.toggle('on'); drawResults(); };
+      pillrow.append(p);
+    });
+    wrap.append(pillrow);
+  } else {
+    wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 10px">No tags yet — add tags to quotes and questions and they become filters here.</div>`));
+  }
+
+  const results = document.createElement('div');
+  function drawResults() {
+    results.innerHTML = '';
+    const want = Object.keys(researchSel).filter(t => researchSel[t]);
+    const txt = researchText.trim().toLowerCase();
+    const items = [];
+    RD.books().forEach(b => {
+      (b.quotes || []).forEach(q => items.push({ kind: 'Quote', b, x: q }));
+      (b.questions || []).forEach(q => items.push({ kind: 'Question', b, x: q }));
+    });
+    const hit = items.filter(({ x }) =>
+      want.every(t => (x.tags || []).includes(t)) &&
+      (!txt || String(x.text).toLowerCase().includes(txt)));
+    hit.sort((a, c) => (c.x.ts || 0) - (a.x.ts || 0));
+    hit.forEach(({ kind, b, x }) => {
+      const row = h(`<div class="card" style="padding:12px 14px;margin-bottom:8px;cursor:pointer">
+        <div style="font-size:14px;line-height:1.5">${kind === 'Quote' ? '“' + esc(x.text) + '”' : esc(x.text)}</div>
+        ${tagChips(x.tags)}
+        <div class="muted" style="font-size:12px;margin-top:6px">${kind} · ${esc(b.title)}${x.ch ? ' · ch. ' + esc(x.ch) : ''}${x.page ? ' · p. ' + esc(x.page) : ''}</div>
+      </div>`).firstElementChild;
+      row.onclick = () => render(() => bookDetail(b));
+      results.append(row);
+    });
+    if (!hit.length) results.append(h(`<div class="empty">${items.length ? 'Nothing matches those filters.' : 'No quotes or questions saved yet — add them from any book\'s Notes.'}</div>`));
+  }
+  drawResults();
+  wrap.append(results);
+  main().append(wrap);
 }
 
 // ---------- Bible reading plans ----------
@@ -5388,6 +5883,25 @@ function settings() {
     catch (e) { esvStatus.textContent = e.message === 'bad-key' ? '✗ Key rejected — double-check it at api.esv.org' : '✗ Could not verify (offline?) — key saved anyway'; }
   };
   wrap.append(esvC);
+
+  // Phase 5 — daily verse rotation editor
+  const dvC = h(`<div class="card"><h3>Daily verse rotation</h3>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">One reference per line — "Hebrews 4:11" or "Romans 12:1-2" (one chapter per entry). The dashboard shows one of these each day, in order, using ESV text.</div>
+    <textarea id="s-dv" rows="7" autocapitalize="off" autocorrect="off" style="width:100%;padding:11px;border:1px solid var(--line);border-radius:3px;background:var(--bg);color:var(--text);font-size:14px;font-family:var(--serif-body)">${esc(dailyVerseList().join('\n'))}</textarea>
+    <button class="btn secondary" id="s-dv-save">Save list</button>
+    <div class="muted" id="s-dv-status" style="font-size:12px;margin-top:6px">${dailyVerseList().length} verses in rotation</div>
+  </div>`).firstElementChild;
+  dvC.querySelector('#s-dv-save').onclick = () => {
+    const status = dvC.querySelector('#s-dv-status');
+    const lines = dvC.querySelector('#s-dv').value.split('\n').map(x => x.trim()).filter(Boolean);
+    if (!lines.length) { status.textContent = '✗ List cannot be empty — keep at least one verse.'; return; }
+    const bad = lines.filter(x => !parseVerseRef(x));
+    if (bad.length) { status.textContent = '✗ Not recognized: ' + bad.join(' · '); return; }
+    state.settings.dailyVerses = lines;
+    save();
+    status.textContent = '✓ Saved — ' + lines.length + ' verses in rotation';
+  };
+  wrap.append(dvC);
 
   wrap.append(syncCard());
 
