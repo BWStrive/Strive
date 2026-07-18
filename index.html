@@ -810,6 +810,39 @@ function parseDuration(str) {
   return null;
 }
 
+// ---- review scopes (SM1) ----
+function scopeLabel(scope) {
+  if (!scope) return 'whole book';
+  return scope.kind === 'chapter' ? 'ch ' + scope.ch : 'chs ' + scope.from + '–' + scope.to;
+}
+// '' → whole book · '5' → chapter · '1-7' → range (validated against the book)
+function parseScopeInput(str, book) {
+  const s = String(str || '').trim();
+  if (!s) return { ok: true, scope: null };
+  let m;
+  if (/^\d+$/.test(s)) {
+    const ch = Number(s);
+    return ch >= 1 && ch <= book.chapters ? { ok: true, scope: { kind: 'chapter', ch } } : { ok: false };
+  }
+  if ((m = s.match(/^(\d+)\s*[-–—]\s*(\d+)$/))) {
+    const from = Number(m[1]), to = Number(m[2]);
+    return from >= 1 && to <= book.chapters && from < to ? { ok: true, scope: { kind: 'range', from, to } } : { ok: false };
+  }
+  return { ok: false };
+}
+
+// ---- bulk marks & resets (SM3) ----
+function markBookMemorized(book) {
+  const snap = JSON.parse(JSON.stringify(S().progress[book.name] || {}));
+  book.verses.forEach((n, ci) => { for (let v = 1; v <= n; v++) S().progress[book.name][ci + '_' + v] = true; });
+  recordStreakDay();
+  save();
+  return snap;   // caller keeps this for undo
+}
+function restoreBookProgress(book, snap) { S().progress[book.name] = snap || {}; save(); }
+function resetBook(book) { S().progress[book.name] = {}; save(); }
+function resetCorpus(t) { allBooks.filter(b => b.t === t).forEach(b => { S().progress[b.name] = {}; }); save(); }
+
 function reviewHistory(bookName) {
   return [...(S().reviewTimes[bookName] || [])].sort((a, b) => b.ts - a.ts);
 }
@@ -910,7 +943,7 @@ const ABBR = { Genesis: 'Gen', Exodus: 'Ex', Leviticus: 'Lev', Numbers: 'Num', D
 function abbr(name) { return ABBR[name] || name.slice(0, 3); }
 
 
-const SC = {BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookStats,bookXP,chapterStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,logReviewTime,matchBook,memorizedBooks,nextChapter,parseDuration,removeCurrentItem,removeReviewTime,reviewHistory,reviewIntervalDays,setChapter,setCurrentBook,setReviewInterval,toggleVerse,totalVerses,verseDone};
+const SC = {BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookStats,bookXP,chapterStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,parseDuration,parseScopeInput,removeCurrentItem,removeReviewTime,resetBook,resetCorpus,restoreBookProgress,reviewHistory,reviewIntervalDays,scopeLabel,setChapter,setCurrentBook,setReviewInterval,toggleVerse,totalVerses,verseDone};
 // Strive — planner: day/week/month/year items, recurring rules
 
 
@@ -2809,19 +2842,10 @@ function shelfTile(b) {
 function scriptureHome() {
   setHeader('Scripture', { back: true });
   const wrap = document.createElement('div');
-  wrap.append(h(`<div class="pillrow">
-    <button class="pill ${scMode === 'memorize' ? 'on' : ''}" data-m="memorize">Memorize</button>
-    <button class="pill ${scMode === 'plans' ? 'on' : ''}" data-m="plans">Reading Plans</button>
-    <button class="pill ${scMode === 'times' ? 'on' : ''}" data-m="times">Review Tracker</button>
-  </div>`));
-  wrap.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { scMode = b.dataset.m; rerender(); });
-
   const body = document.createElement('div');
   wrap.append(body);
   main().append(wrap);
-
-  if (scMode === 'times') { renderTimes(body); return; }
-  if (scMode === 'plans') { renderPlans(body); return; }
+  // SM6: reading plans live in their own Area; review moved to the Scripture Review Area
 
   // current book hero
   const cur = SC.currentBook();
@@ -2877,6 +2901,22 @@ function scriptureHome() {
     body.append(grid);
   });
   body.append(h(`<div class="muted" style="font-size:11px;margin-top:10px;padding:0 4px">Tile fill = % memorized · solid = complete · red ring = review needed. Tap any book.</div>`));
+
+  // SM3 — corpus resets, deliberately buried at the bottom
+  const rst = h(`<div class="card" style="margin-top:18px"><h3>Reset</h3>
+    <div class="row" style="gap:8px">
+      <button class="pill" data-t="ot" style="color:var(--danger)">Reset Old Testament</button>
+      <button class="pill" data-t="nt" style="color:var(--danger)">Reset New Testament</button>
+    </div></div>`).firstElementChild;
+  rst.querySelectorAll('[data-t]').forEach(btn => btn.onclick = () => {
+    const t = btn.dataset.t, label = t === 'ot' ? 'Old Testament' : 'New Testament';
+    if (!confirm('Erase ALL memorization progress for the ' + label + '? Review history is kept.')) return;
+    if (!confirm('Really erase the ' + label + '? This cannot be undone.')) return;
+    SC.resetCorpus(t);
+    toast(label + ' progress reset');
+    rerender();
+  });
+  body.append(rst);
 }
 
 const INTERVALS = [[0, 'None'], [7, 'Weekly'], [14, '2 weeks'], [30, 'Monthly'], [90, '3 months']];
@@ -2888,8 +2928,7 @@ function bookScreen(b) {
   const stale = SC.isStale(b);
   const last = SC.lastReviewTs(b.name);
   const chaptersDone = b.verses.filter((_, ci) => { const c = SC.chapterStats(b, ci); return c.done === c.total; }).length;
-  const cb = SC.currentBook();
-  const isCurrent = !!cb && cb.name === b.name;
+  const isCurrent = (state.scripture.currentItems || []).some(it => it.book === b.name && it.ch == null);
 
   wrap.append(h(`
     <div class="card" style="${isCurrent ? 'border-color:var(--accent)' : ''}">
@@ -2907,10 +2946,16 @@ function bookScreen(b) {
   timerBtn.firstChild.onclick = () => render(() => reviewTimer(b));
   wrap.append(timerBtn);
 
-  const curBtn = h(`<button class="btn secondary" style="margin-bottom:4px">${isCurrent ? '✓ Current memorization book — tap to clear' : 'Set as current memorization book'}</button>`);
+  const curBtn = h(`<button class="btn secondary" style="margin-bottom:4px">${isCurrent ? '✓ Current memorization project — tap to remove' : 'Set as current memorization project'}</button>`);
   curBtn.firstChild.onclick = () => {
-    SC.setCurrentBook(isCurrent ? null : b.name);
-    toast(isCurrent ? 'Cleared current book' : b.name + ' is now your current book');
+    if (isCurrent) {
+      const it = state.scripture.currentItems.find(x => x.book === b.name && x.ch == null);
+      SC.removeCurrentItem(it.id);
+      toast(b.name + ' removed from current projects');
+    } else {
+      SC.addCurrentItem(b.name, null);   // additive — multiple projects allowed (SM2)
+      toast(b.name + ' is now a current project');
+    }
     render(() => bookScreen(b), false);
   };
   wrap.append(curBtn);
@@ -2944,8 +2989,37 @@ function bookScreen(b) {
   });
   wrap.append(reqCard);
 
+  // SM3 — mark whole book memorized (undoable) + reset
+  const mk = h(`<div class="card" style="margin-top:12px"><h3>Marks &amp; resets</h3>
+    <button class="btn secondary" data-a="markall">${st.pct === 100 ? '✓ Whole book memorized' : 'Mark whole book memorized'}</button>
+    ${bookUndoSnap && bookUndoSnap.book === b.name ? '<button class="btn secondary" data-a="undo" style="color:var(--gold)">Undo mark</button>' : ''}
+    <button class="btn secondary" data-a="reset" style="color:var(--danger)">Reset this book</button>
+  </div>`).firstElementChild;
+  mk.querySelector('[data-a=markall]').onclick = () => {
+    if (st.pct === 100) { toast('Already fully memorized'); return; }
+    bookUndoSnap = { book: b.name, snap: SC.markBookMemorized(b) };
+    toast(b.name + ' marked memorized — Undo available below');
+    render(() => bookScreen(b), false);
+  };
+  const undoBtn = mk.querySelector('[data-a=undo]');
+  if (undoBtn) undoBtn.onclick = () => {
+    SC.restoreBookProgress(b, bookUndoSnap.snap);
+    bookUndoSnap = null;
+    toast('Restored previous progress');
+    render(() => bookScreen(b), false);
+  };
+  mk.querySelector('[data-a=reset]').onclick = () => {
+    if (!confirm('Erase all memorization progress for ' + b.name + '? Review history is kept.')) return;
+    SC.resetBook(b);
+    bookUndoSnap = null;
+    toast(b.name + ' reset');
+    render(() => bookScreen(b), false);
+  };
+  wrap.append(mk);
+
   main().append(wrap);
 }
+let bookUndoSnap = null;   // {book, snap} — survives within the session only
 
 function chapterScreen(b, ci) {
   setHeader(b.name + ' ' + (ci + 1), { back: true });
@@ -2955,6 +3029,22 @@ function chapterScreen(b, ci) {
   const toggleAll = h(`<button class="btn ${allDone ? 'secondary' : ''}" style="margin-bottom:12px">${allDone ? 'Unmark all verses' : 'Mark whole chapter memorized'}</button>`);
   toggleAll.firstChild.onclick = () => { SC.setChapter(b, ci, !allDone); render(() => chapterScreen(b, ci), false); };
   wrap.append(toggleAll);
+
+  // SM2 — declare this chapter a standalone memorization item (gets its own review graph)
+  const isItem = (state.scripture.currentItems || []).some(it => it.book === b.name && it.ch === ci + 1);
+  const saBtn = h(`<button class="btn secondary" style="margin-bottom:12px">${isItem ? '✓ Standalone item — tap to remove' : 'Track as standalone memorization item'}</button>`);
+  saBtn.firstChild.onclick = () => {
+    if (isItem) {
+      const it = state.scripture.currentItems.find(x => x.book === b.name && x.ch === ci + 1);
+      SC.removeCurrentItem(it.id);
+      toast('No longer a standalone item');
+    } else {
+      SC.addCurrentItem(b.name, ci + 1);
+      toast(b.name + ' ' + (ci + 1) + ' is now a standalone item');
+    }
+    render(() => chapterScreen(b, ci), false);
+  };
+  wrap.append(saBtn);
 
   const grid = document.createElement('div');
   grid.className = 'grid';
@@ -2992,14 +3082,19 @@ function chapterScreen(b, ci) {
   main().append(wrap);
 }
 
-function reviewTimer(b) {
+function reviewTimer(b, presetScope = null) {
   setHeader('Review · ' + b.name, { back: true });
   let secs = 0, running = true;
   const wrap = h(`
     <div class="card" style="text-align:center;padding:30px 14px">
       <div class="big" id="rt-clock" style="font-size:52px">0:00</div>
-      <div class="muted" style="margin-top:4px">reviewing ${esc(b.name)}</div>
+      <div class="muted" style="margin-top:4px">reviewing ${esc(b.name)}${presetScope ? ' · ' + SC.scopeLabel(presetScope) : ''}</div>
+      ${presetScope ? '' : `<input id="rt-scope" placeholder="chapters — e.g. 5 or 1–7 · empty = whole book" style="width:100%;margin-top:14px;padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">`}
       <button class="btn" id="rt-done" style="margin-top:22px">Finish &amp; log</button>
+      <div class="row" style="margin-top:10px;gap:8px">
+        <input id="rt-manual" placeholder="or enter time — mm:ss" inputmode="numeric" style="flex:1;padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
+        <button class="pill" id="rt-log" style="padding:11px 14px">Log</button>
+      </div>
       <button class="btn secondary" id="rt-cancel">Cancel</button>
     </div>`);
   const el = document.createElement('div'); el.append(wrap);
@@ -3009,11 +3104,23 @@ function reviewTimer(b) {
     const c = el.querySelector('#rt-clock');
     if (c && c.isConnected) c.textContent = SC.fmtSecs(secs); else clearInterval(iv);
   }, 1000);
-  el.querySelector('#rt-done').onclick = () => {
+  const logIt = (theSecs) => {
+    let scope = presetScope;
+    if (!scope) {
+      const sc = SC.parseScopeInput(el.querySelector('#rt-scope') ? el.querySelector('#rt-scope').value : '', b);
+      if (!sc.ok) { toast('Scope must be a chapter (5) or range (1–7) within ' + b.name); return; }
+      scope = sc.scope;
+    }
     clearInterval(iv);
-    SC.logReviewTime(b.name, secs);
-    toast('Review logged — ' + SC.fmtSecs(secs));
+    SC.logReviewTime(b.name, theSecs, { scope });
+    toast('Review logged — ' + SC.fmtSecs(theSecs) + (scope ? ' · ' + SC.scopeLabel(scope) : ''));
     goBack();
+  };
+  el.querySelector('#rt-done').onclick = () => logIt(secs);
+  el.querySelector('#rt-log').onclick = () => {
+    const m = SC.parseDuration(el.querySelector('#rt-manual').value);
+    if (m == null) { toast('Enter a time like 12:34 or 1:05:30'); return; }
+    logIt(m);
   };
   el.querySelector('#rt-cancel').onclick = () => { clearInterval(iv); goBack(); };
   main().append(el);
@@ -3042,7 +3149,43 @@ function timesGraph(entriesAsc) {
   </svg>`;
 }
 
+// multi-line review graph: one line per series, shared time axis, small legend
+const SERIES_COLORS = ['var(--accent)', 'var(--midnight)', 'var(--forest)', 'var(--gold)', 'var(--ember)', 'var(--danger)', '#7a5c8a', '#4a7a8a'];
+function multiGraph(series) {   // [{label, entries}] — entries any order
+  const all = series.flatMap(s => s.entries);
+  if (all.length < 2) return '';
+  const w = 300, hgt = 90, pad = 8;
+  const min = Math.min(...all.map(e => e.secs)), max = Math.max(...all.map(e => e.secs));
+  const t0 = Math.min(...all.map(e => e.ts)), t1 = Math.max(...all.map(e => e.ts));
+  const spanS = (max - min) || 1, spanT = (t1 - t0) || 1;
+  const px = e => pad + (e.ts - t0) * (w - 2 * pad) / spanT;
+  const py = e => hgt - pad - (e.secs - min) * (hgt - 2 * pad) / spanS;
+  let svg = '', legend = '';
+  series.forEach((s, i) => {
+    if (!s.entries.length) return;
+    const col = SERIES_COLORS[i % SERIES_COLORS.length];
+    const asc = [...s.entries].sort((a, c) => a.ts - c.ts);
+    if (asc.length > 1) svg += `<polyline points="${asc.map(e => px(e).toFixed(1) + ',' + py(e).toFixed(1)).join(' ')}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round"/>`;
+    svg += asc.map(e => `<circle cx="${px(e).toFixed(1)}" cy="${py(e).toFixed(1)}" r="3" fill="${col}"/>` +
+      (e.pl ? `<text x="${px(e).toFixed(1)}" y="${(py(e) - 6).toFixed(1)}" font-size="8" text-anchor="middle" fill="var(--text-2)">${e.pl}</text>` : '')).join('');
+    legend += `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text-2)"><span style="width:10px;height:2.5px;background:${col};display:inline-block"></span>${esc(s.label)}</span>`;
+  });
+  return `<svg viewBox="0 0 ${w} ${hgt}" style="width:100%;height:auto;margin-top:10px">
+    ${svg}
+    <text x="${pad}" y="10" font-size="9" fill="var(--text-2)">slowest ${SC.fmtSecs(max)}</text>
+    <text x="${pad}" y="${hgt - 1}" font-size="9" fill="var(--text-2)">fastest ${SC.fmtSecs(min)}</text>
+  </svg>
+  <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px">${legend}</div>`;
+}
+
 let timesOpen = null;   // book name whose entry list is expanded
+
+function reviewArea() {
+  setHeader('Scripture Review', { back: true });
+  const wrap = document.createElement('div');
+  main().append(wrap);
+  renderTimes(wrap);
+}
 
 function renderTimes(container) {
   // manual entry
@@ -3053,6 +3196,7 @@ function renderTimes(container) {
           ${SC.allBooks.map(b => `<option${SC.bookStats(b).done > 0 ? '' : ''}>${esc(b.name)}</option>`).join('')}
         </select>
         <input data-a="date" type="date" value="${todayKey()}" style="padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px">
+        <input data-a="scope" placeholder="chapters — e.g. 5 or 1–7 · empty = whole book" style="flex-basis:100%;padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px">
         <input data-a="dur" placeholder="mm:ss" inputmode="numeric" style="width:76px;padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
         <button class="pill on" data-a="add" style="padding:11px 16px">Add</button>
       </div>
@@ -3062,56 +3206,110 @@ function renderTimes(container) {
     const dateStr = entry.querySelector('[data-a=date]').value;
     const secs = SC.parseDuration(entry.querySelector('[data-a=dur]').value);
     if (secs == null) { toast('Enter a time like 12:34 or 1:05:30'); return; }
+    const bookObj = SC.allBooks.find(x => x.name === book);
+    const sc = SC.parseScopeInput(entry.querySelector('[data-a=scope]').value, bookObj);
+    if (!sc.ok) { toast('Scope must be a chapter (5) or range (1–7) within ' + book); return; }
     const ts = dateStr ? new Date(dateStr + 'T12:00:00').getTime() : Date.now();
-    SC.logReviewTime(book, secs, { ts, note: 'manual' });
-    toast('Logged ' + SC.fmtSecs(secs) + ' for ' + book);
+    SC.logReviewTime(book, secs, { ts, scope: sc.scope });
+    toast('Logged ' + SC.fmtSecs(secs) + ' for ' + book + (sc.scope ? ' · ' + SC.scopeLabel(sc.scope) : ''));
     rerender();
   };
   container.append(entry);
 
-  const withData = SC.allBooks.filter(b => (state.scripture.reviewTimes[b.name] || []).length > 0);
-  if (withData.length === 0) {
-    container.append(h(`<div class="empty">No review times yet.<br>Log one above, use a book's review timer,<br>or time a pathway step.</div>`));
+  // SM1 — entry-driven classification (agreed rules, July 2026):
+  //   whole-book time            → OT/NT corpus graph, one line per book, always
+  //   chapter/range, book is a current project (or any range) → that book's graph, points labeled
+  //   chapter, any other book    → shared Individual Chapters graph, one line per chapter
+  const projectSet = new Set((state.scripture.currentItems || []).filter(it => it.ch == null).map(it => it.book));
+  const shortScope = e => !e.scope ? 'all' : e.scope.kind === 'chapter' ? String(e.scope.ch) : e.scope.from + '–' + e.scope.to;
+
+  const corpus = { ot: {}, nt: {} };   // book → entries (whole-book)
+  const bookGraphs = {};               // book → entries (chapter/range, project books or ranges)
+  const chSeries = {};                 // 'Book N' → entries (chapter, non-project books)
+  SC.allBooks.forEach(b => {
+    SC.reviewHistory(b.name).forEach(e => {
+      const entry = { ...e, book: b.name };
+      if (!e.scope) { (corpus[b.t][b.name] = corpus[b.t][b.name] || []).push(entry); return; }
+      if (projectSet.has(b.name) || e.scope.kind === 'range') {
+        entry.pl = shortScope(e);
+        (bookGraphs[b.name] = bookGraphs[b.name] || []).push(entry);
+        return;
+      }
+      const k = b.name + ' ' + e.scope.ch;
+      (chSeries[k] = chSeries[k] || []).push(entry);
+    });
+  });
+  // project books with no scoped entries yet still deserve their card
+  projectSet.forEach(name => { if (!bookGraphs[name]) bookGraphs[name] = []; });
+
+  if (!Object.keys(corpus.ot).length && !Object.keys(corpus.nt).length && !Object.keys(bookGraphs).length && !Object.keys(chSeries).length) {
+    container.append(h(`<div class="empty">Nothing to review yet.<br>Log one above, use a book's review timer,<br>or time a pathway step.</div>`));
     return;
   }
-  withData.forEach(b => {
-    const entries = SC.reviewHistory(b.name);            // newest first
-    const asc = [...entries].sort((a, c) => a.ts - c.ts); // oldest first for the graph
-    const fastest = entries.reduce((a, c) => c.secs < a.secs ? c : a);
-    const avg = Math.round(entries.reduce((a, c) => a + c.secs, 0) / entries.length);
-    const open = timesOpen === b.name;
+
+  // card: title + stats + supplied graph + expandable log
+  const seriesCard = (key, title, sub, logEntries, graphHtml) => {
+    const fastest = logEntries.length ? logEntries.reduce((a, c) => c.secs < a.secs ? c : a) : null;
+    const avg = logEntries.length ? Math.round(logEntries.reduce((a, c) => a + c.secs, 0) / logEntries.length) : 0;
+    const open = timesOpen === key;
     const card = h(`
       <div class="card">
         <div class="row" data-a="head" style="cursor:pointer">
-          <span class="badge ${b.t}">${b.t.toUpperCase()}</span>
-          <div class="grow"><div class="title" style="font-size:15px;font-weight:600">${esc(b.name)}</div></div>
+          <div class="grow"><div class="title" style="font-size:15px;font-weight:600">${title}</div>
+            <div class="sub" style="font-size:12px;color:var(--text-2)">${sub}</div></div>
           <span class="chev">${open ? '▾' : '▸'}</span>
         </div>
-        <div class="statgrid" style="margin-top:10px">
+        ${logEntries.length ? `<div class="statgrid" style="margin-top:10px">
           <div class="stat"><div class="v">${SC.fmtSecs(fastest.secs)}</div><div class="l">Fastest</div></div>
-          <div class="stat"><div class="v">${SC.fmtSecs(avg)}</div><div class="l">Average · ${entries.length} reviews</div></div>
-        </div>
-        ${timesGraph(asc)}
+          <div class="stat"><div class="v">${SC.fmtSecs(avg)}</div><div class="l">Average · ${logEntries.length} reviews</div></div>
+        </div>` : '<div class="muted" style="margin-top:8px">No reviews logged yet.</div>'}
+        ${graphHtml || ''}
         <div data-a="list"></div>
       </div>`);
-    card.querySelector('[data-a=head]').onclick = () => { timesOpen = open ? null : b.name; rerender(); };
+    card.querySelector('[data-a=head]').onclick = () => { timesOpen = open ? null : key; rerender(); };
     if (open) {
       const list = card.querySelector('[data-a=list]');
-      entries.forEach(e => {
+      [...logEntries].sort((a, c) => c.ts - a.ts).forEach(e => {
         const row = h(`
           <div class="row" style="padding:8px 2px;border-top:1px solid var(--line);margin-top:8px">
-            <div class="grow">
-              <span style="font-weight:700">${SC.fmtSecs(e.secs)}</span>
-              <span class="muted" style="margin-left:8px">${new Date(e.ts).toLocaleDateString()}${e.note && e.note !== 'manual' ? ' · ' + esc(e.note) : ''}</span>
-            </div>
+            <div class="grow"><span style="font-weight:700">${SC.fmtSecs(e.secs)}</span>
+              <span class="muted" style="margin-left:8px">${esc(e.book)} · ${SC.scopeLabel(e.scope)} · ${new Date(e.ts).toLocaleDateString()}</span></div>
             <button style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button>
           </div>`);
-        row.querySelector('button').onclick = () => { SC.removeReviewTime(b.name, e.ts); toast('Entry removed'); rerender(); };
+        row.querySelector('button').onclick = () => { SC.removeReviewTime(e.book, e.ts); toast('Entry removed'); rerender(); };
         list.append(row);
       });
     }
-    container.append(card);
+    return card;
+  };
+
+  // 1 & 2 — corpus graphs
+  [['ot', 'OT', 'Old Testament'], ['nt', 'NT', 'New Testament']].forEach(([t, key, label]) => {
+    const names = Object.keys(corpus[t]).sort();
+    if (!names.length) return;
+    const series = names.map(n => ({ label: n, entries: corpus[t][n] }));
+    const logs = names.flatMap(n => corpus[t][n]);
+    container.append(sectionTitle(label));
+    container.append(seriesCard(key, label, names.length + ' book' + (names.length === 1 ? '' : 's') + ' · one line each · whole-book times', logs, multiGraph(series)));
   });
+
+  // 3 — all individual chapters, one graph
+  const chKeys = Object.keys(chSeries).sort();
+  if (chKeys.length) {
+    const series = chKeys.map(k => ({ label: k, entries: chSeries[k] }));
+    container.append(sectionTitle('Individual chapters'));
+    container.append(seriesCard('CH', 'Individual chapters', chKeys.length + ' chapter' + (chKeys.length === 1 ? '' : 's') + ' · one line each', chKeys.flatMap(k => chSeries[k]), multiGraph(series)));
+  }
+
+  // 4 — one graph per current project book, points labeled by chapters
+  const projNames = Object.keys(bookGraphs).sort();
+  if (projNames.length) {
+    container.append(sectionTitle('Books in progress'));
+    projNames.forEach(name => {
+      const entries = bookGraphs[name];
+      container.append(seriesCard('bk:' + name, name, 'chapter & range reviews · points show chapters', entries, multiGraph([{ label: name, entries }])));
+    });
+  }
 }
 
 // ---------- Reading ----------
@@ -4915,7 +5113,8 @@ function areas() {
   setHeader('Areas');
   const items = [
     ['Pathways', 'Step-by-step accomplishments across every area', () => render(pathwaysHome)],
-    ['Scripture Memorization', 'Tracking · review · practice', () => render(scriptureHome)],
+    ['Scripture Memorization', 'Tracking · practice', () => render(scriptureHome)],
+    ['Scripture Review', 'Times · trends · logs by corpus & chapter', () => render(reviewArea)],
     ['Scripture Reading', 'Bible reading plans · daily portions', () => render(plansScreen)],
     ['Creeds, Catechisms & Confessions', 'All 13 documents · read or memorize', () => render(creedsHome)],
     ['Reading', 'Library · Up Next (5) · notes', () => render(readingHome)],
