@@ -691,6 +691,24 @@ async function esvFetchChapter(book, ch) {
   esvSaveCache();
   return entry;
 }
+// SM5 — combined practice document across chapters. parts: [{ci, verses}].
+// Sections get sequential n (unique across the doc) plus docId/ci/vn pointing at
+// their home chapter, so mastery history is shared with single-chapter practice.
+function bibleMultiDoc(b, parts) {
+  const sections = [];
+  let n = 0;
+  parts.forEach(p => {
+    Object.keys(p.verses).map(Number).sort((x, y) => x - y).forEach(v => {
+      n++;
+      sections.push({
+        n, vn: v, ci: p.ci, docId: 'bible:' + b.name + ':' + (p.ci + 1),
+        label: b.name + ' ' + (p.ci + 1) + ':' + v + ' (ESV)', text: p.verses[v]
+      });
+    });
+  });
+  return { id: 'bible:' + b.name + ':multi', name: b.name + ' (ESV)', group: 'bible', bible: { book: b.name, multi: true }, sections };
+}
+
 // Virtual practice document for a Bible chapter (plugs into the creeds practice engine).
 function bibleDoc(b, ci, verses) {
   return {
@@ -920,6 +938,14 @@ function bookXP(book) {
   return { xp, max: (XP_VERSE + XP_CHAPTER_FACTOR + XP_BOOK_FACTOR) * total, done, total, chaptersDone };
 }
 
+// Plain % memorized for a corpus — ignores review/stale status entirely (Phase 4B).
+function corpusStats(t) {   // 'ot' | 'nt' | null for whole Bible
+  const books = t ? allBooks.filter(b => b.t === t) : allBooks;
+  let done = 0, total = 0;
+  books.forEach(b => { const st = bookStats(b); done += st.done; total += st.total; });
+  return { done, total, pct: total ? done / total * 100 : 0 };
+}
+
 function corpusXP(t) {   // 'ot' | 'nt' | null for whole Bible
   const books = t ? allBooks.filter(b => b.t === t) : allBooks;
   let xp = 0, max = 0;
@@ -943,7 +969,7 @@ const ABBR = { Genesis: 'Gen', Exodus: 'Ex', Leviticus: 'Lev', Numbers: 'Num', D
 function abbr(name) { return ABBR[name] || name.slice(0, 3); }
 
 
-const SC = {BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookStats,bookXP,chapterStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,parseDuration,parseScopeInput,removeCurrentItem,removeReviewTime,resetBook,resetCorpus,restoreBookProgress,reviewHistory,reviewIntervalDays,scopeLabel,setChapter,setCurrentBook,setReviewInterval,toggleVerse,totalVerses,verseDone};
+const SC = {BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookStats,bookXP,chapterStats,corpusStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,parseDuration,parseScopeInput,removeCurrentItem,removeReviewTime,resetBook,resetCorpus,restoreBookProgress,reviewHistory,reviewIntervalDays,scopeLabel,setChapter,setCurrentBook,setReviewInterval,toggleVerse,totalVerses,verseDone};
 // Strive — planner: day/week/month/year items, recurring rules
 
 
@@ -2188,7 +2214,9 @@ function sectionTitle(t) {
 }
 
 // ---------- Dashboard ----------
-function levelRow(label, cx, color) {
+function levelRow(label, cx, color, cs = null) {
+  // cs = plain corpus % memorized (review-status-independent) shown at right (Phase 4B)
+  const pctTxt = cs ? (cs.pct > 0 && cs.pct < 10 ? cs.pct.toFixed(1) : Math.round(cs.pct)) + '%' : '';
   return `
     <div class="row" style="margin-bottom:10px">
       <div style="width:42px;height:42px;border-radius:50%;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${cx.level}</div>
@@ -2197,31 +2225,61 @@ function levelRow(label, cx, color) {
         <div class="muted" style="font-size:12px">${cx.xp.toLocaleString()} / ${cx.max.toLocaleString()} XP${cx.stale.length ? ` · <span style="color:var(--danger)">⚠ ${cx.stale.length} book${cx.stale.length > 1 ? 's' : ''} need review</span>` : ''}</div>
         <div class="progressbar" style="margin-top:5px"><div style="width:${cx.max ? cx.xp / cx.max * 100 : 0}%;background:${color}"></div></div>
       </div>
+      ${cs ? `<div style="text-align:right;flex-shrink:0">
+        <div class="big" style="font-size:19px;color:${color}">${pctTxt}</div>
+        <div class="muted" style="font-size:10px">memorized</div>
+      </div>` : ''}
     </div>`;
 }
 
-function currentBookSection() {
-  const b = SC.currentBook();
-  if (!b) {
-    return `<div id="d-current" style="cursor:pointer;border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
-      <h3 style="margin-bottom:6px">Currently Memorizing</h3>
-      <div class="row"><div class="grow muted" style="font-size:13px">No current book set — choose one in Scripture.</div><span class="chev">›</span></div>
-    </div>`;
+// SM2 — one project: big display · 2+ projects: compact list · 0 projects: section hidden
+function currentItemInfo(it) {
+  const b = allBooks.find(x => x.name === it.book);
+  if (!b) return null;
+  if (it.ch != null) {
+    const c = SC.chapterStats(b, it.ch - 1);
+    return { b, ch: it.ch, label: b.name + ' ' + it.ch, done: c.done, total: c.total, pct: c.total ? Math.round(c.done / c.total * 100) : 0, stale: false };
   }
   const st = SC.bookStats(b);
-  const next = SC.nextChapter(b);
-  const stale = SC.isStale(b);
-  return `<div id="d-current" style="cursor:pointer;border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
-    <h3 style="margin-bottom:8px">Currently Memorizing</h3>
-    <div class="row">
-      <span class="badge ${b.t}">${b.t.toUpperCase()}</span>
-      <div class="grow"><div style="font-size:17px;font-weight:700;">${esc(b.name)}</div>
-        <div class="muted" style="font-size:12px">${st.done}/${st.total} verses · ${next ? 'working on chapter ' + (next.ci + 1) + ' (' + next.done + '/' + next.total + ')' : 'book complete! 🎉'}${stale ? ' · <span style="color:var(--danger)">⚠ review needed</span>' : ''}</div>
+  return { b, ch: null, label: b.name, done: st.done, total: st.total, pct: st.pct, stale: SC.isStale(b) };
+}
+
+function currentBookSection() {
+  const items = SC.currentItems();
+  if (!items.length) return '';   // SM2: no placeholder text
+  if (items.length === 1) {
+    const inf = currentItemInfo(items[0]);
+    if (!inf) return '';
+    const next = inf.ch == null ? SC.nextChapter(inf.b) : null;
+    const sub = inf.ch != null
+      ? (inf.done === inf.total ? 'chapter complete! 🎉' : 'standalone chapter')
+      : next ? 'working on chapter ' + (next.ci + 1) + ' (' + next.done + '/' + next.total + ')' : 'book complete! 🎉';
+    return `<div id="d-current" style="cursor:pointer;border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
+      <h3 style="margin-bottom:8px">Currently Memorizing</h3>
+      <div class="row">
+        <span class="badge ${inf.b.t}">${inf.b.t.toUpperCase()}</span>
+        <div class="grow"><div style="font-size:17px;font-weight:700;">${esc(inf.label)}</div>
+          <div class="muted" style="font-size:12px">${inf.done}/${inf.total} verses · ${sub}${inf.stale ? ' · <span style="color:var(--danger)">⚠ review needed</span>' : ''}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0"><div class="big" style="color:var(--accent)">${inf.pct}%</div></div>
       </div>
-      <div style="text-align:right;flex-shrink:0"><div class="big" style="color:var(--accent)">${st.pct}%</div></div>
-    </div>
-    <div class="progressbar" style="margin-top:8px;height:7px"><div style="width:${st.pct}%"></div></div>
-  </div>`;
+      <div class="progressbar" style="margin-top:8px;height:7px"><div style="width:${inf.pct}%"></div></div>
+    </div>`;
+  }
+  const rows = items.map((it, i) => {
+    const inf = currentItemInfo(it);
+    if (!inf) return '';
+    return `<div class="d-cur-row" data-i="${i}" style="cursor:pointer;margin-bottom:9px">
+      <div class="row">
+        <span class="badge ${inf.b.t}">${inf.b.t.toUpperCase()}</span>
+        <div class="grow" style="font-size:14px;font-weight:700">${esc(inf.label)}${inf.stale ? ' <span style="color:var(--danger);font-size:11px">⚠ review</span>' : ''}</div>
+        <div style="font-weight:700;color:var(--accent);font-size:13px">${inf.pct}%</div>
+      </div>
+      <div class="progressbar" style="margin-top:4px"><div style="width:${inf.pct}%"></div></div>
+    </div>`;
+  }).join('');
+  return `<div id="d-current" style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
+    <h3 style="margin-bottom:8px">Currently Memorizing</h3>${rows}</div>`;
 }
 
 function dashboard() {
@@ -2260,9 +2318,9 @@ function dashboard() {
           <div class="muted">day streak</div>
         </div>
       </div>
-      ${levelRow('Old Testament', xot, 'var(--ot)')}
-      ${levelRow('New Testament', xnt, 'var(--nt)')}
-      ${levelRow('Whole Bible', xall, 'var(--gold)')}
+      ${levelRow('Old Testament', xot, 'var(--ot)', SC.corpusStats('ot'))}
+      ${levelRow('New Testament', xnt, 'var(--nt)', SC.corpusStats('nt'))}
+      ${levelRow('Whole Bible', xall, 'var(--gold)', SC.corpusStats(null))}
       <div class="statgrid" style="margin-top:8px">
         <div class="stat"><div class="v">${g.booksComplete}</div><div class="l">Books complete</div></div>
         <div class="stat"><div class="v">${g.chaptersComplete}</div><div class="l">Chapters complete</div></div>
@@ -2347,11 +2405,18 @@ function dashboard() {
   main().querySelector('#d-reading').onclick = () => render(readingHome);
   main().querySelector('#d-pathways').onclick = () => render(pathwaysHome);
   main().querySelector('#d-plans').onclick = () => render(plansScreen);
-  main().querySelector('#d-current').onclick = () => {
-    const b = SC.currentBook();
-    if (b) render(() => bookScreen(b));
-    else render(scriptureHome);
-  };
+  const dcur = main().querySelector('#d-current');   // absent when no projects (SM2)
+  if (dcur) {
+    const items = SC.currentItems();
+    const open = it => {
+      const b = allBooks.find(x => x.name === it.book);
+      if (!b) return;
+      render(it.ch != null ? () => chapterScreen(b, it.ch - 1) : () => bookScreen(b));
+    };
+    const rows = dcur.querySelectorAll('.d-cur-row');
+    if (rows.length) rows.forEach(r => r.onclick = () => open(items[Number(r.dataset.i)]));
+    else dcur.onclick = () => { if (items.length) open(items[0]); };
+  }
 }
 
 // ---------- Today ----------
@@ -2946,6 +3011,11 @@ function bookScreen(b) {
   timerBtn.firstChild.onclick = () => render(() => reviewTimer(b));
   wrap.append(timerBtn);
 
+  // SM5 — practice at any scope: whole book / chapters / verses
+  const practiceBtn = h(`<button class="btn">Practice — ESV</button>`);
+  practiceBtn.firstChild.onclick = () => render(() => practiceScope(b));
+  wrap.append(practiceBtn);
+
   const curBtn = h(`<button class="btn secondary" style="margin-bottom:4px">${isCurrent ? '✓ Current memorization project — tap to remove' : 'Set as current memorization project'}</button>`);
   curBtn.firstChild.onclick = () => {
     if (isCurrent) {
@@ -3021,9 +3091,143 @@ function bookScreen(b) {
 }
 let bookUndoSnap = null;   // {book, snap} — survives within the session only
 
+// SM5 — practice scope: whole book (≤28 chapters) / selected chapters / selected verses
+const WHOLE_BOOK_CAP = 28;
+let prScope = { book: null, mode: 'book', chapters: {}, vch: null, verses: {} };
+
+function esvErrToast(e) {
+  toast(e.message === 'no-key' ? 'Add your free ESV API key in Settings first'
+    : e.message === 'bad-key' ? 'ESV key rejected — check it in Settings'
+    : 'Could not load text — check your connection');
+}
+
+async function fetchChaptersProgress(b, cis, btn) {
+  const parts = [];
+  for (let i = 0; i < cis.length; i++) {
+    btn.textContent = 'Fetching ' + b.name + ' ' + (cis[i] + 1) + ' — ' + (i + 1) + ' of ' + cis.length + '…';
+    const entry = await esvFetchChapter(b.name, cis[i] + 1);
+    parts.push({ ci: cis[i], verses: entry.verses });
+  }
+  return parts;
+}
+
+function practiceScope(b) {
+  setHeader('Practice · ' + b.name, { back: true });
+  if (prScope.book !== b.name) prScope = { book: b.name, mode: b.chapters <= WHOLE_BOOK_CAP ? 'book' : 'chapters', chapters: {}, vch: null, verses: {} };
+  const s = prScope;
+  const wrap = document.createElement('div');
+
+  wrap.append(sectionTitle('Scope'));
+  const pills = h(`<div class="pillrow">
+    ${b.chapters <= WHOLE_BOOK_CAP ? `<button class="pill ${s.mode === 'book' ? 'on' : ''}" data-m="book">Whole book</button>` : ''}
+    <button class="pill ${s.mode === 'chapters' ? 'on' : ''}" data-m="chapters">Chapters</button>
+    <button class="pill ${s.mode === 'verses' ? 'on' : ''}" data-m="verses">Verses</button>
+  </div>`);
+  pills.querySelectorAll('[data-m]').forEach(p => p.onclick = () => { s.mode = p.dataset.m; rerender(); });
+  wrap.append(pills);
+  if (b.chapters > WHOLE_BOOK_CAP) wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 8px">Whole-book practice is capped at ${WHOLE_BOOK_CAP} chapters — use chapter or verse selection for ${esc(b.name)}.</div>`));
+
+  if (s.mode === 'book') {
+    wrap.append(h(`<div class="muted" style="margin:6px 4px 0">All ${b.chapters} chapters. Text is fetched once from the ESV API, then cached for offline practice.</div>`));
+  }
+  if (s.mode === 'chapters') {
+    wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 8px">Tap the chapters to practice — any combination.</div>`));
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    b.verses.forEach((_, ci) => {
+      const cell = document.createElement('div');
+      cell.className = 'cell' + (s.chapters[ci] ? ' done' : '');
+      cell.textContent = ci + 1;
+      cell.onclick = () => { s.chapters[ci] = !s.chapters[ci]; cell.classList.toggle('done'); };
+      grid.append(cell);
+    });
+    wrap.append(grid);
+  }
+  if (s.mode === 'verses') {
+    wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 8px">Pick one chapter, then tap the verses.</div>`));
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    b.verses.forEach((_, ci) => {
+      const cell = document.createElement('div');
+      cell.className = 'cell' + (s.vch === ci ? ' done' : '');
+      cell.textContent = ci + 1;
+      cell.onclick = () => { s.vch = ci; s.verses = {}; rerender(); };
+      grid.append(cell);
+    });
+    wrap.append(grid);
+    if (s.vch != null) {
+      wrap.append(sectionTitle(b.name + ' ' + (s.vch + 1) + ' — verses'));
+      const vg = document.createElement('div');
+      vg.className = 'grid';
+      for (let v = 1; v <= b.verses[s.vch]; v++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell' + (s.verses[v] ? ' done' : '');
+        cell.textContent = v;
+        cell.onclick = ((vv, c) => () => { s.verses[vv] = !s.verses[vv]; c.classList.toggle('done'); })(v, cell);
+        vg.append(cell);
+      }
+      wrap.append(vg);
+    }
+  }
+
+  const startFrag = h(`<button class="btn" style="margin-top:16px">Fetch text &amp; choose mode</button>`);
+  const start = startFrag.firstChild;
+  start.onclick = async () => {
+    if (start.dataset.busy) return;
+    let cis;
+    if (s.mode === 'book') cis = b.verses.map((_, i) => i);
+    else if (s.mode === 'chapters') {
+      cis = Object.keys(s.chapters).filter(k => s.chapters[k]).map(Number).sort((x, y) => x - y);
+      if (!cis.length) { toast('Tap at least one chapter'); return; }
+    } else {
+      if (s.vch == null) { toast('Pick a chapter first'); return; }
+      if (!Object.keys(s.verses).some(k => s.verses[k])) { toast('Tap at least one verse'); return; }
+      cis = [s.vch];
+    }
+    start.dataset.busy = '1';
+    const orig = start.textContent;
+    try {
+      const parts = await fetchChaptersProgress(b, cis, start);
+      delete start.dataset.busy;
+      let doc;
+      if (s.mode === 'verses') {
+        const picks = Object.keys(s.verses).filter(k => s.verses[k]).map(Number);
+        doc = bibleDoc(b, s.vch, parts[0].verses);
+        doc.sections = doc.sections.filter(x => picks.includes(x.n));
+      } else if (cis.length === 1) {
+        doc = bibleDoc(b, cis[0], parts[0].verses);
+      } else {
+        doc = bibleMultiDoc(b, parts);
+      }
+      if (!doc.sections.length) { toast('No verses in that selection'); start.textContent = orig; return; }
+      render(() => practiceSetup(doc));
+    } catch (e) {
+      delete start.dataset.busy;
+      start.textContent = orig;
+      esvErrToast(e);
+    }
+  };
+  wrap.append(startFrag);
+  main().append(wrap);
+}
+
 function chapterScreen(b, ci) {
   setHeader(b.name + ' ' + (ci + 1), { back: true });
   const wrap = document.createElement('div');
+
+  // SM4 — next/previous chapter navigation (one at a time, both directions)
+  const lastCi = b.verses.length - 1;
+  if (lastCi > 0) {
+    const nav = h(`<div class="row" style="margin-bottom:12px">
+      <button class="btn secondary" data-a="prev" style="margin-top:0;flex:1;${ci === 0 ? 'visibility:hidden' : ''}">‹ ${SC.abbr(b.name)} ${ci}</button>
+      <button class="btn secondary" data-a="next" style="margin-top:0;flex:1;${ci === lastCi ? 'visibility:hidden' : ''}">${SC.abbr(b.name)} ${ci + 2} ›</button>
+    </div>`).firstElementChild;
+    const go = to => { const s = () => chapterScreen(b, to); stack[stack.length - 1] = s; render(s, false); };
+    nav.querySelector('[data-a=prev]').onclick = () => go(ci - 1);
+    nav.querySelector('[data-a=next]').onclick = () => go(ci + 1);
+    wrap.append(nav);
+  }
+
   const c = SC.chapterStats(b, ci);
   const allDone = c.done === c.total;
   const toggleAll = h(`<button class="btn ${allDone ? 'secondary' : ''}" style="margin-bottom:12px">${allDone ? 'Unmark all verses' : 'Mark whole chapter memorized'}</button>`);
@@ -3071,9 +3275,7 @@ function chapterScreen(b, ci) {
     } catch (e) {
       delete prB.dataset.busy;
       prB.textContent = orig;
-      toast(e.message === 'no-key' ? 'Add your free ESV API key in Settings first'
-        : e.message === 'bad-key' ? 'ESV key rejected — check it in Settings'
-        : 'Could not load text — check your connection');
+      esvErrToast(e);
     }
   };
   wrap.append(prFrag);
@@ -4036,6 +4238,11 @@ function prand(seed) { return (Math.imul(seed, 2654435761) >>> 0) % 100; }
 
 let prSetup = { mode: 'fade', sel: 'memorized', from: 1, to: 10, lds: {}, picked: {}, weakN: 12, budget: 20 };
 
+// SM5 — combined (multi-chapter) docs carry per-section docId/vn so every verse's
+// mastery lives with its own chapter doc, shared with single-chapter practice.
+const prDocId = (d, x) => x.docId || d.id;
+const prN = x => x.vn != null ? x.vn : x.n;
+
 // gradient tile: white = 100% mastery → black = never practiced
 function masteryTileStyle(m) {
   const L = m === null ? 0 : 18 + m * 0.82;   // 0 (black) for never; 18%→100% lightness by mastery
@@ -4053,13 +4260,13 @@ function practiceSetup(d) {
   const dash = document.createElement('div');
   dash.className = 'grid';
   d.sections.forEach(sec => {
-    const m = CR.mastery(d.id, sec.n);
+    const m = CR.mastery(prDocId(d, sec), prN(sec));
     const cell = document.createElement('div');
     cell.className = 'cell';
     cell.style.cssText = masteryTileStyle(m);
     cell.textContent = sec.n;
     cell.onclick = () => {
-      const hist = CR.practiceHistory(d.id, sec.n);
+      const hist = CR.practiceHistory(prDocId(d, sec), prN(sec));
       toast(m === null ? `Q${sec.n} — never practiced` : `Q${sec.n} — ${m}% over last ${Math.min(hist.length, 10)} attempt${hist.length === 1 ? '' : 's'}`);
     };
     dash.append(cell);
@@ -4146,7 +4353,7 @@ function practiceSetup(d) {
     wrap.append(grid);
   }
   if (s.sel === 'weakest') {
-    const practiced = d.sections.filter(x => CR.mastery(d.id, x.n) !== null).length;
+    const practiced = d.sections.filter(x => CR.mastery(prDocId(d, x), prN(x)) !== null).length;
     const r = h(`<div class="card"><div class="row">
       <span class="muted grow">Weakest</span>
       <input data-a="n" inputmode="numeric" value="${s.weakN}" style="width:70px;${inputStyle}">
@@ -4160,20 +4367,20 @@ function practiceSetup(d) {
   const startBtn = h(`<button class="btn" style="margin-top:16px">Start practice</button>`);
   startBtn.firstChild.onclick = () => {
     let list = [];
-    if (s.sel === 'memorized') list = d.sections.filter(x => d.bible ? SC.verseDone(allBooks[bookIndex[d.bible.book]], d.bible.ci, x.n) : CR.isDone(d.id, x.n));
+    if (s.sel === 'memorized') list = d.sections.filter(x => d.bible ? SC.verseDone(allBooks[bookIndex[d.bible.book]], x.ci != null ? x.ci : d.bible.ci, prN(x)) : CR.isDone(d.id, x.n));
     if (s.sel === 'range') list = d.sections.filter(x => x.n >= Math.min(s.from, s.to) && x.n <= Math.max(s.from, s.to));
     if (s.sel === 'ld') list = d.sections.filter(x => s.lds[x.ld]);
     if (s.sel === 'pick') list = d.sections.filter(x => s.picked[x.n]);
     if (s.sel === 'weakest') {
-      list = d.sections.filter(x => CR.mastery(d.id, x.n) !== null)
-        .sort((a, b) => CR.mastery(d.id, a.n) - CR.mastery(d.id, b.n))
+      list = d.sections.filter(x => CR.mastery(prDocId(d, x), prN(x)) !== null)
+        .sort((a, b) => CR.mastery(prDocId(d, a), prN(a)) - CR.mastery(prDocId(d, b), prN(b)))
         .slice(0, s.weakN);
     }
     if (!list.length) {
       toast({ memorized: 'Nothing marked memorized yet.', weakest: 'No practice history yet — run a session first.', ld: "No Lord's Days selected." }[s.sel] || 'No questions selected.');
       return;
     }
-    const queue = list.map(x => ({ n: x.n, q: x.label, a: x.text }));
+    const queue = list.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn }));
     if (s.mode === 'fade') render(() => fadeScreen(d, queue, 0, 0, []));
     if (s.mode === 'typer') render(() => typerScreen(d, queue, 0, []));
     if (s.mode === 'flash') render(() => flashSession(d, queue, s.budget));
@@ -4302,7 +4509,7 @@ function typerScreen(d, queue, qi, results) {
     const secs = Math.round((Date.now() - startTs) / 1000);
     const acc = total ? Math.round(100 * correct / total) : 100;
     results.push({ n: item.n, acc, missed: missedWords, secs });
-    CR.logPractice(d.id, item.n, 'typer', acc);
+    CR.logPractice(prDocId(d, item), prN(item), 'typer', acc);
     toast(`Q${item.n}: ${acc}% in ${SC.fmtSecs(secs)}`);
     render(() => typerScreen(d, queue, qi + 1, results), false);
   }
@@ -4415,7 +4622,7 @@ function scrambleScreen(d, queue, qi, results) {
   function finish() {
     const acc = chips.length ? Math.round(100 * firstTry / chips.length) : 100;
     results.push({ n: item.n, acc, hints });
-    CR.logPractice(d.id, item.n, 'scramble', acc);
+    CR.logPractice(prDocId(d, item), prN(item), 'scramble', acc);
     toast(`Q${item.n}: ${acc}%`);
     render(() => scrambleScreen(d, queue, qi + 1, results), false);
   }
@@ -4429,7 +4636,7 @@ function scrambleScreen(d, queue, qi, results) {
 // Budget counts presentations (repeats count). Exit ratings (×20) feed mastery — one entry per card.
 
 function buildFlashPool(d, queue) {
-  return queue.map(item => ({ ...item, m: CR.mastery(d.id, item.n), last: CR.lastPracticeTs(d.id, item.n) }))
+  return queue.map(item => ({ ...item, m: CR.mastery(prDocId(d, item), prN(item)), last: CR.lastPracticeTs(prDocId(d, item), prN(item)) }))
     .sort((a, b) => {
       const am = a.m === null ? 999 : a.m, bm = b.m === null ? 999 : b.m;
       if (am !== bm) return am - bm;          // weakest practiced first, new (999) last
@@ -4469,6 +4676,7 @@ function flashIntroduce(session) {
 function flashSession(d, queue, budget) {
   const session = {
     pool: buildFlashPool(d, queue),
+    byN: Object.fromEntries(queue.map(i => [i.n, i])),   // SM5: n → item, for per-chapter mastery logging
     active: [], shown: [], ratings: {}, exit: {}, reps: 0, budget
   };
   flashIntroduce(session);
@@ -4477,7 +4685,7 @@ function flashSession(d, queue, budget) {
 
 function flashEnd(d, session) {
   const touched = Object.keys(session.exit);
-  touched.forEach(n => CR.logPractice(d.id, Number(n), 'flash', session.exit[n] * 20));
+  touched.forEach(n => { const it = session.byN[n] || { n: Number(n) }; CR.logPractice(prDocId(d, it), prN(it), 'flash', session.exit[n] * 20); });
   const dist = [1, 2, 3, 4, 5].map(r => `${r}: ${touched.filter(n => session.exit[n] === r).length}`).join('  ·  ');
   practiceSummary(d, 'Flashcards', [
     `${session.reps} card${session.reps === 1 ? '' : 's'} studied · ${touched.length} question${touched.length === 1 ? '' : 's'} touched`,
@@ -4498,7 +4706,7 @@ function flashCard(d, session) {
   let flipped = false;
 
   const wrap = document.createElement('div');
-  const isNew = session.exit[item.n] === undefined && CR.mastery(d.id, item.n) === null;
+  const isNew = session.exit[item.n] === undefined && CR.mastery(prDocId(d, item), prN(item)) === null;
   wrap.append(h(`<div class="row" style="margin:2px 4px 10px">
     <div class="grow muted">card ${session.reps + 1} of ${session.budget} · ${session.active.length} in rotation${session.pool.length ? ' · ' + session.pool.length + ' waiting' : ''}</div>
     ${isNew ? '<span class="badge" style="background:var(--gold)">NEW</span>' : ''}
