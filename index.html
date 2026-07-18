@@ -2104,7 +2104,7 @@ function checkRow(entry, onToggle, { sub = '', onDelete = null } = {}) {
 function addRow(placeholder, onAdd) {
   const el = h(`
     <div class="row" style="margin-top:10px">
-      <input class="grow" placeholder="${esc(placeholder)}" style="padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:15px;min-width:0">
+      <input class="grow" placeholder="${esc(placeholder)}" style="padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:15px;min-width:0">
       <button class="pill on" style="padding:11px 16px">Add</button>
     </div>`);
   const inp = el.querySelector('input'), btn = el.querySelector('button');
@@ -2158,7 +2158,7 @@ function sectionTitle(t) {
 function levelRow(label, cx, color) {
   return `
     <div class="row" style="margin-bottom:10px">
-      <div style="width:42px;height:42px;border-radius:50%;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;flex-shrink:0">${cx.level}</div>
+      <div style="width:42px;height:42px;border-radius:50%;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${cx.level}</div>
       <div class="grow">
         <div style="font-weight:700;font-size:14px">${label}</div>
         <div class="muted" style="font-size:12px">${cx.xp.toLocaleString()} / ${cx.max.toLocaleString()} XP${cx.stale.length ? ` · <span style="color:var(--danger)">⚠ ${cx.stale.length} book${cx.stale.length > 1 ? 's' : ''} need review</span>` : ''}</div>
@@ -2182,7 +2182,7 @@ function currentBookSection() {
     <h3 style="margin-bottom:8px">Currently Memorizing</h3>
     <div class="row">
       <span class="badge ${b.t}">${b.t.toUpperCase()}</span>
-      <div class="grow"><div style="font-size:17px;font-weight:800;letter-spacing:-.02em">${esc(b.name)}</div>
+      <div class="grow"><div style="font-size:17px;font-weight:700;">${esc(b.name)}</div>
         <div class="muted" style="font-size:12px">${st.done}/${st.total} verses · ${next ? 'working on chapter ' + (next.ci + 1) + ' (' + next.done + '/' + next.total + ')' : 'book complete! 🎉'}${stale ? ' · <span style="color:var(--danger)">⚠ review needed</span>' : ''}</div>
       </div>
       <div style="text-align:right;flex-shrink:0"><div class="big" style="color:var(--accent)">${st.pct}%</div></div>
@@ -2209,7 +2209,7 @@ function dashboard() {
         return `<div class="row" style="margin-bottom:6px">
           <div class="grow" style="font-size:13px;font-weight:600">${esc(p.name)}
             <span class="muted" style="font-weight:400">· next: ${esc(nx.label)}</span></div>
-          <div style="font-weight:800;color:var(--accent);font-size:13px">${pst.pct}%</div>
+          <div style="font-weight:700;color:var(--accent);font-size:13px">${pst.pct}%</div>
         </div>
         <div class="progressbar" style="margin-bottom:8px"><div style="width:${pst.pct}%"></div></div>`;
       }).join('') + '<div class="row"><span class="chev" style="margin-left:auto">›</span></div>'
@@ -2245,7 +2245,7 @@ function dashboard() {
         return `<div class="row" style="margin-bottom:6px">
           <div class="grow" style="font-size:13px;font-weight:600">${esc(p.name)}
             <span class="muted" style="font-weight:400">· ${pst.complete ? 'complete 🎉' : rest ? 'rest day' : esc(RP.portionRef(p)) + (pdone ? ' ✓' : '')}</span></div>
-          <div style="font-weight:800;color:var(--accent);font-size:13px">${pst.pct}%</div>
+          <div style="font-weight:700;color:var(--accent);font-size:13px">${pst.pct}%</div>
         </div>
         <div class="progressbar" style="margin-bottom:8px"><div style="width:${pst.pct}%"></div></div>`;
       }).join('') : '<div class="row"><div class="grow muted">No reading plans yet — whole Bible, a testament, or any set of books.</div><span class="chev">›</span></div>'}
@@ -2259,7 +2259,7 @@ function dashboard() {
         const st = CR.docStats(d.id);
         const tr = CR.trackOf(d.id);
         return `<div class="row">
-          <div style="width:42px;height:42px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;flex-shrink:0">${st.level}</div>
+          <div style="width:42px;height:42px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${st.level}</div>
           <div class="grow">
             <div style="font-weight:700;font-size:14px">${esc(d.name)}</div>
             <div class="muted" style="font-size:12px">${tr === 'memorize' ? 'memorizing' : tr === 'read' ? 'reading' : ''} · ${st.done}/${st.total} ${d.group === 'catechisms' ? 'Q&As' : 'sections'}</div>
@@ -2275,15 +2275,15 @@ function dashboard() {
         const est = RD.estimate(b);
         return `<div style="margin-bottom:10px">
           <div class="row"><div class="grow" style="font-weight:700;font-size:14px">${esc(b.title)}</div>
-          <div style="font-weight:800;color:var(--accent)">${RD.pct(b)}%</div></div>
+          <div style="font-weight:700;color:var(--accent)">${RD.pct(b)}%</div></div>
           <div class="muted" style="font-size:12px">p. ${b.currentPage || 0} of ${b.pages || '?'}${est ? ' · ~' + est.days + ' days left (' + est.finish.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ')' : ''}</div>
           <div class="progressbar" style="margin-top:5px"><div style="width:${RD.pct(b)}%"></div></div>
         </div>`;
       }).join('') : '<div class="muted" style="margin-bottom:8px">Nothing being read right now.</div>'}
       <div class="row" style="gap:14px">
-        <div><span style="font-weight:800">${lib.level}</span> <span class="muted" style="font-size:12px">library level</span></div>
-        <div><span style="font-weight:800">${life.booksFinished}</span> <span class="muted" style="font-size:12px">books finished</span></div>
-        <div><span style="font-weight:800">${life.pagesRead.toLocaleString()}</span> <span class="muted" style="font-size:12px">pages read</span></div>
+        <div><span style="font-weight:700">${lib.level}</span> <span class="muted" style="font-size:12px">library level</span></div>
+        <div><span style="font-weight:700">${life.booksFinished}</span> <span class="muted" style="font-size:12px">books finished</span></div>
+        <div><span style="font-weight:700">${life.pagesRead.toLocaleString()}</span> <span class="muted" style="font-size:12px">pages read</span></div>
       </div>
     </div>
     <div class="card" id="d-fitness" style="cursor:pointer">
@@ -2298,7 +2298,7 @@ function dashboard() {
             <div class="muted" style="font-size:12px">${esc(fs.lastLog.result)} · ${new Date(fs.lastLog.ts).toLocaleDateString()}</div>` : '<div class="muted">No workouts logged yet.</div>'}
           </div>
           <div style="text-align:right;flex-shrink:0">
-            ${lw ? `<div style="font-weight:800">${lw.lbs} lbs</div><div class="muted" style="font-size:11px">weight</div>` : ''}
+            ${lw ? `<div style="font-weight:700">${lw.lbs} lbs</div><div class="muted" style="font-size:11px">weight</div>` : ''}
           </div>
           <span class="chev">›</span>
         </div>
@@ -2456,7 +2456,7 @@ function planMonth(body) {
     const st = PL.dayStats(dk);
     const isToday = dk === todayKey();
     const cell = document.createElement('div');
-    cell.style.cssText = `aspect-ratio:1;border-radius:9px;border:1px solid ${isToday ? 'var(--accent)' : 'var(--line)'};background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;font-weight:600;cursor:pointer;gap:2px`;
+    cell.style.cssText = `aspect-ratio:1;border-radius:3px;border:1px solid ${isToday ? 'var(--accent)' : 'var(--line)'};background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;font-weight:600;cursor:pointer;gap:2px`;
     cell.innerHTML = `<span>${day}</span>` + (st.total ? `<span style="width:5px;height:5px;border-radius:50%;background:${st.done === st.total ? 'var(--accent)' : 'var(--gold)'}"></span>` : '');
     cell.onclick = () => { planCursor = dk; planMode = 'day'; rerender(); };
     grid.append(cell);
@@ -2520,7 +2520,7 @@ function planRules(body) {
   body.append(sectionTitle('New recurring rule'));
   const card = h(`
     <div class="card">
-      <input id="rule-label" placeholder="e.g. Review memorized chapters" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px;margin-bottom:10px">
+      <input id="rule-label" placeholder="e.g. Review memorized chapters" style="width:100%;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px;margin-bottom:10px">
       <div class="pillrow" id="rule-days">
         ${PL.DOW.map((d, i) => `<button class="pill" data-d="${i}">${d}</button>`).join('')}
         <button class="pill" data-d="all">Every day</button>
@@ -2570,7 +2570,7 @@ function pathwaysHome() {
           ${st.totalSteps ? `<div class="progressbar" style="margin-top:6px"><div style="width:${st.pct}%"></div></div>` : ''}
         </div>
         <div style="text-align:right;flex-shrink:0">
-          <div style="font-weight:800;color:var(--accent);font-size:14px">${st.pct}%</div>
+          <div style="font-weight:700;color:var(--accent);font-size:14px">${st.pct}%</div>
         </div>
         <span class="chev">›</span>
       </div>`);
@@ -2582,7 +2582,7 @@ function pathwaysHome() {
   // .firstElementChild: keep a live element reference — fragments empty on append
   const createCard = h(`
     <div class="card" style="margin-top:14px"><h3>New pathway</h3>
-      <input data-a="name" placeholder="Pathway name" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px;margin-bottom:10px">
+      <input data-a="name" placeholder="Pathway name" style="width:100%;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px;margin-bottom:10px">
       <div class="pillrow">
         <button class="pill on" data-c="general">General</button>
         <button class="pill" data-c="scripture-review">Scripture Review ⏱</button>
@@ -2677,18 +2677,18 @@ function buildPathwayBody(wrap, p) {
       const stone = h(`
         <div class="row" style="margin-bottom:10px;margin-left:${offset}px;position:relative">
           <div style="width:30px;height:30px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;
-            ${s.done ? 'background:var(--accent);color:#fff;border:2px solid var(--accent)'
-              : isNext ? 'background:var(--gold);color:#fff;border:2px solid var(--gold);box-shadow:0 0 0 5px color-mix(in srgb, var(--gold) 25%, transparent)'
+            ${s.done ? 'background:var(--text);color:var(--bg);border:2px solid var(--text)'
+              : isNext ? 'background:var(--card);color:var(--gold);border:2px solid var(--gold)'
               : 'background:var(--card);color:var(--text-2);border:2px solid var(--line)'}">${s.done ? '✓' : startIndex + i + 1}</div>
           <div class="grow card" style="margin:0;padding:10px 13px;${isNext ? 'border-color:var(--gold);' : ''}${s.done ? 'opacity:.55;' : ''}${locked ? 'opacity:.5;' : ''}">
             <div class="row">
               <div class="grow" style="font-size:14px;font-weight:600;${s.done ? 'text-decoration:line-through' : ''}">${esc(s.label)}
-                ${!pwEditMode && PW.stepWeight(s) > 1 ? ` <span style="font-size:11px;font-weight:800;color:var(--gold)">×${PW.stepWeight(s)}</span>` : ''}</div>
-              ${isNext && !pwEditMode && !locked ? `<button class="pill on" data-a="go" style="background:var(--gold);border-color:var(--gold);padding:5px 12px;font-size:12px">Done</button>` +
+                ${!pwEditMode && PW.stepWeight(s) > 1 ? ` <span style="font-size:11px;font-weight:700;color:var(--gold)">×${PW.stepWeight(s)}</span>` : ''}</div>
+              ${isNext && !pwEditMode && !locked ? `<button class="pill on" data-a="go" style="padding:5px 12px;font-size:12px">Done</button>` +
                 (PW.isTimed(p) ? `<button class="pill" data-a="time" style="padding:5px 9px;font-size:13px">⏱</button>` : '') : ''}
               ${s.done && pwEditMode ? '<button class="pill" data-a="undo" style="font-size:12px;padding:5px 10px">Undo</button>' : ''}
               ${pwEditMode ? `<button class="pill" data-a="wminus" style="padding:4px 9px;font-size:13px">−</button>
-                <span style="font-size:12px;font-weight:800;color:var(--gold);min-width:24px;text-align:center">×${PW.stepWeight(s)}</span>
+                <span style="font-size:12px;font-weight:700;color:var(--gold);min-width:24px;text-align:center">×${PW.stepWeight(s)}</span>
                 <button class="pill" data-a="wplus" style="padding:4px 9px;font-size:13px">+</button>
                 <button data-a="del" style="border:none;background:none;color:var(--danger);font-size:16px;cursor:pointer">✕</button>` : ''}
             </div>
@@ -2745,7 +2745,7 @@ function openTimeBox(p, card) {
   card.append(h(`
     <div class="row" style="margin-top:10px">
       <button class="pill on" data-a="watch" style="flex:1">Stopwatch</button>
-      <input data-a="manual" placeholder="mm:ss" inputmode="numeric" style="width:80px;padding:9px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
+      <input data-a="manual" placeholder="mm:ss" inputmode="numeric" style="width:80px;padding:9px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
       <button class="pill" data-a="save">Save</button>
     </div>`));
   card.querySelector('[data-a=watch]').onclick = () => render(() => stepTimer(p));
@@ -2796,11 +2796,11 @@ function shelfTile(b) {
   const color = b.t === 'ot' ? 'var(--ot)' : 'var(--nt)';
   const done = st.pct === 100;
   const el = h(`
-    <div style="aspect-ratio:1;border-radius:10px;position:relative;overflow:hidden;cursor:pointer;
+    <div style="aspect-ratio:1;border-radius:3px;position:relative;overflow:hidden;cursor:pointer;
       border:${stale ? '2px solid var(--danger)' : done ? '1.5px solid ' + color : '1px solid var(--line)'};
       background:var(--card);display:flex;align-items:center;justify-content:center" title="${esc(b.name)} · ${st.pct}%">
       ${st.pct ? `<div style="position:absolute;left:0;right:0;bottom:0;height:${st.pct}%;background:${color};opacity:${done ? '1' : '.30'}"></div>` : ''}
-      <span style="position:relative;font-size:10px;font-weight:800;letter-spacing:-.01em;color:${done ? '#fff' : 'var(--text)'}">${SC.abbr(b.name)}</span>
+      <span style="position:relative;font-size:10px;font-weight:700;color:${done ? '#fff' : 'var(--text)'}">${SC.abbr(b.name)}</span>
     </div>`).firstElementChild;
   el.onclick = () => render(() => bookScreen(b));
   return el;
@@ -2835,7 +2835,7 @@ function scriptureHome() {
         <div class="row">
           <span class="badge ${cur.t}">${cur.t.toUpperCase()}</span>
           <div class="grow">
-            <div style="font-size:18px;font-weight:800;letter-spacing:-.02em">${esc(cur.name)}</div>
+            <div style="font-size:18px;font-weight:700;">${esc(cur.name)}</div>
             <div class="muted" style="font-size:12px">${next ? 'chapter ' + (next.ci + 1) + ' · ' + next.done + '/' + next.total + ' verses' : 'complete! 🎉'}${stale ? ' · <span style="color:var(--danger)">⚠ review needed</span>' : ''}</div>
           </div>
           <div class="big" style="color:var(--accent)">${st.pct}%</div>
@@ -3049,11 +3049,11 @@ function renderTimes(container) {
   const entry = h(`
     <div class="card"><h3>Log a review</h3>
       <div class="row" style="flex-wrap:wrap;gap:8px">
-        <select data-a="book" style="flex:1;min-width:120px;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px">
+        <select data-a="book" style="flex:1;min-width:120px;padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px">
           ${SC.allBooks.map(b => `<option${SC.bookStats(b).done > 0 ? '' : ''}>${esc(b.name)}</option>`).join('')}
         </select>
-        <input data-a="date" type="date" value="${todayKey()}" style="padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px">
-        <input data-a="dur" placeholder="mm:ss" inputmode="numeric" style="width:76px;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
+        <input data-a="date" type="date" value="${todayKey()}" style="padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px">
+        <input data-a="dur" placeholder="mm:ss" inputmode="numeric" style="width:76px;padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
         <button class="pill on" data-a="add" style="padding:11px 16px">Add</button>
       </div>
     </div>`).firstElementChild;
@@ -3126,7 +3126,7 @@ function readingHome() {
     <div class="card">
       <div class="row" style="gap:14px">
         <div class="grow"><div class="big">${lib.level}</div><div class="muted">library level · ${lib.finished}/${lib.total} finished</div></div>
-        <div style="text-align:right"><div style="font-weight:800">${life.booksFinished} books</div><div class="muted" style="font-size:12px">${life.pagesRead.toLocaleString()} pages read</div></div>
+        <div style="text-align:right"><div style="font-weight:700">${life.booksFinished} books</div><div class="muted" style="font-size:12px">${life.pagesRead.toLocaleString()} pages read</div></div>
       </div>
       <div class="progressbar" style="margin-top:8px"><div style="width:${lib.level}%"></div></div>
     </div>`));
@@ -3142,8 +3142,8 @@ function readingHome() {
     const el = h(`
       <div class="list-item">
         ${rdMode === 'upnext' ? `<div style="display:flex;flex-direction:column;gap:2px">
-          <button data-a="up" style="border:1px solid var(--line);background:var(--card);border-radius:6px;font-size:11px;padding:2px 7px;cursor:pointer;color:var(--text)">▲</button>
-          <button data-a="down" style="border:1px solid var(--line);background:var(--card);border-radius:6px;font-size:11px;padding:2px 7px;cursor:pointer;color:var(--text)">▼</button>
+          <button data-a="up" style="border:1px solid var(--line);background:var(--card);border-radius:3px;font-size:11px;padding:2px 7px;cursor:pointer;color:var(--text)">▲</button>
+          <button data-a="down" style="border:1px solid var(--line);background:var(--card);border-radius:3px;font-size:11px;padding:2px 7px;cursor:pointer;color:var(--text)">▼</button>
         </div>` : ''}
         <div class="grow">
           <div class="title">${rdMode === 'upnext' ? (i + 1) + '. ' : ''}${esc(b.title)}</div>
@@ -3167,11 +3167,11 @@ function readingHome() {
 
   const addCard = h(`
     <div class="card" style="margin-top:14px"><h3>Add a book</h3>
-      <input data-a="title" placeholder="Title" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px;margin-bottom:8px">
+      <input data-a="title" placeholder="Title" style="width:100%;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px;margin-bottom:8px">
       <div class="row" style="margin-bottom:8px">
-        <input data-a="author" placeholder="Author" style="flex:1;min-width:0;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px">
-        <input data-a="pages" placeholder="Pages" inputmode="numeric" style="width:70px;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
-        <input data-a="chapters" placeholder="Ch." inputmode="numeric" style="width:56px;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
+        <input data-a="author" placeholder="Author" style="flex:1;min-width:0;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px">
+        <input data-a="pages" placeholder="Pages" inputmode="numeric" style="width:70px;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
+        <input data-a="chapters" placeholder="Ch." inputmode="numeric" style="width:56px;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
       </div>
       <button class="btn" data-a="add">Add to Library</button>
     </div>`).firstElementChild;
@@ -3221,7 +3221,7 @@ function bookDetail(b) {
     const log = h(`
       <div class="card"><h3>Log progress</h3>
         <div class="row">
-          <input data-a="page" placeholder="Page you're on" inputmode="numeric" style="flex:1;min-width:0;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px">
+          <input data-a="page" placeholder="Page you're on" inputmode="numeric" style="flex:1;min-width:0;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px">
           <button class="pill on" data-a="log" style="padding:11px 16px">Log</button>
         </div>
       </div>`).firstElementChild;
@@ -3394,7 +3394,7 @@ function renderSummaries(body, b) {
           ${has && !open ? `<div class="muted" style="font-size:12px;margin-top:3px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(has)}</div>` : ''}</div>
           <span class="chev">${open ? '▾' : has ? '▸' : '+'}</span>
         </div>
-        ${open ? `<textarea data-a="text" rows="5" placeholder="Summary of chapter ${ch}…" style="width:100%;margin-top:10px;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;font-family:inherit;resize:vertical">${esc(has || '')}</textarea>
+        ${open ? `<textarea data-a="text" rows="5" placeholder="Summary of chapter ${ch}…" style="width:100%;margin-top:10px;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;font-family:inherit;resize:vertical">${esc(has || '')}</textarea>
         <button class="btn" data-a="save" style="margin-top:8px">Save summary</button>` : ''}
       </div>`).firstElementChild;
     row.querySelector('[data-a=head]').onclick = () => { rdOpenChapter = open ? null : ch; rerender(); };
@@ -3425,10 +3425,10 @@ function renderQuotes(body, b) {
   if (!b.quotes.length) body.append(h(`<div class="empty">Quotes to remember, tagged to chapter and page.</div>`));
   const add = h(`
     <div class="card"><h3>Add quote</h3>
-      <textarea data-a="text" rows="3" placeholder="The quote…" style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;font-family:inherit;margin-bottom:8px;resize:vertical"></textarea>
+      <textarea data-a="text" rows="3" placeholder="The quote…" style="width:100%;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;font-family:inherit;margin-bottom:8px;resize:vertical"></textarea>
       <div class="row">
-        <input data-a="ch" placeholder="Ch." inputmode="numeric" style="width:60px;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
-        <input data-a="page" placeholder="Page" inputmode="numeric" style="width:70px;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
+        <input data-a="ch" placeholder="Ch." inputmode="numeric" style="width:60px;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
+        <input data-a="page" placeholder="Page" inputmode="numeric" style="width:70px;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
         <button class="pill on" data-a="add" style="flex:1;padding:10px">Add quote</button>
       </div>
     </div>`).firstElementChild;
@@ -3457,9 +3457,9 @@ function renderQuestions(body, b) {
   if (!b.questions.length) body.append(h(`<div class="empty">Discussion questions as they come to you, tagged to chapter.</div>`));
   const add = h(`
     <div class="card"><h3>Add question</h3>
-      <textarea data-a="text" rows="3" placeholder="The question…" style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;font-family:inherit;margin-bottom:8px;resize:vertical"></textarea>
+      <textarea data-a="text" rows="3" placeholder="The question…" style="width:100%;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;font-family:inherit;margin-bottom:8px;resize:vertical"></textarea>
       <div class="row">
-        <input data-a="ch" placeholder="Ch." inputmode="numeric" style="width:60px;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
+        <input data-a="ch" placeholder="Ch." inputmode="numeric" style="width:60px;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
         <button class="pill on" data-a="add" style="flex:1;padding:10px">Add question</button>
       </div>
     </div>`).firstElementChild;
@@ -3668,7 +3668,7 @@ function planDetail(p) {
         <h3>Today's portion</h3>
         ${restDay
           ? `<div class="muted" style="font-size:15px">Rest day — this plan reads ${esc(dayNames)}.</div>`
-          : `${p.kind === 'fixed' ? ref.split(' · ').map(r => '<div style="font-size:16px;font-weight:800;letter-spacing:-.01em">' + esc(r) + '</div>').join('') : '<div style="font-size:17px;font-weight:800;letter-spacing:-.01em">' + esc(ref) + '</div>'}
+          : `${p.kind === 'fixed' ? ref.split(' · ').map(r => '<div style="font-size:16px;font-weight:700;">' + esc(r) + '</div>').join('') : '<div style="font-size:17px;font-weight:700;">' + esc(ref) + '</div>'}
              <button class="btn ${done ? 'secondary' : ''}" style="margin-top:12px">${done ? '✓ Done today — tap to undo' : 'Mark read'}</button>`}
       </div>`).firstElementChild;
     const btn = today.querySelector('button');
@@ -3679,7 +3679,7 @@ function planDetail(p) {
     };
     wrap.append(today);
   } else {
-    wrap.append(h(`<div class="card" style="text-align:center;padding:22px"><div class="big">🎉</div><div style="font-weight:800;margin-top:6px">Plan complete</div></div>`));
+    wrap.append(h(`<div class="card" style="text-align:center;padding:22px"><div class="big">🎉</div><div style="font-weight:700;margin-top:6px">Plan complete</div></div>`));
   }
 
   const recent = Object.entries(p.log || {}).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 7);
@@ -3712,7 +3712,7 @@ function creedsHome() {
         <h3>In progress</h3>
         <div class="row">
           <div class="grow">
-            <div style="font-size:17px;font-weight:800;letter-spacing:-.02em">${esc(cur.name)}</div>
+            <div style="font-size:17px;font-weight:700;">${esc(cur.name)}</div>
             <div class="muted" style="font-size:12px">${tr === 'memorize' ? 'memorizing' : 'reading'} · ${st.done}/${st.total} · level ${st.level}</div>
           </div>
           <div class="big" style="color:var(--accent)">${st.pct}%</div>
@@ -3885,7 +3885,7 @@ function practiceSetup(d) {
     scramble: 'Rebuild the text by tapping the pieces in order. First-try accuracy feeds mastery.'
   }[s.mode]}</div>`));
 
-  const inputStyle = 'padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px;text-align:center';
+  const inputStyle = 'padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px;text-align:center';
 
   if (s.mode === 'flash') {
     const b = h(`<div class="card"><div class="row">
@@ -4070,7 +4070,7 @@ function typerScreen(d, queue, qi, results) {
   card.style.minHeight = '120px';
   const body = document.createElement('div');
   body.style.cssText = 'font-size:15px;line-height:1.9';
-  const cursor = h(`<span style="color:var(--gold);font-weight:800">▊</span>`).firstChild;
+  const cursor = h(`<span style="color:var(--gold);font-weight:700">▊</span>`).firstChild;
   body.append(cursor);
   card.append(body);
   const inp = h(`<input autocapitalize="off" autocomplete="off" autocorrect="off" style="position:absolute;opacity:0.01;height:1px;width:1px;border:none">`).firstChild;
@@ -4177,7 +4177,7 @@ function scrambleScreen(d, queue, qi, results) {
   idx.forEach(ci => {
     const b = document.createElement('button');
     b.textContent = chips[ci];
-    b.style.cssText = 'padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:14px;cursor:pointer;max-width:100%;text-align:left';
+    b.style.cssText = 'padding:9px 12px;border-radius:3px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:14px;cursor:pointer;max-width:100%;text-align:left';
     b.onclick = () => tap(b);
     pool.append(b);
     btns.push(b);
@@ -4335,9 +4335,9 @@ function flashCard(d, session) {
         <div class="muted" style="margin:16px 0 8px;font-size:12px">How well did you know it?</div>
         <div class="row" style="justify-content:center;gap:10px" data-a="ratings"></div></div>`));
       const row = card.querySelector('[data-a=ratings]');
-      const colors = { 1: 'var(--danger)', 2: '#b3672f', 3: 'var(--gold)', 4: '#5a9a3f', 5: 'var(--accent)' };
+      const colors = { 1: 'var(--danger)', 2: 'var(--ember)', 3: 'var(--gold)', 4: 'var(--forest)', 5: 'var(--accent)' };
       for (let r = 1; r <= 5; r++) {
-        const btn = h(`<button style="width:44px;height:44px;border-radius:50%;border:2px solid ${colors[r]};background:none;color:${colors[r]};font-size:16px;font-weight:800;cursor:pointer">${r}</button>`).firstChild;
+        const btn = h(`<button style="width:44px;height:44px;border-radius:50%;border:2px solid ${colors[r]};background:none;color:${colors[r]};font-size:16px;font-weight:700;cursor:pointer">${r}</button>`).firstChild;
         btn.onclick = () => rate(r);
         row.append(btn);
       }
@@ -4360,7 +4360,7 @@ function practiceSummary(d, mode, lines, count) {
   wrap.append(h(`
     <div class="card" style="text-align:center;padding:26px 16px">
       <div class="big">🎉</div>
-      <div style="font-weight:800;font-size:17px;margin-top:6px">${mode} session complete</div>
+      <div style="font-weight:700;font-size:17px;margin-top:6px">${mode} session complete</div>
       <div class="muted" style="margin-top:4px">${count} question${count === 1 ? '' : 's'} practiced</div>
     </div>`));
   if (lines.length) {
@@ -4382,7 +4382,7 @@ function practiceSummary(d, mode, lines, count) {
 let ftMode = 'log';
 let ftSearch = '';
 
-const FIN = 'padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px';
+const FIN = 'padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px';
 
 function fitnessHome() {
   setHeader('Fitness', { back: true });
@@ -4423,8 +4423,8 @@ function ftLevel(body) {
 
   body.append(h(`
     <div class="card" style="text-align:center;padding:24px 14px">
-      <div style="width:86px;height:86px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:800;color:#fff;background:${view.overall ? 'var(--accent)' : 'var(--line)'}">${view.overall ?? '—'}</div>
-      <div style="font-weight:800;margin-top:10px">Fitness Level</div>
+      <div style="width:86px;height:86px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;color:#fff;background:${view.overall ? 'var(--accent)' : 'var(--line)'}">${view.overall ?? '—'}</div>
+      <div style="font-weight:700;margin-top:10px">Fitness Level</div>
       <div class="muted" style="font-size:12px">${view.overall
         ? view.unlockedCount + ' of 7 domains unlocked · 99 ≈ average professional'
         : ftLevelWindow === 'live' ? 'No results in the last 12 months — log fresh benchmarks or view All-time.' : 'Not enough data yet.'}</div>
@@ -4435,7 +4435,7 @@ function ftLevel(body) {
     const card = h(`
       <div class="card" style="padding:12px 14px">
         <div class="row">
-          <div style="width:40px;height:40px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;color:#fff;background:${dom.unlocked ? 'var(--accent)' : 'var(--line)'}">${dom.level ?? '🔒'}</div>
+          <div style="width:40px;height:40px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff;background:${dom.unlocked ? 'var(--accent)' : 'var(--line)'}">${dom.level ?? '🔒'}</div>
           <div class="grow">
             <div style="font-weight:700">${label}</div>
             <div class="muted" style="font-size:12px">${dom.items.length
@@ -4447,7 +4447,7 @@ function ftLevel(body) {
           <div class="row" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
             <div class="grow" style="font-size:13px">${esc(it.label)}${it.provisional ? ' <span class="muted" style="font-size:10px">(provisional anchor)</span>' : ''}</div>
             <div style="font-size:13px;font-weight:700">${fmtBench(it)}</div>
-            <div style="width:34px;text-align:right;font-weight:800;color:var(--accent)">${it.level}</div>
+            <div style="width:34px;text-align:right;font-weight:700;color:var(--accent)">${it.level}</div>
           </div>`).join('')}
       </div>`);
     body.append(card);
@@ -4967,7 +4967,7 @@ function settings() {
 
   const esvC = h(`<div class="card"><h3>ESV verse text</h3>
     <div class="muted" style="font-size:12px;margin-bottom:8px">Powers practice modes with real ESV text. Get a free personal-use key at api.esv.org (create an account → API Applications), then paste it here. Each chapter is fetched once and stored for offline use.</div>
-    <input id="s-esv" placeholder="ESV API key" value="${esc(esvKey())}" autocapitalize="off" autocorrect="off" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;margin-bottom:8px">
+    <input id="s-esv" placeholder="ESV API key" value="${esc(esvKey())}" autocapitalize="off" autocorrect="off" style="width:100%;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;margin-bottom:8px">
     <button class="btn secondary" id="s-esv-save">Save & test key</button>
     <div class="muted" id="s-esv-status" style="font-size:12px;margin-top:6px">${Object.keys(esvLoadCache()).length} chapter${Object.keys(esvLoadCache()).length === 1 ? '' : 's'} cached offline</div>
   </div>`).firstElementChild;   // live element, not a fragment — fragments empty on append, which killed the save handler
@@ -4985,7 +4985,7 @@ function settings() {
   wrap.append(syncCard());
 
   const danger = h(`<div class="card"><h3>Danger zone</h3>
-    <input id="s-reset-confirm" placeholder='Type "RESET" to enable' style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px">
+    <input id="s-reset-confirm" placeholder='Type "RESET" to enable' style="width:100%;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px">
     <button class="btn danger" id="s-reset" disabled style="opacity:.4">Erase all Strive data</button>
   </div>`);
   const rc = danger.querySelector('#s-reset-confirm'), rb = danger.querySelector('#s-reset');
@@ -5001,7 +5001,7 @@ function settings() {
 
 // ---------- Settings: sync card (Supabase whole-state blob) ----------
 function syncCard() {
-  const inp = 'width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;margin-bottom:8px';
+  const inp = 'width:100%;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;margin-bottom:8px';
   const st = SY.status();
 
   if (!st.configured) {
