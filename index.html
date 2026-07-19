@@ -211,6 +211,25 @@ nav.tabbar .ico { font-size: 17px; line-height: 1; }
 /* quoted Scripture / catechism text — the ONLY place the antique face appears */
 .scripture-quote, .quote-old { font-family: var(--serif-quote); font-style: italic; }
 
+/* ---- pathway edit: drag-to-reorder milestones + steps ---- */
+.pw-group { border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; margin-bottom: 10px; background: var(--card); }
+.pw-mhead { align-items: center; gap: 6px; margin-bottom: 4px; }
+.pw-mbadge { width: 22px; height: 22px; border-radius: 50%; background: var(--line); color: var(--text-2); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.pw-step { align-items: center; gap: 6px; margin: 5px 0; padding: 6px 8px; border-radius: 3px; background: var(--bg); }
+.pw-sdot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text); }
+.pw-sdot.done { background: var(--text); color: var(--bg); border-color: var(--text); }
+.pw-handle { flex-shrink: 0; cursor: grab; touch-action: none; color: var(--text-2); font-size: 18px; line-height: 1; padding: 2px 5px; user-select: none; }
+.pw-handle:active { cursor: grabbing; }
+.pw-rename { border: none; background: none; color: var(--text); font-size: 14px; font-weight: 600; padding: 4px 2px; min-width: 0; }
+.pw-mhead .pw-rename { font-size: 15px; font-weight: 700; }
+.pw-rename:focus { outline: 1px solid var(--gold); border-radius: 2px; }
+.pw-wbtn { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 3px; font-size: 13px; padding: 3px 9px; flex-shrink: 0; }
+.pw-wt { font-size: 12px; font-weight: 700; color: var(--gold); min-width: 24px; text-align: center; flex-shrink: 0; }
+.pw-del { border: none; background: none; color: var(--danger); font-size: 15px; cursor: pointer; flex-shrink: 0; padding: 2px 4px; }
+.pw-empty { font-size: 12px; padding: 4px 6px 6px; }
+.pw-dragging { box-shadow: 0 6px 18px rgba(0,0,0,.18); opacity: .96; }
+.pw-ph { border: 1px dashed var(--gold); border-radius: 3px; margin: 5px 0; background: rgba(0,0,0,.02); }
+
 </style>
 </head>
 <body>
@@ -1231,6 +1250,44 @@ function removeStep(p, stepId) {
   p.milestones.forEach(m => { m.steps = m.steps.filter(s => s.id !== stepId); });
   save();
 }
+function renameStep(p, stepId, label) {
+  const s = flatSteps(p).find(x => x.id === stepId);
+  if (s && label.trim()) { s.label = label.trim(); save(); }
+}
+
+// Reorder milestones and steps from a drag result.
+// `order` = [{ mid, stepIds:[...] }, ...] in the new top-to-bottom order.
+// Existing milestone + step objects are reused (names, weights, done state, timings
+// all preserved) — only their positions change. Any milestone or step missing from
+// `order` is re-appended rather than dropped, so a partial/garbled order never loses data.
+function applyOrder(p, order) {
+  const stepById = {}; flatSteps(p).forEach(s => stepById[s.id] = s);
+  const msById = {}; p.milestones.forEach(m => msById[m.id] = m);
+  const placedSteps = new Set(), placedMs = new Set();
+  const newMs = [];
+  (order || []).forEach(o => {
+    const m = msById[o.mid];
+    if (!m || placedMs.has(m.id)) return;
+    placedMs.add(m.id);
+    m.steps = (o.stepIds || [])
+      .map(id => stepById[id])
+      .filter(s => s && !placedSteps.has(s.id));
+    m.steps.forEach(s => placedSteps.add(s.id));
+    newMs.push(m);
+  });
+  // never lose a milestone that wasn't in the order
+  p.milestones.forEach(m => {
+    if (placedMs.has(m.id)) return;
+    m.steps = m.steps.filter(s => !placedSteps.has(s.id));
+    m.steps.forEach(s => placedSteps.add(s.id));
+    newMs.push(m); placedMs.add(m.id);
+  });
+  // never lose a step that wasn't placed → append to the last milestone
+  const orphans = Object.values(stepById).filter(s => !placedSteps.has(s.id));
+  if (orphans.length && newMs.length) newMs[newMs.length - 1].steps.push(...orphans);
+  p.milestones = newMs;
+  save();
+}
 function flatSteps(p) { return p.milestones.flatMap(m => m.steps); }
 function nextStep(p) { return flatSteps(p).find(s => !s.done) || null; }
 
@@ -1255,7 +1312,7 @@ function stats(p) {
 }
 function isComplete(p) { const st = stats(p); return st.totalSteps > 0 && st.doneSteps === st.totalSteps; }
 
-const PW = {addMilestone,addStep,all,completeNext,create,currentMilestone,flatSteps,isComplete,isTimed,milestoneComplete,milestoneStats,nextStep,remove,removeMilestone,removeStep,renameMilestone,setCategory,setStepWeight,stats,stepWeight,uncomplete};
+const PW = {addMilestone,addStep,all,applyOrder,completeNext,create,currentMilestone,flatSteps,isComplete,isTimed,milestoneComplete,milestoneStats,nextStep,remove,removeMilestone,removeStep,renameMilestone,renameStep,setCategory,setStepWeight,stats,stepWeight,uncomplete};
 // Strive — Reading domain: library → up next (cap 5) → reading → finished,
 // pace-based estimates, structured notes, Library Level + lifetime counters.
 
@@ -3595,6 +3652,8 @@ function buildPathwayBody(wrap, p) {
       <div class="progressbar" style="margin-top:8px"><div style="width:${st.pct}%"></div></div>
     </div>`));
 
+  if (pwEditMode) { buildPathwayEdit(wrap, p); return; }
+
   const current = PW.currentMilestone(p);
   let globalIndex = 0;
 
@@ -3683,21 +3742,189 @@ function buildPathwayBody(wrap, p) {
   const msBtn = h(`<button class="btn secondary" style="margin-top:10px">Start a new milestone</button>`);
   msBtn.firstChild.onclick = () => { PW.addMilestone(p); drawPathway(p); };
   wrap.append(msBtn);
+}
 
-  if (pwEditMode) {
-    const catCard = h(`
-      <div class="card" style="margin-top:16px"><h3>Category</h3>
-        <div class="pillrow" style="margin-bottom:0">
-          <button class="pill ${p.category !== 'scripture-review' ? 'on' : ''}" data-c="general">General</button>
-          <button class="pill ${p.category === 'scripture-review' ? 'on' : ''}" data-c="scripture-review">Scripture Review ⏱</button>
-        </div>
-      </div>`);
-    catCard.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { PW.setCategory(p, b.dataset.c); drawPathway(p); });
-    wrap.append(catCard);
-    const delBtn = h(`<button class="btn danger" style="margin-top:12px">Delete this pathway</button>`);
-    delBtn.firstChild.onclick = () => { PW.remove(p.id); toast('Pathway deleted'); goBack(); };
-    wrap.append(delBtn);
-  }
+// ---- edit mode: drag-to-reorder milestones + steps, inline rename, targeted add ----
+function buildPathwayEdit(wrap, p) {
+  const list = h(`<div id="pw-drag" style="margin-top:4px"></div>`).firstElementChild;
+
+  p.milestones.forEach((m, mi) => {
+    const group = h(`<div class="pw-group" data-mid="${m.id}"></div>`).firstElementChild;
+    const head = h(`
+      <div class="pw-mhead row">
+        <div class="pw-handle pw-mhandle" title="Drag to reorder milestone">≡</div>
+        <div class="pw-mbadge">${mi + 1}</div>
+        <input class="grow pw-rename" value="${esc(m.name)}" placeholder="Milestone name">
+        <button class="pw-del" data-a="delms" title="Delete milestone">✕</button>
+      </div>`).firstElementChild;
+    head.querySelector('.pw-rename').onchange = e => PW.renameMilestone(p, m.id, e.target.value);
+    head.querySelector('[data-a=delms]').onclick = () => {
+      if (m.steps.length && !confirm(`Delete “${m.name || 'this milestone'}” and its ${m.steps.length} step(s)?`)) return;
+      PW.removeMilestone(p, m.id); drawPathway(p);
+    };
+    group.append(head);
+
+    m.steps.forEach(s => {
+      const row = h(`
+        <div class="pw-step row" data-sid="${s.id}">
+          <div class="pw-handle pw-shandle" title="Drag to reorder">≡</div>
+          <div class="pw-sdot ${s.done ? 'done' : ''}">${s.done ? '✓' : ''}</div>
+          <input class="grow pw-rename" value="${esc(s.label)}" placeholder="Step">
+          <button class="pw-wbtn" data-a="wminus">−</button>
+          <span class="pw-wt">×${PW.stepWeight(s)}</span>
+          <button class="pw-wbtn" data-a="wplus">+</button>
+          <button class="pw-del" data-a="del" title="Delete step">✕</button>
+        </div>`).firstElementChild;
+      row.querySelector('.pw-rename').onchange = e => PW.renameStep(p, s.id, e.target.value);
+      row.querySelector('[data-a=wminus]').onclick = () => { PW.setStepWeight(p, s.id, PW.stepWeight(s) - 1); drawPathway(p); };
+      row.querySelector('[data-a=wplus]').onclick = () => { PW.setStepWeight(p, s.id, PW.stepWeight(s) + 1); drawPathway(p); };
+      row.querySelector('[data-a=del]').onclick = () => { PW.removeStep(p, s.id); drawPathway(p); };
+      group.append(row);
+    });
+    if (!m.steps.length) group.append(h(`<div class="pw-empty muted">Empty — add a step below or drag one here.</div>`).firstElementChild);
+    list.append(group);
+  });
+  wrap.append(list);
+
+  // add-step area — milestone target pills (default = last milestone)
+  let targetMid = p.milestones[p.milestones.length - 1].id;
+  const addCard = h(`
+    <div class="card" style="margin-top:14px"><h3>Add a step</h3>
+      <div class="pillrow" id="pw-target" style="margin-bottom:8px"></div>
+      <div class="row">
+        <input class="grow" id="pw-newstep" placeholder="Step name" style="padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;min-width:0">
+        <button class="pill on" id="pw-addstep" style="padding:10px 16px">Add</button>
+      </div>
+    </div>`).firstElementChild;
+  const pills = addCard.querySelector('#pw-target');
+  const renderPills = () => {
+    pills.innerHTML = '';
+    p.milestones.forEach(m => {
+      const b = h(`<button class="pill ${m.id === targetMid ? 'on' : ''}">${esc(m.name || 'Milestone')}</button>`).firstElementChild;
+      b.onclick = () => { targetMid = m.id; renderPills(); };
+      pills.append(b);
+    });
+  };
+  renderPills();
+  const inp = addCard.querySelector('#pw-newstep');
+  const doAdd = () => { const v = inp.value.trim(); if (!v) return; PW.addStep(p, v, targetMid); drawPathway(p); };
+  addCard.querySelector('#pw-addstep').onclick = doAdd;
+  inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); doAdd(); } };
+  wrap.append(addCard);
+
+  const msBtn = h(`<button class="btn secondary" style="margin-top:10px">Start a new milestone</button>`).firstElementChild;
+  msBtn.onclick = () => { PW.addMilestone(p); drawPathway(p); };
+  wrap.append(msBtn);
+
+  const catCard = h(`
+    <div class="card" style="margin-top:16px"><h3>Category</h3>
+      <div class="pillrow" style="margin-bottom:0">
+        <button class="pill ${p.category !== 'scripture-review' ? 'on' : ''}" data-c="general">General</button>
+        <button class="pill ${p.category === 'scripture-review' ? 'on' : ''}" data-c="scripture-review">Scripture Review ⏱</button>
+      </div>
+    </div>`).firstElementChild;
+  catCard.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { PW.setCategory(p, b.dataset.c); drawPathway(p); });
+  wrap.append(catCard);
+
+  const delBtn = h(`<button class="btn danger" style="margin-top:12px">Delete this pathway</button>`).firstElementChild;
+  delBtn.onclick = () => { PW.remove(p.id); toast('Pathway deleted'); goBack(); };
+  wrap.append(delBtn);
+
+  initPwDnD(list, p);
+}
+
+// Pointer-based drag reorder (works in installed iOS PWAs, unlike HTML5 DnD).
+// A ≡ handle lifts its row (a step or a whole milestone group) to fixed position;
+// a placeholder tracks the drop slot; on release we read the new DOM order and persist.
+function initPwDnD(list, p) {
+  let drag = null;
+
+  const afterEl = (container, y, sel) => {
+    const els = [...container.querySelectorAll(sel)].filter(el => el !== drag.row && !el.contains(drag.row) && el !== drag.ph);
+    let best = null, bestOff = -Infinity;
+    for (const el of els) {
+      const r = el.getBoundingClientRect();
+      const off = y - (r.top + r.height / 2);
+      if (off < 0 && off > bestOff) { bestOff = off; best = el; }
+    }
+    return best;
+  };
+
+  const autoScroll = y => {
+    const sc = document.scrollingElement || document.documentElement, edge = 64;
+    if (y < edge) sc.scrollTop -= (edge - y) / 5;
+    else if (y > window.innerHeight - edge) sc.scrollTop += (y - (window.innerHeight - edge)) / 5;
+  };
+
+  const onMove = e => {
+    if (!drag) return;
+    e.preventDefault();
+    const y = e.clientY;
+    drag.row.style.top = (y - drag.grabY) + 'px';
+    drag.row.style.left = drag.left + 'px';
+    if (drag.kind === 'ms') {
+      const after = afterEl(list, y, '.pw-group');
+      if (after) list.insertBefore(drag.ph, after); else list.append(drag.ph);
+    } else {
+      const px = Math.min(Math.max(e.clientX, drag.left + 6), drag.left + drag.width - 6);
+      const under = document.elementFromPoint(px, y);
+      let group = under && under.closest ? under.closest('.pw-group') : null;
+      if (!group) group = afterEl(list, y, '.pw-group') || [...list.querySelectorAll('.pw-group')].pop();
+      if (!group) return;
+      const after = afterEl(group, y, '.pw-step');
+      if (after) group.insertBefore(drag.ph, after); else group.append(drag.ph);
+    }
+    autoScroll(y);
+  };
+
+  const end = () => {
+    if (!drag) return;
+    const { row, ph } = drag;
+    row.classList.remove('pw-dragging');
+    ['position', 'top', 'left', 'width', 'zIndex', 'pointerEvents'].forEach(k => row.style[k] = '');
+    ph.parentNode.insertBefore(row, ph);
+    ph.remove();
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', end);
+    window.removeEventListener('pointercancel', end);
+    drag = null;
+    persistPwOrder(list, p);
+    drawPathway(p);
+  };
+
+  list.querySelectorAll('.pw-handle').forEach(handle => {
+    handle.addEventListener('pointerdown', e => {
+      if (e.button != null && e.button > 0) return;
+      const isMs = handle.classList.contains('pw-mhandle');
+      const row = handle.closest(isMs ? '.pw-group' : '.pw-step');
+      if (!row) return;
+      e.preventDefault();
+      const rect = row.getBoundingClientRect();
+      const ph = document.createElement('div');
+      ph.className = 'pw-ph';
+      ph.style.height = rect.height + 'px';
+      row.parentNode.insertBefore(ph, row);
+      drag = { row, ph, kind: isMs ? 'ms' : 'step', grabY: e.clientY - rect.top, left: rect.left, width: rect.width };
+      row.classList.add('pw-dragging');
+      row.style.width = rect.width + 'px';
+      row.style.position = 'fixed';
+      row.style.left = rect.left + 'px';
+      row.style.top = rect.top + 'px';
+      row.style.zIndex = '999';
+      row.style.pointerEvents = 'none';
+      window.addEventListener('pointermove', onMove, { passive: false });
+      window.addEventListener('pointerup', end);
+      window.addEventListener('pointercancel', end);
+    });
+  });
+}
+
+function persistPwOrder(list, p) {
+  const order = [];
+  list.querySelectorAll('.pw-group').forEach(g => {
+    order.push({ mid: g.dataset.mid, stepIds: [...g.querySelectorAll('.pw-step')].map(r => r.dataset.sid) });
+  });
+  PW.applyOrder(p, order);
 }
 
 // inline "time it" box under the next stone: stopwatch or manual entry
