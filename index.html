@@ -1096,6 +1096,7 @@ const SC = {BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookStats,bookXP,chapter
 
 
 
+
 const P = () => state.planner;
 
 // ---- date helpers ----
@@ -1127,12 +1128,22 @@ function itemsForDate(dk) {
     out.push({ kind: 'item', id: it.id, label: it.label, domain: it.domain, done: !!it.done });
   });
   out.push(...planItemsForDate(dk));   // Bible reading plan portions (projected on future days)
+  // pathway steps scheduled for this exact day (Phase 9.3)
+  PW.scheduledSteps().forEach(({ p, s }) => {
+    if (s.date === dk) out.push({ kind: 'pstep', id: s.id, pid: p.id, label: s.label, domain: p.name, done: !!s.done, timed: PW.isTimed(p) });
+  });
   return out;
 }
 
 function toggle(dk, entry) {
   if (entry.readonly) return;
   if (entry.kind === 'rplan') { togglePlanDay(entry.id, dk); return; }
+  if (entry.kind === 'pstep') {
+    const p = PW.all().find(x => x.id === entry.pid); if (!p) return;
+    const s = PW.flatSteps(p).find(x => x.id === entry.id); if (!s) return;
+    if (s.done) PW.uncomplete(p, entry.id); else PW.completeStep(p, entry.id);
+    return;
+  }
   if (entry.kind === 'rule') {
     if (!P().completions[dk]) P().completions[dk] = {};
     P().completions[dk][entry.id] = !P().completions[dk][entry.id];
@@ -1300,6 +1311,25 @@ function uncomplete(p, stepId) {
   const s = flatSteps(p).find(x => x.id === stepId);
   if (s) { s.done = false; s.doneTs = null; s.secs = null; save(); }
 }
+// complete a SPECIFIC step (not necessarily the next) — used when checking off a
+// step from its scheduled day in the planner.
+function completeStep(p, stepId, secs = null) {
+  const s = flatSteps(p).find(x => x.id === stepId);
+  if (s && !s.done) { s.done = true; s.doneTs = Date.now(); if (secs != null) s.secs = secs; save(); }
+  return s;
+}
+
+// ---- scheduling (Phase 9.2/9.3): an optional date (YYYY-MM-DD) on a step ----
+function setStepDate(p, stepId, date) {
+  const s = flatSteps(p).find(x => x.id === stepId);
+  if (s) { s.date = date || null; save(); }
+}
+// every dated step across all pathways, paired with its pathway
+function scheduledSteps() {
+  const out = [];
+  all().forEach(p => p.milestones.forEach(m => m.steps.forEach(s => { if (s.date) out.push({ p, s }); })));
+  return out;
+}
 
 // Weighted progress: a step's weight is its share of the pathway percentage,
 // so "Ephesians" (weight 6) can count for more than "Ephesians 3" (weight 1).
@@ -1312,7 +1342,7 @@ function stats(p) {
 }
 function isComplete(p) { const st = stats(p); return st.totalSteps > 0 && st.doneSteps === st.totalSteps; }
 
-const PW = {addMilestone,addStep,all,applyOrder,completeNext,create,currentMilestone,flatSteps,isComplete,isTimed,milestoneComplete,milestoneStats,nextStep,remove,removeMilestone,removeStep,renameMilestone,renameStep,setCategory,setStepWeight,stats,stepWeight,uncomplete};
+const PW = {addMilestone,addStep,all,applyOrder,completeNext,completeStep,create,currentMilestone,flatSteps,isComplete,isTimed,milestoneComplete,milestoneStats,nextStep,remove,removeMilestone,removeStep,renameMilestone,renameStep,scheduledSteps,setCategory,setStepDate,setStepWeight,stats,stepWeight,uncomplete};
 // Strive — Reading domain: library → up next (cap 5) → reading → finished,
 // pace-based estimates, structured notes, Library Level + lifetime counters.
 
@@ -2880,9 +2910,9 @@ function celebrate(text) {
 
 // Complete a pathway's next step (from Today or the pathway itself),
 // and auto-log timed whole-book / range reviews into the Scripture review tracker.
-function completePathwayStep(p, secs = null) {
+function completePathwayStep(p, secs = null, stepId = null) {
   const mBefore = PW.currentMilestone(p);
-  const s = PW.completeNext(p, secs);
+  const s = stepId ? PW.completeStep(p, stepId, secs) : PW.completeNext(p, secs);
   if (!s) return;
   let note = 'Step complete';
   if (mBefore && PW.milestoneComplete(mBefore)) { note = 'Milestone complete!'; celebrate('Milestone! 🎉'); }
@@ -3352,6 +3382,23 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
 
   if (items.length) wrap.append(sectionTitle('Planned'));
   items.forEach(entry => {
+    // a scheduled step on a timed (Scripture Review) pathway → offer the ⏱ inline, like the next-steps list
+    if (entry.kind === 'pstep' && entry.timed && !entry.done) {
+      const p = PW.all().find(x => x.id === entry.pid);
+      const el = h(`
+        <div class="list-item" style="cursor:default">
+          <div class="check">✓</div>
+          <div class="grow">
+            <div class="title">${esc(entry.label)}</div>
+            <div class="sub">${esc(entry.domain)}</div>
+          </div>
+          <button class="pill" data-a="t" style="padding:7px 11px;font-size:15px">⏱</button>
+        </div>`);
+      el.querySelector('.check').onclick = () => { PL.toggle(dk, entry); rerender(); };
+      el.querySelector('[data-a=t]').onclick = () => { if (p) render(() => stepTimer(p, entry.id)); };
+      wrap.append(el);
+      return;
+    }
     const el = checkRow(entry, () => { if (entry.readonly) return; PL.toggle(dk, entry); rerender(); },
       { sub: entry.kind === 'rule' ? 'recurring' + (entry.domain ? ' · ' + entry.domain : '') : entry.domain,
         onDelete: entry.kind === 'item' ? () => { PL.removeItem(dk, entry.id); rerender(); } : null });
@@ -3361,7 +3408,32 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
   if (!items.length) wrap.append(h(`<div class="empty">Nothing planned for this day yet.</div>`));
 
   if (showPathways) {
-    const active = PW.all().filter(p => PW.nextStep(p));
+    // overdue: dated steps whose day has passed and still aren't done → roll onto today (9.3)
+    if (dk === todayKey()) {
+      const overdue = PW.scheduledSteps()
+        .filter(({ s }) => s.date < dk && !s.done)
+        .sort((a, b) => (a.s.date < b.s.date ? -1 : 1));
+      if (overdue.length) {
+        wrap.append(sectionTitle('Overdue'));
+        overdue.forEach(({ p, s }) => {
+          const el = h(`
+            <div class="list-item" style="cursor:default;border-color:var(--danger)">
+              <div class="check">✓</div>
+              <div class="grow">
+                <div class="title">${esc(s.label)}</div>
+                <div class="sub">${esc(p.name)} · was due ${shortDate(s.date)}</div>
+              </div>
+              ${PW.isTimed(p) ? '<button class="pill" data-a="t" style="padding:7px 11px;font-size:15px">⏱</button>' : ''}
+            </div>`);
+          el.querySelector('.check').onclick = () => { PW.completeStep(p, s.id); rerender(); };
+          const tb = el.querySelector('[data-a=t]');
+          if (tb) tb.onclick = () => render(() => stepTimer(p, s.id));
+          wrap.append(el);
+        });
+      }
+    }
+    // next steps only for pathways whose next step ISN'T scheduled (scheduled ones show on their day / overdue)
+    const active = PW.all().filter(p => { const s = PW.nextStep(p); return s && !s.date; });
     if (active.length) {
       wrap.append(sectionTitle('Next steps on your pathways'));
       active.forEach(p => {
@@ -3707,6 +3779,7 @@ function buildPathwayBody(wrap, p) {
                 ${!pwEditMode && PW.stepWeight(s) > 1 ? ` <span style="font-size:11px;font-weight:700;color:var(--gold)">×${PW.stepWeight(s)}</span>` : ''}</div>
               ${isNext && !pwEditMode && !locked ? `<button class="pill on" data-a="go" style="padding:5px 12px;font-size:12px">Done</button>` +
                 (PW.isTimed(p) ? `<button class="pill" data-a="time" style="padding:5px 9px;font-size:13px">⏱</button>` : '') : ''}
+              ${!s.done && !pwEditMode ? `<button class="pill pw-datechip ${s.date ? 'on' : ''}" data-a="date" style="padding:5px 9px;font-size:12px">${s.date ? '📅 ' + shortDate(s.date) : '📅'}</button>` : ''}
               ${s.done && pwEditMode ? '<button class="pill" data-a="undo" style="font-size:12px;padding:5px 10px">Undo</button>' : ''}
               ${pwEditMode ? `<button class="pill" data-a="wminus" style="padding:4px 9px;font-size:13px">−</button>
                 <span style="font-size:12px;font-weight:700;color:var(--gold);min-width:24px;text-align:center">×${PW.stepWeight(s)}</span>
@@ -3715,6 +3788,7 @@ function buildPathwayBody(wrap, p) {
             </div>
             ${s.done && s.doneTs ? `<div class="sub" style="margin-top:2px">done ${new Date(s.doneTs).toLocaleDateString()}${s.secs != null ? ' · ' + SC.fmtSecs(s.secs) : ''}</div>` : ''}
             <div data-slot="timebox"></div>
+            <div data-slot="datebox"></div>
           </div>
         </div>`);
       const go = stone.querySelector('[data-a=go]');
@@ -3722,6 +3796,9 @@ function buildPathwayBody(wrap, p) {
       const time = stone.querySelector('[data-a=time]');
       const timebox = stone.querySelector('[data-slot=timebox]');
       if (time) time.onclick = () => openTimeBox(p, timebox);
+      const datebtn = stone.querySelector('[data-a=date]');
+      const datebox = stone.querySelector('[data-slot=datebox]');
+      if (datebtn) datebtn.onclick = () => openDateBox(p, s, datebox);
       const undo = stone.querySelector('[data-a=undo]');
       if (undo) undo.onclick = () => { PW.uncomplete(p, s.id); drawPathway(p); };
       const del = stone.querySelector('[data-a=del]');
@@ -3946,6 +4023,29 @@ function openTimeBox(p, card) {
   };
 }
 
+// short date label for a step's schedule chip, e.g. "Jul 22"
+function shortDate(dk) { const d = PL.parseKey(dk); return PL.MONTHS[d.getMonth()].slice(0, 3) + ' ' + d.getDate(); }
+
+// inline date picker under a step: schedule / reschedule / clear its date (Phase 9.2)
+function openDateBox(p, s, slot) {
+  if (!slot) return;
+  slot.innerHTML = '';
+  slot.append(h(`
+    <div class="row" style="margin-top:10px">
+      <input type="date" data-a="d" value="${s.date || ''}" style="flex:1;min-width:0;padding:9px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px">
+      ${s.date ? '<button class="pill" data-a="clear">Clear</button>' : ''}
+      <button class="pill on" data-a="save">Save</button>
+    </div>`));
+  slot.querySelector('[data-a=save]').onclick = () => {
+    const v = slot.querySelector('[data-a=d]').value;
+    PW.setStepDate(p, s.id, v || null);
+    toast(v ? 'Scheduled ' + shortDate(v) : 'Date cleared');
+    drawPathway(p);
+  };
+  const clr = slot.querySelector('[data-a=clear]');
+  if (clr) clr.onclick = () => { PW.setStepDate(p, s.id, null); toast('Date cleared'); drawPathway(p); };
+}
+
 // Background-safe stopwatch (Phase 7.1). Elapsed derives from a wall-clock start,
 // NOT accumulated setInterval ticks — iOS suspends the JS timer when the app is
 // backgrounded or the phone locks, so tick-counting silently lost time (1:20 away
@@ -3971,8 +4071,8 @@ function startStopwatch(getClockEl) {
 }
 
 // full-screen stopwatch for a pathway step
-function stepTimer(p) {
-  const s = PW.nextStep(p);
+function stepTimer(p, stepId = null) {
+  const s = stepId ? PW.flatSteps(p).find(x => x.id === stepId) : PW.nextStep(p);
   if (!s) { goBack(); return; }
   setHeader('Timing step', { back: true });
   const el = document.createElement('div');
@@ -3986,7 +4086,7 @@ function stepTimer(p) {
   const sw = startStopwatch(() => el.querySelector('#st-clock'));
   el.querySelector('#st-done').onclick = () => {
     sw.stop();
-    completePathwayStep(p, sw.elapsed());
+    completePathwayStep(p, sw.elapsed(), stepId);
     goBack();
   };
   el.querySelector('#st-cancel').onclick = () => { sw.stop(); goBack(); };
