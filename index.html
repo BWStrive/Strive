@@ -438,7 +438,15 @@ function defaultState() {
     fitness: {
       workouts: [],        // custom workouts; composites add components:[wid,...] (F1, Phase 7 UI)
       logs: [],            // entries may add sessionId to group component results (F1)
-      weights: []          // {date, lbs}
+      weights: [],         // {ts, lbs}
+      cards: [],           // workout cards (Phase 8): {id,name,ts,parts:[{wid,logId}]}
+      water: [],           // {ts, oz}  (Phase 8 §7)
+      waterGoal: 0,        // oz/day, 0 = unset
+      meals: [],           // {id, ts, name, p, f, c}  cal derived (Phase 8 §9)
+      mealPresets: [],     // {id, name, p, f, c}  saved shorthand meals
+      dietTargets: { p: 0, c: 0, f: 0, cal: 0 },
+      sleep: [],           // {id, bedTs, wakeTs, mins}  filed under wake date (Phase 8 §8)
+      weightGoal: { lbs: 0, byTs: 0 }   // target weight + date, 0 = unset (Phase 8 §6)
     },
     sermons: [],           // [{id, passage, book, mode:'outline'|'full', steps:{...}, created, updated}] (SP, Phase 9 UI)
     planner: {
@@ -1598,10 +1606,20 @@ const CLASSICS = CLASSIC_WORKOUTS.filter(w => !seedNames.has(w.name.toLowerCase(
 
 const F = () => state.fitness;
 function ftEnsure() {
-  if (!F().workouts) F().workouts = [];   // custom workouts only; seed is static
-  if (!F().logs) F().logs = [];           // user-added logs; seed logs are static
-  if (!F().weights) F().weights = [];     // {ts, lbs}
+  const f = F();
+  if (!f.workouts) f.workouts = [];   // custom workouts only; seed is static
+  if (!f.logs) f.logs = [];           // user-added logs; seed logs are static
+  if (!f.weights) f.weights = [];     // {ts, lbs}
+  if (!f.cards) f.cards = [];
+  if (!f.water) f.water = [];
+  if (typeof f.waterGoal !== 'number') f.waterGoal = 0;
+  if (!f.meals) f.meals = [];
+  if (!f.mealPresets) f.mealPresets = [];
+  if (!f.dietTargets) f.dietTargets = { p: 0, c: 0, f: 0, cal: 0 };
+  if (!f.sleep) f.sleep = [];
+  if (!f.weightGoal) f.weightGoal = { lbs: 0, byTs: 0 };
 }
+const dayKeyOf = ts => todayKey(new Date(ts));
 
 const FORMATS = [
   ['fortime', 'For Time'], ['amrap', 'AMRAP'], ['emom', 'EMOM'], ['intervals', 'Intervals'],
@@ -1612,6 +1630,22 @@ const RESULT_TYPES = [
   ['time', 'Time'], ['load', 'Load'], ['reps', 'Reps'], ['rounds', 'Rounds'], ['completed', 'Done']
 ];
 function formatOf(w) { return (w && w.format) || 'other'; }
+
+// Workout-format templates (Phase 8 §3, E2): pre-arranged component slots so building a
+// day's workout is directed. A template seeds the card's name + slot hints; the user drops
+// real workouts into the slots. All editable; "Custom" starts blank.
+const WORKOUT_TEMPLATES = [
+  { id: 'liftmetcon', name: 'Lift + Metcon', slots: ['Strength lift', 'Metcon'] },
+  { id: 'liftonly', name: 'Lift only', slots: ['Strength lift'] },
+  { id: 'metcononly', name: 'Metcon only', slots: ['Metcon'] },
+  { id: 'longgrind', name: 'Long grinder', slots: ['Long metcon (20 min+)'] },
+  { id: 'longcardio', name: 'Long cardio', slots: ['Monostructural (run/row/bike/swim)'] },
+  { id: 'sprint', name: 'Sprint / intervals', slots: ['Interval set'] },
+  { id: 'emomsession', name: 'EMOM session', slots: ['EMOM / death-by'] },
+  { id: 'skillcond', name: 'Skill + conditioning', slots: ['Skill / accessory', 'Metcon'] },
+  { id: 'benchmark', name: 'Benchmark', slots: ['Named WOD'] },
+  { id: 'custom', name: 'Custom / blank', slots: [] },
+];
 
 // Pure result builder (Phase 8): given a format + collected form fields, return the
 // canonical result string (kept parseable by parseResult for PR/assessment) plus a
@@ -1647,6 +1681,26 @@ function buildResult(format, f = {}) {
       const vol = sets.reduce((a, s) => a + num(s.reps) * num(s.load), 0);
       return { result: loads.length ? `${loads.join('/')} lbs` : '',
                score: { type: 'strength', sets, topLoad: loads.length ? Math.max(...loads) : 0, volume: vol } };
+    }
+    case 'intervals': {
+      // per-round result (a time or rep count each round) + optional total
+      const per = (f.per || []).map(x => String(x).trim()).filter(Boolean);
+      const total = (f.total || '').trim();
+      const result = per.length ? per.join(', ') + (total ? ` · ${total}` : '') : total;
+      return { result, score: { type: 'intervals', perInterval: per, total } };
+    }
+    case 'tabata': {
+      // reps per round → lowest (classic Tabata score) + total
+      const per = (f.per || []).map(num).filter((v, i, a) => a.length);
+      const lowest = per.length ? Math.min(...per) : 0;
+      const total = per.reduce((a, b) => a + b, 0);
+      const result = per.length ? `${lowest} low · ${total} total` : (f.result || '').trim();
+      return { result, score: { type: 'tabata', perRound: per, lowest, total } };
+    }
+    case 'cardio': {
+      const mod = (f.modality || '').trim(), dist = (f.dist || '').trim(), t = (f.time || '').trim();
+      const result = [mod, dist, t].filter(Boolean).join(' · ');
+      return { result, score: { type: 'cardio', modality: mod, distance: dist, time: t } };
     }
     default:
       return { result: (f.result || '').trim(), score: null };
@@ -1828,6 +1882,50 @@ function latestWeight() {
   ftEnsure();
   return F().weights.length ? F().weights[F().weights.length - 1] : null;
 }
+// weight goal (§6): target weight by a target date → needed change per week/day
+function weightGoal() { ftEnsure(); return F().weightGoal; }
+function setWeightGoal(lbs, byTs) { ftEnsure(); F().weightGoal = { lbs: Number(lbs) || 0, byTs: byTs || 0 }; save(); }
+function weightGoalPace() {
+  ftEnsure();
+  const g = F().weightGoal, cur = latestWeight();
+  if (!g || !g.lbs || !g.byTs || !cur) return null;
+  const days = Math.max(1, Math.ceil((g.byTs - Date.now()) / 86400000));
+  const delta = g.lbs - cur.lbs;                 // + = gain, − = lose
+  return { delta, days, perWeek: delta / days * 7, perDay: delta / days };
+}
+
+// ---- water (§7): ounces, additive per day, editable daily goal ----
+function addWater(ts, oz) { ftEnsure(); F().water.push({ id: uid(), ts, oz: Number(oz) || 0 }); F().water.sort((a, b) => a.ts - b.ts); markActivity('ft'); save(); }
+function removeWater(id) { ftEnsure(); F().water = F().water.filter(w => w.id !== id); save(); }
+function waterGoal() { ftEnsure(); return F().waterGoal; }
+function setWaterGoal(oz) { ftEnsure(); F().waterGoal = Number(oz) || 0; save(); }
+function waterForDay(dk = todayKey()) { ftEnsure(); return F().water.filter(w => dayKeyOf(w.ts) === dk).reduce((a, w) => a + w.oz, 0); }
+function waterEntriesForDay(dk = todayKey()) { ftEnsure(); return F().water.filter(w => dayKeyOf(w.ts) === dk).sort((a, b) => b.ts - a.ts); }
+function waterDays() { ftEnsure(); const m = {}; F().water.forEach(w => { const k = dayKeyOf(w.ts); m[k] = (m[k] || 0) + w.oz; }); return Object.entries(m).sort((a, b) => b[0].localeCompare(a[0])); }
+
+// ---- diet / macros (§9): per-meal P/F/C → computed calories, daily totals ----
+const kcal = (p, f, c) => Math.round(Number(p || 0) * 4 + Number(c || 0) * 4 + Number(f || 0) * 9);
+function addMeal({ ts = Date.now(), name = '', p = 0, f = 0, c = 0 }) { ftEnsure(); const m = { id: uid(), ts, name: name.trim(), p: Number(p) || 0, f: Number(f) || 0, c: Number(c) || 0 }; F().meals.push(m); markActivity('ft'); save(); return m; }
+function removeMeal(id) { ftEnsure(); F().meals = F().meals.filter(m => m.id !== id); save(); }
+function mealsForDay(dk = todayKey()) { ftEnsure(); return F().meals.filter(m => dayKeyOf(m.ts) === dk).sort((a, b) => b.ts - a.ts); }
+function macroTotals(dk = todayKey()) { ftEnsure(); return mealsForDay(dk).reduce((t, m) => ({ p: t.p + m.p, f: t.f + m.f, c: t.c + m.c, cal: t.cal + kcal(m.p, m.f, m.c) }), { p: 0, f: 0, c: 0, cal: 0 }); }
+function dietTargets() { ftEnsure(); return F().dietTargets; }
+function setDietTargets(t) { ftEnsure(); F().dietTargets = { p: Number(t.p) || 0, c: Number(t.c) || 0, f: Number(t.f) || 0, cal: Number(t.cal) || 0 }; save(); }
+function mealPresets() { ftEnsure(); return F().mealPresets; }
+function addMealPreset({ name, p = 0, f = 0, c = 0 }) { ftEnsure(); const m = { id: uid(), name: name.trim(), p: Number(p) || 0, f: Number(f) || 0, c: Number(c) || 0 }; F().mealPresets.push(m); save(); return m; }
+function removeMealPreset(id) { ftEnsure(); F().mealPresets = F().mealPresets.filter(m => m.id !== id); save(); }
+
+// ---- sleep (§8): bed+wake → duration, filed under wake date ----
+function addSleep({ bedTs, wakeTs }) {
+  ftEnsure();
+  const mins = Math.max(0, Math.round((wakeTs - bedTs) / 60000));
+  const s = { id: uid(), bedTs, wakeTs, mins };
+  F().sleep.push(s); F().sleep.sort((a, b) => a.wakeTs - b.wakeTs); markActivity('ft'); save(); return s;
+}
+function removeSleep(id) { ftEnsure(); F().sleep = F().sleep.filter(s => s.id !== id); save(); }
+function sleepList() { ftEnsure(); return [...F().sleep].sort((a, b) => b.wakeTs - a.wakeTs); }
+function sleepForDate(dk = todayKey()) { ftEnsure(); return F().sleep.find(s => dayKeyOf(s.wakeTs) === dk) || null; }
+function lastNightSleep() { const l = sleepList(); return l[0] || null; }
 
 // ---- Fitness assessment: 7 domains, level 1–99 (99 ≈ avg professional) ----
 
@@ -1970,7 +2068,7 @@ function ftStats() {
   };
 }
 
-const FT = {ASSESS_DOMAINS,BENCHMARKS,FORMATS,RESULT_TYPES,RX_STATES,UNLOCK_MIN,addCard,addCustomWorkout,addLog,addWeight,allCards,allLogs,allWorkouts,assessment,benchmarkFor,buildResult,byDomain,cardAddPart,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,formatOf,ftStats,getCard,getWorkout,isPR,latestWeight,levelFromCurve,logsFor,movesToText,parseResult,prFor,removeCard,removeCustomWorkout,removeLog,removeWeight,rxLabel,rxStatusOf,weightedLevel,weights};
+const FT = {ASSESS_DOMAINS,BENCHMARKS,FORMATS,RESULT_TYPES,RX_STATES,UNLOCK_MIN,WORKOUT_TEMPLATES,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,assessment,benchmarkFor,buildResult,byDomain,cardAddPart,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,dietTargets,formatOf,ftStats,getCard,getWorkout,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,prFor,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,rxLabel,rxStatusOf,setDietTargets,setWaterGoal,setWeightGoal,sleepForDate,sleepList,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights};
 // Strive — Bible reading plans: any scope, canonical order, pace by chapters/day
 // or target date. Missed days roll forward. Multiple plans can run at once.
 
@@ -3061,6 +3159,18 @@ function dashboard() {
           const dom = asm.domains[dk2];
           return ftRadial(dl, dom && dom.unlocked ? dom.level : null);
         }).join('')}</div>
+        ${(() => {
+          const oz = FT.waterForDay(), sl = FT.lastNightSleep(), mt = FT.macroTotals();
+          const bits = [`${oz} oz water`, `${sl ? fmtDur(sl.mins) : '—'} sleep`, (mt.p || mt.c || mt.f) ? `${mt.p}P ${mt.c}C ${mt.f}F · ${mt.cal} kcal` : 'no meals yet'];
+          return `<div class="muted" style="font-size:12px;margin-top:8px">${bits.join(' · ')}</div>`;
+        })()}
+        <div class="pillrow" id="d-ft-quick" style="margin-top:8px">
+          <button class="pill" data-ql="workout">＋ Workout</button>
+          <button class="pill" data-ql="water">＋ Water</button>
+          <button class="pill" data-ql="meal">＋ Meal</button>
+          <button class="pill" data-ql="sleep">＋ Sleep</button>
+          <button class="pill" data-ql="weight">＋ Weight</button>
+        </div>
         <div class="muted" style="font-size:12px;margin-top:8px">${fs.totalLogs} logged · ${thisMonth} this month · ${fs.thisYear} this year</div>`;
       })()}
     </div>
@@ -3072,6 +3182,16 @@ function dashboard() {
   `));
   main().querySelector('#d-trends').onclick = () => render(trendsScreen);
   main().querySelector('#d-fitness').onclick = () => render(fitnessHome);
+  const ftq = main().querySelector('#d-ft-quick');
+  if (ftq) {
+    ftq.onclick = e => e.stopPropagation();
+    const openFt = m => { ftMode = m; render(fitnessHome); };
+    ftq.querySelector('[data-ql=workout]').onclick = e => { e.stopPropagation(); render(workoutPicker); };
+    ftq.querySelector('[data-ql=water]').onclick = e => { e.stopPropagation(); openFt('water'); };
+    ftq.querySelector('[data-ql=meal]').onclick = e => { e.stopPropagation(); openFt('diet'); };
+    ftq.querySelector('[data-ql=sleep]').onclick = e => { e.stopPropagation(); openFt('sleep'); };
+    ftq.querySelector('[data-ql=weight]').onclick = e => { e.stopPropagation(); openFt('weight'); };
+  }
   main().querySelector('#d-creeds').onclick = () => {
     const d = CR.currentDoc();
     if (d) render(() => creedDocScreen(d)); else render(creedsHome);
@@ -5931,7 +6051,7 @@ function practiceSummary(d, mode, lines, count) {
 }
 
 // ---------- Fitness ----------
-let ftMode = 'log';
+let ftMode = 'level';
 let ftSearch = '';
 
 const FIN = 'padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px';
@@ -5939,24 +6059,18 @@ const FIN = 'padding:11px;border-radius:3px;border:1px solid var(--line);backgro
 function fitnessHome() {
   setHeader('Fitness', { back: true });
   const wrap = document.createElement('div');
-  const pills = h(`<div class="pillrow">
-    <button class="pill ${ftMode === 'log' ? 'on' : ''}" data-m="log">Logbook</button>
-    <button class="pill ${ftMode === 'level' ? 'on' : ''}" data-m="level">Level</button>
-    <button class="pill ${ftMode === 'workouts' ? 'on' : ''}" data-m="workouts">Workouts</button>
-    <button class="pill ${ftMode === 'weight' ? 'on' : ''}" data-m="weight">Weight</button>
-    <button class="pill ${ftMode === 'timers' ? 'on' : ''}" data-m="timers">Timers</button>
-  </div>`);
+  const tabs = [['level', 'Level'], ['workouts', 'Workouts'], ['log', 'Logbook'], ['weight', 'Weight'], ['water', 'Water'], ['diet', 'Macros'], ['sleep', 'Sleep'], ['timers', 'Timers']];
+  const pills = h(`<div class="pillrow">${tabs.map(([m, l]) => `<button class="pill ${ftMode === m ? 'on' : ''}" data-m="${m}">${l}</button>`).join('')}</div>`);
   pills.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { ftMode = b.dataset.m; rerender(); });
   wrap.append(pills);
   const body = document.createElement('div');
   wrap.append(body);
   main().append(wrap);
-  ({ log: ftLogbook, level: ftLevel, workouts: ftWorkouts, weight: ftWeight, timers: ftTimers })[ftMode](body);
+  ({ log: ftLogbook, level: ftLevel, workouts: ftWorkouts, weight: ftWeight, water: ftWater, diet: ftDiet, sleep: ftSleep, timers: ftTimers })[ftMode](body);
 }
 
 // ---- assessment / Level view ----
-let ftLevelWindow = 'live';
-let ftLevelAuto = true;   // auto-fall to All-time when the live 12-mo window is empty (data age)
+let ftLevelWindow = 'live';   // default Live; locked/empty is fine — a motivator to log fresh (Baruch)
 
 function fmtBench(item) {
   if (item.rtype === 'time') return SC.fmtSecs(Math.round(item.best));
@@ -5991,14 +6105,13 @@ function tierTag(t) { return t === 'E' ? ' <span class="muted" style="font-size:
 
 function ftLevel(body) {
   const a = FT.assessment();
-  if (ftLevelAuto && a.live.overall == null && a.alltime.overall != null) ftLevelWindow = 'alltime';
   const view = a[ftLevelWindow];
   const liveView = ftLevelWindow === 'live';
   const toggle = h(`<div class="pillrow">
     <button class="pill ${ftLevelWindow === 'live' ? 'on' : ''}" data-w="live">Live (12 mo)</button>
     <button class="pill ${ftLevelWindow === 'alltime' ? 'on' : ''}" data-w="alltime">All-time</button>
   </div>`);
-  toggle.querySelectorAll('[data-w]').forEach(b => b.onclick = () => { ftLevelWindow = b.dataset.w; ftLevelAuto = false; rerender(); });
+  toggle.querySelectorAll('[data-w]').forEach(b => b.onclick = () => { ftLevelWindow = b.dataset.w; rerender(); });
   body.append(toggle);
 
   body.append(h(`
@@ -6014,52 +6127,94 @@ function ftLevel(body) {
     const dom = view.domains[d];
     const hasDetail = dom.items.length || dom.targets.length;
     const bestLvl = liveView && a.alltime.domains[d] ? a.alltime.domains[d].level : null;
+    const sub = hasDetail
+      ? (dom.count + ' result' + (dom.count === 1 ? '' : 's') + (dom.unlocked ? (dom.confidence === 'estimated' ? ' · incl. estimated' : '') : ' — ' + Math.max(1, FT.UNLOCK_MIN - dom.count) + ' more to unlock'))
+      : 'No scored results yet — tap to find benchmarks';
     const card = h(`
-      <div class="card" style="padding:12px 14px">
-        <div class="row" data-a="head" style="${hasDetail ? 'cursor:pointer' : ''}">
+      <div class="card" style="padding:12px 14px;cursor:pointer">
+        <div class="row">
           <div style="flex-shrink:0">${levelRing(dom.unlocked ? dom.level : null, 46, { best: bestLvl })}</div>
           <div class="grow">
             <div style="font-weight:700">${label}</div>
-            <div class="muted" style="font-size:12px">${hasDetail
-              ? (dom.count + ' result' + (dom.count === 1 ? '' : 's') + (dom.unlocked ? (dom.confidence === 'estimated' ? ' · incl. estimated anchors' : '') : ' — ' + Math.max(1, FT.UNLOCK_MIN - dom.count) + ' more to unlock'))
-              : 'No scored results — do a benchmark in this domain'}</div>
+            <div class="muted" style="font-size:12px">${sub}</div>
           </div>
-          ${hasDetail ? '<span class="chev" data-a="chev" style="transition:transform .15s">›</span>' : ''}
-        </div>
-        <div data-a="detail" style="display:none">
-          ${dom.items.map(it => {
-            const tgt = (it.estimate && it.rtype === 'load' && it.estimate > it.best) ? ` <span class="muted" style="font-size:10px">· est 1RM ~${it.estimate}</span>` : '';
-            return `
-            <div class="row" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
-              <div class="grow" style="font-size:13px">${esc(it.label)}${tierTag(it.tier)}</div>
-              <div style="font-size:13px;font-weight:700">${fmtBench(it)}${tgt}</div>
-              <div style="width:34px;text-align:right;font-weight:700;color:var(--accent)">${it.level}</div>
-            </div>`;
-          }).join('')}
-          ${dom.targets.map(t => `
-            <div class="row" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
-              <div class="grow" style="font-size:13px">${esc(t.label)} <span class="muted" style="font-size:10px">(est. — log a 1RM)</span></div>
-              <div style="font-size:13px;font-weight:700;color:var(--text-2)">~${t.estimate} lb</div>
-              <div style="width:34px;text-align:right;color:var(--text-3)">→</div>
-            </div>`).join('')}
+          <span class="chev">›</span>
         </div>
       </div>`);
-    if (hasDetail) {
-      const head = card.querySelector('[data-a=head]');
-      const detail = card.querySelector('[data-a=detail]');
-      const chev = card.querySelector('[data-a=chev]');
-      head.onclick = () => {
-        const open = detail.style.display === 'none';
-        detail.style.display = open ? 'block' : 'none';
-        chev.style.transform = open ? 'rotate(90deg)' : '';
-      };
-    }
+    card.firstElementChild.onclick = () => render(() => ftDomainScreen(d));
     body.append(card);
   });
   const notes = [`Levels weight measured anchors above provisional and modeled (death-by) ones. Lifts score from true 1RMs only, bodyweight-relative — rep work shows as an estimated target (~lb) to chase. A domain unlocks with ${FT.UNLOCK_MIN} results${liveView ? ' inside the 12-month window' : ''}.`];
   if (a.bw && a.bw.assumed) notes.push(`Lifts scored at an assumed ~${a.bw.lbs} lb bodyweight — log your weight to refine.`);
   if (liveView && a.alltime.overall != null) notes.push('The brass notch marks your all-time best — a target to chase.');
   body.append(h(`<div class="muted" style="font-size:11px;margin:8px 4px">${notes.join(' ')}</div>`));
+}
+
+// ---- domain screen (§5): tap a domain → its assessment benchmarks + full library ----
+let ftDomainView = 'assess';
+function workoutForBenchmark(key) {
+  const ws = FT.allWorkouts().filter(w => FT.benchmarkFor(w) === key);
+  if (!ws.length) return null;
+  return ws.find(w => /^1RM:/i.test(w.name)) || ws[0];
+}
+function benchRow(key, item) {
+  const b = FT.BENCHMARKS[key];
+  const w = workoutForBenchmark(key);
+  const badge = b.tier === 'E' ? 'modeled' : (b.tier === 'P' || b.provisional) ? 'provisional' : 'sourced';
+  const el = h(`<div class="list-item">
+      <div style="flex-shrink:0;margin-right:4px">${levelRing(item ? item.level : null, 38, { stroke: 3 })}</div>
+      <div class="grow"><div class="title" style="font-size:14px">${esc(b.label)}</div>
+      <div class="sub">${item ? 'Best ' + fmtBench(item) + ' · ' + item.count + ' log' + (item.count === 1 ? '' : 's') : 'Not done yet'} · ${badge}</div></div>
+      <span class="chev">›</span></div>`);
+  el.querySelector('.list-item').onclick = () => { if (w) render(() => workoutDetail(w)); else toast('No workout for this benchmark yet — create one'); };
+  return el;
+}
+function libRow(w) {
+  const n = FT.logsFor(w.id).length, pr = FT.prFor(w.id);
+  const el = h(`<div class="list-item">
+      <div class="grow"><div class="title" style="font-size:14px">${esc(w.name)}${w.custom ? ' <span class="muted" style="font-size:11px">(custom)</span>' : ''}</div>
+      <div class="sub">${n ? n + ' log' + (n === 1 ? '' : 's') : 'never done'}${pr ? ' · PR ' + esc(pr.result) : ''}</div></div>
+      <span class="badge" style="background:var(--nt)">${w.resultType.toUpperCase()}</span><span class="chev">›</span></div>`);
+  el.querySelector('.list-item').onclick = () => render(() => workoutDetail(w));
+  return el;
+}
+function ftDomainScreen(d) {
+  const label = (FT.ASSESS_DOMAINS.find(x => x[0] === d) || ['', d])[1];
+  setHeader(label, { back: true });
+  const wrap = document.createElement('div');
+  const a = FT.assessment();
+  const domA = a.alltime.domains[d], domL = a.live.domains[d];
+  const shownLevel = domL.unlocked ? domL.level : (domA.unlocked ? domA.level : null);
+  const summary = domL.unlocked ? 'Live level ' + domL.level
+    : domA.unlocked ? 'All-time ' + domA.level + ' · nothing in the last 12 months'
+    : Math.max(1, FT.UNLOCK_MIN - domL.count) + ' more result' + (FT.UNLOCK_MIN - domL.count === 1 ? '' : 's') + ' to unlock';
+  wrap.append(h(`<div class="card" style="text-align:center;padding:16px 14px">
+      <div style="display:flex;justify-content:center">${levelRing(shownLevel, 74, { best: domL.unlocked ? null : (domA.unlocked ? domA.level : null), stroke: 5 })}</div>
+      <div style="font-weight:700;margin-top:6px">${label}</div>
+      <div class="muted" style="font-size:12px">${summary}</div>
+    </div>`));
+  const toggle = h(`<div class="pillrow">
+      <button class="pill ${ftDomainView === 'assess' ? 'on' : ''}" data-v="assess">Assessment</button>
+      <button class="pill ${ftDomainView === 'lib' ? 'on' : ''}" data-v="lib">Full library</button>
+    </div>`);
+  toggle.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { ftDomainView = b.dataset.v; render(() => ftDomainScreen(d)); });
+  wrap.append(toggle);
+  const list = document.createElement('div');
+  if (ftDomainView === 'assess') {
+    const keys = Object.keys(FT.BENCHMARKS).filter(k => FT.BENCHMARKS[k].domain === d);
+    const itemByKey = {}; domA.items.forEach(it => itemByKey[it.key] = it);
+    const done = keys.filter(k => itemByKey[k]).sort((x, y) => itemByKey[y].level - itemByKey[x].level);
+    const todo = keys.filter(k => !itemByKey[k]);
+    if (done.length) { list.append(sectionTitle('Your benchmarks')); done.forEach(k => list.append(benchRow(k, itemByKey[k]))); }
+    if (todo.length) { list.append(sectionTitle('Try these to raise ' + label)); todo.forEach(k => list.append(benchRow(k, null))); }
+    list.append(h(`<div class="muted" style="font-size:11px;margin:8px 4px">These are the workouts that move ${label}'s level. Do one and log it to add it to your assessment. Rings show your level on each; "modeled" = a death-by estimate, "provisional" = a tunable anchor.</div>`));
+  } else {
+    const pool = FT.byDomain(d);
+    list.append(h(`<div class="muted" style="font-size:12px;margin:2px 4px 8px">${pool.length} workouts tagged ${label} — every one you can browse or log, scored or not.</div>`));
+    pool.slice(0, 80).forEach(w => list.append(libRow(w)));
+  }
+  wrap.append(list);
+  main().append(wrap);
 }
 
 function logRow(l, { showName = true } = {}) {
@@ -6088,7 +6243,7 @@ function ftLogbook(body) {
   btn.firstChild.onclick = () => render(workoutPicker);
   body.append(btn);
   const cbtn = h(`<button class="btn secondary" style="margin-bottom:14px">＋ Build a workout (multi-part)</button>`);
-  cbtn.firstChild.onclick = () => { cardDraft = null; render(workoutCardBuilder); };
+  cbtn.firstChild.onclick = () => { cardDraft = null; render(workoutTemplatePicker); };
   body.append(cbtn);
   const cards = FT.allCards();
   if (cards.length) {
@@ -6105,10 +6260,25 @@ function ftLogbook(body) {
   FT.allLogs().slice(0, 25).forEach(l => body.append(logRow(l)));
 }
 
-let cardDraft = null;   // {name, ts, parts:[wid]}
+let cardDraft = null;   // {name, ts, parts:[wid], slots:[label]}
+function workoutTemplatePicker() {
+  setHeader('Choose a template', { back: true });
+  const wrap = document.createElement('div');
+  wrap.append(h(`<div class="muted" style="font-size:12px;margin:2px 4px 10px">Pick a shape for today's workout, then drop your movements in. Everything's editable.</div>`));
+  FT.WORKOUT_TEMPLATES.forEach(tpl => {
+    const el = h(`<div class="list-item"><div class="grow"><div class="title" style="font-size:14px">${esc(tpl.name)}</div>
+        <div class="sub">${tpl.slots.length ? tpl.slots.join(' · ') : 'Start from scratch'}</div></div><span class="chev">›</span></div>`);
+    el.querySelector('.list-item').onclick = () => {
+      cardDraft = { name: tpl.id === 'custom' ? '' : tpl.name, ts: Date.now(), parts: [], slots: tpl.slots.slice() };
+      render(workoutCardBuilder);
+    };
+    wrap.append(el);
+  });
+  main().append(wrap);
+}
 function workoutCardBuilder() {
   setHeader('Build a workout', { back: true });
-  if (!cardDraft) cardDraft = { name: '', ts: Date.now(), parts: [] };
+  if (!cardDraft) cardDraft = { name: '', ts: Date.now(), parts: [], slots: [] };
   const wrap = document.createElement('div');
   const card = h(`<div class="card">
       <input data-a="name" placeholder="${esc(FT.defaultCardName(cardDraft.ts))}" value="${esc(cardDraft.name)}" style="width:100%;${FIN};margin-bottom:8px">
@@ -6121,12 +6291,18 @@ function workoutCardBuilder() {
   const nameI = card.querySelector('[data-a=name]'); nameI.oninput = () => cardDraft.name = nameI.value;
   const dateI = card.querySelector('[data-a=date]'); dateI.onchange = () => { cardDraft.ts = dateI.value ? new Date(dateI.value + 'T12:00:00').getTime() : Date.now(); };
   const partsBox = card.querySelector('[data-a=parts]');
-  if (!cardDraft.parts.length) partsBox.append(h(`<div class="muted" style="font-size:13px;margin-bottom:6px">No components yet — add your Part A, Part B…</div>`));
+  const slots = cardDraft.slots || [];
+  if (!cardDraft.parts.length && !slots.length) partsBox.append(h(`<div class="muted" style="font-size:13px;margin-bottom:6px">No components yet — add your Part A, Part B…</div>`));
   cardDraft.parts.forEach((wid, i) => {
     const w = FT.getWorkout(wid);
-    const row = h(`<div class="list-item"><div class="grow"><div class="title" style="font-size:14px">${FT.cardPartLabel(i)}: ${esc(w ? w.name : '—')}</div></div><button data-x="rm" style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button></div>`);
+    const slot = slots[i] ? ` <span class="muted" style="font-size:11px">(${esc(slots[i])})</span>` : '';
+    const row = h(`<div class="list-item"><div class="grow"><div class="title" style="font-size:14px">${FT.cardPartLabel(i)}: ${esc(w ? w.name : '—')}${slot}</div></div><button data-x="rm" style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button></div>`);
     row.querySelector('[data-x=rm]').onclick = () => { cardDraft.parts.splice(i, 1); render(workoutCardBuilder); };
     partsBox.append(row);
+  });
+  slots.slice(cardDraft.parts.length).forEach((label, j) => {
+    const idx = cardDraft.parts.length + j;
+    partsBox.append(h(`<div class="list-item" style="cursor:default;opacity:.6"><div class="grow"><div class="title" style="font-size:14px">${FT.cardPartLabel(idx)}: <span class="muted">${esc(label)}</span></div></div><span class="muted" style="font-size:12px">to fill</span></div>`));
   });
   card.querySelector('[data-a=addpart]').onclick = () => render(cardComponentPicker);
   card.querySelector('[data-a=save]').onclick = () => {
@@ -6248,6 +6424,14 @@ function ftResultZone(fmt, w, prefill) {
     </div>`;
   if (fmt === 'strength') return `<div data-r="sets">${ftSetRow()}</div>
     <button class="btn secondary" data-r="addset" style="margin-bottom:4px">＋ Add set</button>`;
+  if (fmt === 'cardio') return `<input data-r="modality" placeholder="run / row / bike / swim" value="${esc((w.movements || '').split('\n')[0] || '')}" style="width:100%;${FIN};margin-bottom:6px">
+    <div class="row" style="gap:6px">
+      <input data-r="dist" placeholder="Distance (e.g. 5 km)" style="flex:1;${FIN}">
+      <input data-r="time" placeholder="Time mm:ss" value="${esc(prefill)}" style="flex:1;${FIN};text-align:center"></div>`;
+  if (fmt === 'tabata') return `<input data-r="per" placeholder="Reps per round, comma-separated" style="width:100%;${FIN}">
+    <div class="muted" style="font-size:11px;margin-top:4px">Score = lowest round · total.</div>`;
+  if (fmt === 'intervals') return `<input data-r="per" placeholder="Result per round, comma-separated" style="width:100%;${FIN};margin-bottom:6px">
+    <input data-r="total" placeholder="Total (optional)" style="width:100%;${FIN}">`;
   return `<input data-r="result" placeholder="${P}" value="${esc(prefill)}" style="width:100%;${FIN}">`;
 }
 function ftReadResult(form, fmt, w) {
@@ -6269,6 +6453,9 @@ function ftReadResult(form, fmt, w) {
     const capped = form.querySelector('[data-r=capped]');
     return FT.buildResult(fmt, { time: val('time'), capped: capped && capped.checked, reps: val('reps') });
   }
+  if (fmt === 'cardio') return FT.buildResult('cardio', { modality: val('modality'), dist: val('dist'), time: val('time') });
+  if (fmt === 'tabata') return FT.buildResult('tabata', { per: val('per').split(',').map(s => s.trim()).filter(Boolean) });
+  if (fmt === 'intervals') return FT.buildResult('intervals', { per: val('per').split(',').map(s => s.trim()).filter(Boolean), total: val('total') });
   return FT.buildResult('other', { result: val('result') });
 }
 
@@ -6414,6 +6601,9 @@ function workoutDetail(w) {
   const logBtn = h(`<button class="btn">＋ Log a result</button>`);
   logBtn.firstChild.onclick = () => render(() => logForm(w));
   wrap.append(logBtn);
+  const addBtn = h(`<button class="btn secondary">＋ Add to a workout card</button>`);
+  addBtn.firstChild.onclick = () => { if (!cardDraft) cardDraft = { name: '', ts: Date.now(), parts: [] }; cardDraft.parts.push(w.id); toast('Added — build the card'); render(workoutCardBuilder); };
+  wrap.append(addBtn);
   const timerBtn = h(`<button class="btn secondary">⏱ Start a timer</button>`);
   timerBtn.firstChild.onclick = () => render(() => ftTimersScreen(w));
   wrap.append(timerBtn);
@@ -6477,11 +6667,16 @@ function workoutBuilder() {
       extras.append(h(`<input data-x="rest" placeholder="Rest (sec)" inputmode="numeric" value="10" style="width:100px;${FIN}">`).firstChild);
       extras.append(h(`<input data-x="rounds" placeholder="Rounds" inputmode="numeric" value="8" style="width:90px;${FIN}">`).firstChild);
     }
+    if (format === 'intervals') {
+      extras.append(h(`<input data-x="rounds" placeholder="Rounds" inputmode="numeric" style="width:90px;${FIN}">`).firstChild);
+      extras.append(h(`<input data-x="work" placeholder="Work (sec)" inputmode="numeric" style="width:100px;${FIN}">`).firstChild);
+      extras.append(h(`<input data-x="rest" placeholder="Rest (sec)" inputmode="numeric" style="width:100px;${FIN}">`).firstChild);
+    }
   }
   form.querySelectorAll('[data-f]').forEach(b => b.onclick = () => {
     format = b.dataset.f;
     form.querySelectorAll('[data-f]').forEach(x => x.classList.toggle('on', x.dataset.f === format));
-    const auto = { fortime: 'time', amrap: 'rounds', emom: 'completed', tabata: 'reps', strength: 'load', chipper: 'time', other: 'time' }[format];
+    const auto = { fortime: 'time', amrap: 'rounds', emom: 'completed', intervals: 'time', tabata: 'reps', strength: 'load', chipper: 'time', cardio: 'time', skill: 'completed', other: 'time' }[format];
     rtype = auto;
     form.querySelectorAll('[data-t]').forEach(x => x.classList.toggle('on', x.dataset.t === rtype));
     drawExtras();
@@ -6532,6 +6727,26 @@ function ftWeight(body) {
   };
   body.append(entry);
 
+  // goal (§6): target weight + date → needed change per week
+  const g = FT.weightGoal(), pace = FT.weightGoalPace();
+  const goalCard = h(`<div class="card"><h3>Goal</h3>
+      <div class="row" style="gap:6px">
+        <input data-a="glbs" placeholder="Target lbs" inputmode="decimal" value="${g && g.lbs ? g.lbs : ''}" style="flex:1;${FIN};text-align:center">
+        <input data-a="gdate" type="date" value="${g && g.byTs ? todayKey(new Date(g.byTs)) : ''}" style="flex:1;${FIN}">
+        <button class="pill on" data-a="gsave" style="padding:11px 14px">Set</button>
+      </div>
+      ${pace ? `<div class="muted" style="font-size:12px;margin-top:8px">${pace.delta >= 0 ? 'Gain' : 'Lose'} ${Math.abs(pace.delta).toFixed(1)} lb in ${pace.days} day${pace.days === 1 ? '' : 's'} — about <span style="font-weight:700;color:var(--text)">${Math.abs(pace.perWeek).toFixed(1)} lb/week</span> (${Math.abs(pace.perDay).toFixed(2)}/day).</div>`
+        : (g && g.lbs ? '<div class="muted" style="font-size:12px;margin-top:8px">Log a weight to see your needed pace.</div>' : '')}
+    </div>`).firstElementChild;
+  goalCard.querySelector('[data-a=gsave]').onclick = () => {
+    const lbs = Number(goalCard.querySelector('[data-a=glbs]').value);
+    const ds = goalCard.querySelector('[data-a=gdate]').value;
+    FT.setWeightGoal(lbs, ds ? new Date(ds + 'T12:00:00').getTime() : 0);
+    toast(lbs ? 'Goal set' : 'Goal cleared');
+    rerender();
+  };
+  body.append(goalCard);
+
   const ws = FT.weights();
   if (ws.length >= 2) {
     const card = document.createElement('div');
@@ -6555,6 +6770,111 @@ function ftWeight(body) {
     });
   } else {
     body.append(h(`<div class="empty">One number a day. The trend chart appears after two entries.</div>`));
+  }
+}
+
+// progress ring for trackers (fraction of a goal, not a 0–99 level)
+function pctRing(centerText, pct, size = 88, stroke = 6) {
+  const r = size / 2 - stroke, cx = size / 2, cy = size / 2, c = 2 * Math.PI * r, p = Math.max(0, Math.min(1, pct || 0));
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--track)" stroke-width="${stroke}"/>
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--gold)" stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${(p * c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${cx} ${cy})"/>
+    <text x="${cx}" y="${cy + 5}" text-anchor="middle" style="font-family:var(--serif-display);font-size:16px;font-weight:700;fill:var(--text)">${centerText}</text></svg>`;
+}
+function fmtDur(mins) { const hh = Math.floor(mins / 60), mm = mins % 60; return hh + 'h' + (mm ? ' ' + mm + 'm' : ''); }
+
+// ---- water (§7) ----
+function ftWater(body) {
+  const goal = FT.waterGoal(), today = FT.waterForDay();
+  body.append(h(`<div class="card" style="text-align:center;padding:16px 14px">
+      ${goal ? `<div style="display:flex;justify-content:center;margin-bottom:6px">${pctRing(today, today / goal)}</div>` : ''}
+      <div style="font-family:var(--serif-display);font-size:26px;font-weight:700">${today} oz</div>
+      <div class="muted" style="font-size:12px">${goal ? 'of ' + goal + ' oz today' : 'today · set a daily goal below'}</div>
+    </div>`));
+  const add = h(`<div class="card"><h3>Add water</h3>
+      <div class="row" style="gap:6px"><input data-a="oz" placeholder="oz" inputmode="numeric" style="flex:1;${FIN};text-align:center"><button class="pill on" data-a="add" style="padding:11px 16px">Add</button></div>
+      <div class="pillrow" style="margin-top:8px">${[8, 12, 16, 24, 32].map(o => `<button class="pill" data-q="${o}">+${o}</button>`).join('')}</div></div>`).firstElementChild;
+  const ozI = add.querySelector('[data-a=oz]');
+  const addOz = oz => { if (!oz) return; FT.addWater(Date.now(), oz); toast('+' + oz + ' oz'); rerender(); };
+  add.querySelector('[data-a=add]').onclick = () => addOz(Number(ozI.value));
+  add.querySelectorAll('[data-q]').forEach(b => b.onclick = () => addOz(Number(b.dataset.q)));
+  body.append(add);
+  const gc = h(`<div class="card"><h3>Daily goal</h3><div class="row" style="gap:6px"><input data-a="g" placeholder="oz/day" inputmode="numeric" value="${goal || ''}" style="flex:1;${FIN};text-align:center"><button class="pill on" data-a="save" style="padding:11px 14px">Set</button></div></div>`).firstElementChild;
+  gc.querySelector('[data-a=save]').onclick = () => { FT.setWaterGoal(Number(gc.querySelector('[data-a=g]').value)); toast('Goal set'); rerender(); };
+  body.append(gc);
+  const te = FT.waterEntriesForDay();
+  if (te.length) {
+    body.append(sectionTitle("Today's log"));
+    te.forEach(w => { const row = h(`<div class="list-item" style="cursor:default"><div class="grow"><span style="font-weight:700">${w.oz} oz</span> <span class="muted" style="margin-left:8px">${new Date(w.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div><button style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button></div>`); row.querySelector('button').onclick = () => { FT.removeWater(w.id); rerender(); }; body.append(row); });
+  }
+  const days = FT.waterDays().filter(([k]) => k !== todayKey()).slice(0, 14);
+  if (days.length) { body.append(sectionTitle('History')); days.forEach(([k, oz]) => body.append(h(`<div class="list-item" style="cursor:default"><div class="grow">${new Date(k + 'T12:00').toLocaleDateString()}</div><span style="font-weight:700">${oz} oz</span></div>`))); }
+}
+
+// ---- diet / macros (§9) ----
+function ftDiet(body) {
+  const t = FT.macroTotals(), tg = FT.dietTargets();
+  const bar = (lab, val, goal, unit) => `<div style="margin-bottom:8px"><div class="row" style="justify-content:space-between"><span style="font-size:13px;font-weight:700">${lab}</span><span class="muted" style="font-size:12px">${val}${goal ? ' / ' + goal : ''} ${unit}</span></div><div class="progressbar" style="margin-top:4px"><div style="width:${goal ? Math.min(100, val / goal * 100) : 0}%;background:var(--gold)"></div></div></div>`;
+  body.append(h(`<div class="card"><h3>Today</h3>${bar('Protein', t.p, tg.p, 'g')}${bar('Carbs', t.c, tg.c, 'g')}${bar('Fat', t.f, tg.f, 'g')}${bar('Calories', t.cal, tg.cal, 'kcal')}</div>`));
+  const add = h(`<div class="card"><h3>Add a meal</h3>
+      <input data-a="name" placeholder="Meal name (optional)" style="width:100%;${FIN};margin-bottom:8px">
+      <div class="row" style="gap:6px;margin-bottom:6px">
+        <input data-a="p" placeholder="P (g)" inputmode="numeric" style="flex:1;${FIN};text-align:center">
+        <input data-a="c" placeholder="C (g)" inputmode="numeric" style="flex:1;${FIN};text-align:center">
+        <input data-a="f" placeholder="F (g)" inputmode="numeric" style="flex:1;${FIN};text-align:center"></div>
+      <div class="muted" style="font-size:12px;margin-bottom:8px">Calories compute automatically (4·P + 4·C + 9·F).</div>
+      <div class="row" style="gap:6px"><button class="btn" data-a="add" style="flex:2">Add meal</button><button class="btn secondary" data-a="preset" style="flex:1">Save preset</button></div></div>`).firstElementChild;
+  const gv = k => add.querySelector(`[data-a=${k}]`).value;
+  add.querySelector('[data-a=add]').onclick = () => { if (!gv('p') && !gv('c') && !gv('f')) { toast('Enter some macros'); return; } FT.addMeal({ name: gv('name'), p: gv('p'), f: gv('f'), c: gv('c') }); toast('Meal added'); rerender(); };
+  add.querySelector('[data-a=preset]').onclick = () => { const name = gv('name').trim(); if (!name) { toast('Name it to save a preset'); return; } FT.addMealPreset({ name, p: gv('p'), f: gv('f'), c: gv('c') }); toast('Preset saved'); rerender(); };
+  body.append(add);
+  const ps = FT.mealPresets();
+  if (ps.length) {
+    const box = h(`<div class="card"><h3>Quick meals</h3><div class="pillrow" data-a="ps"></div></div>`).firstElementChild;
+    const pr = box.querySelector('[data-a=ps]');
+    ps.forEach(m => { const b = h(`<button class="pill" title="${FT.kcal(m.p, m.f, m.c)} kcal">${esc(m.name)} +</button>`).firstChild; b.onclick = () => { FT.addMeal({ name: m.name, p: m.p, f: m.f, c: m.c }); toast('Added ' + m.name); rerender(); }; b.oncontextmenu = e => { e.preventDefault(); FT.removeMealPreset(m.id); toast('Preset removed'); rerender(); }; pr.append(b); });
+    box.append(h(`<div class="muted" style="font-size:11px;margin-top:6px">Tap to add · long-press / right-click to remove a preset.</div>`));
+    body.append(box);
+  }
+  const meals = FT.mealsForDay();
+  if (meals.length) {
+    body.append(sectionTitle("Today's meals"));
+    meals.forEach(m => { const row = h(`<div class="list-item" style="cursor:default"><div class="grow"><div class="title" style="font-size:14px">${esc(m.name || 'Meal')}</div><div class="sub">${m.p}p · ${m.c}c · ${m.f}f · ${FT.kcal(m.p, m.f, m.c)} kcal</div></div><button style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button></div>`); row.querySelector('button').onclick = () => { FT.removeMeal(m.id); rerender(); }; body.append(row); });
+  }
+  const tc = h(`<div class="card"><h3>Daily targets</h3>
+      <div class="row" style="gap:6px;margin-bottom:6px">
+        <input data-a="p" placeholder="P g" inputmode="numeric" value="${tg.p || ''}" style="flex:1;${FIN};text-align:center">
+        <input data-a="c" placeholder="C g" inputmode="numeric" value="${tg.c || ''}" style="flex:1;${FIN};text-align:center">
+        <input data-a="f" placeholder="F g" inputmode="numeric" value="${tg.f || ''}" style="flex:1;${FIN};text-align:center">
+        <input data-a="cal" placeholder="kcal" inputmode="numeric" value="${tg.cal || ''}" style="flex:1.3;${FIN};text-align:center"></div>
+      <button class="pill on" data-a="save" style="padding:10px 14px">Set targets</button></div>`).firstElementChild;
+  tc.querySelector('[data-a=save]').onclick = () => { const q = k => tc.querySelector(`[data-a=${k}]`).value; FT.setDietTargets({ p: q('p'), c: q('c'), f: q('f'), cal: q('cal') }); toast('Targets set'); rerender(); };
+  body.append(tc);
+}
+
+// ---- sleep (§8) ----
+function ftSleep(body) {
+  const last = FT.lastNightSleep();
+  body.append(h(`<div class="card" style="text-align:center;padding:16px 14px">
+      <div style="font-family:var(--serif-display);font-size:26px;font-weight:700">${last ? fmtDur(last.mins) : '—'}</div>
+      <div class="muted" style="font-size:12px">${last ? 'last night · woke ' + new Date(last.wakeTs).toLocaleDateString() : 'no sleep logged yet'}</div></div>`));
+  const now = new Date();
+  const defBed = new Date(now); defBed.setDate(defBed.getDate() - (now.getHours() < 12 ? 1 : 0)); defBed.setHours(23, 0, 0, 0);
+  const dtVal = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const add = h(`<div class="card"><h3>Log a night</h3>
+      <div style="margin-bottom:8px"><div class="muted" style="font-size:12px;margin-bottom:3px">Bedtime</div><input data-a="bed" type="datetime-local" value="${dtVal(defBed)}" style="width:100%;${FIN}"></div>
+      <div style="margin-bottom:8px"><div class="muted" style="font-size:12px;margin-bottom:3px">Wake time</div><input data-a="wake" type="datetime-local" value="${dtVal(now)}" style="width:100%;${FIN}"></div>
+      <div class="muted" data-a="dur" style="font-size:12px;margin-bottom:8px"></div>
+      <button class="btn" data-a="save">Save</button></div>`).firstElementChild;
+  const bedI = add.querySelector('[data-a=bed]'), wakeI = add.querySelector('[data-a=wake]'), durEl = add.querySelector('[data-a=dur]');
+  const upd = () => { const b = new Date(bedI.value).getTime(), w = new Date(wakeI.value).getTime(); durEl.textContent = (b && w && w > b) ? 'Duration: ' + fmtDur(Math.round((w - b) / 60000)) : ''; };
+  bedI.oninput = upd; wakeI.oninput = upd; upd();
+  add.querySelector('[data-a=save]').onclick = () => { const b = new Date(bedI.value).getTime(), w = new Date(wakeI.value).getTime(); if (!b || !w || w <= b) { toast('Wake must be after bedtime'); return; } FT.addSleep({ bedTs: b, wakeTs: w }); toast('Sleep logged'); rerender(); };
+  body.append(add);
+  const list = FT.sleepList();
+  if (list.length) {
+    body.append(sectionTitle('History'));
+    list.slice(0, 20).forEach(s => { const row = h(`<div class="list-item" style="cursor:default"><div class="grow"><div class="title" style="font-size:14px">${fmtDur(s.mins)}</div><div class="sub">${new Date(s.bedTs).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} → ${new Date(s.wakeTs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div></div><button style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button></div>`); row.querySelector('button').onclick = () => { FT.removeSleep(s.id); rerender(); }; body.append(row); });
   }
 }
 
