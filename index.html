@@ -310,15 +310,23 @@ const ASSESS_DOMAINS = [
   ['bodyweight', 'Bodyweight'], ['light', 'Light'], ['heavy', 'Heavy'], ['long', 'Long']
 ];
 
+// Lift bodyweight normalization (D2): anchor curves below are absolute lb, calibrated
+// to an ~85 kg (187 lb) source population. A lift scores on 1RM ÷ current bodyweight,
+// implemented as scaling the result by LIFT_REF_LB / bodyweight before it hits the curve
+// (equivalent to a ratio curve, but keeps the absolute anchors readable). If no weight is
+// logged, DEFAULT_BW_LB (Baruch's current ~195 lb) stands in until the weight tracker ships.
+const LIFT_REF_LB = 187;
+const DEFAULT_BW_LB = 195;
+
 // rtype: how to parse the result. dir: 'higher' = bigger is better, 'lower' = smaller (times).
 const BENCHMARKS = {
-  // ---- Lifts (power + olympic merged, absolute lb, actual lifted weight only) ----
-  cleanjerk:     { label: 'Clean & Jerk', domain: 'lifts', rtype: 'load', dir: 'higher', unit: 'lb', curve: [365, 285, 245, 205, 170], match: /clean|jerk/i },
-  snatch:        { label: 'Snatch', domain: 'lifts', rtype: 'load', dir: 'higher', unit: 'lb', curve: [300, 230, 190, 154, 126], match: /snatch/i },
-  deadlift:      { label: 'Deadlift', domain: 'lifts', rtype: 'load', dir: 'higher', unit: 'lb', curve: [550, 465, 420, 366, 309], match: /^deadlift/i },
-  backsquat:     { label: 'Back Squat', domain: 'lifts', rtype: 'load', dir: 'higher', unit: 'lb', curve: [485, 400, 345, 298, 243], match: /^back squat/i },
-  benchpress:    { label: 'Bench Press', domain: 'lifts', rtype: 'load', dir: 'higher', unit: 'lb', curve: [355, 295, 265, 225, 185], match: /^bench press/i },
-  shoulderpress: { label: 'Shoulder Press', domain: 'lifts', rtype: 'load', dir: 'higher', unit: 'lb', curve: [225, 185, 165, 146, 126], match: /^shoulder press/i },
+  // ---- Lifts (power + olympic merged; anchors absolute lb, scored bodyweight-relative — D2) ----
+  cleanjerk:     { label: 'Clean & Jerk', domain: 'lifts', rtype: 'load', dir: 'higher', unit: 'lb', normalize: 'bw', curve: [365, 285, 245, 205, 170], match: /clean|jerk/i },
+  snatch:        { label: 'Snatch', domain: 'lifts', rtype: 'load', dir: 'higher', unit: 'lb', normalize: 'bw', curve: [300, 230, 190, 154, 126], match: /snatch/i },
+  deadlift:      { label: 'Deadlift', domain: 'lifts', rtype: 'load', dir: 'higher', unit: 'lb', normalize: 'bw', curve: [550, 465, 420, 366, 309], match: /^deadlift/i },
+  backsquat:     { label: 'Back Squat', domain: 'lifts', rtype: 'load', dir: 'higher', unit: 'lb', normalize: 'bw', curve: [485, 400, 345, 298, 243], match: /^back squat/i },
+  benchpress:    { label: 'Bench Press', domain: 'lifts', rtype: 'load', dir: 'higher', unit: 'lb', normalize: 'bw', curve: [355, 295, 265, 225, 185], match: /^bench press/i },
+  shoulderpress: { label: 'Shoulder Press', domain: 'lifts', rtype: 'load', dir: 'higher', unit: 'lb', normalize: 'bw', curve: [225, 185, 165, 146, 126], match: /^shoulder press/i },
 
   // ---- Speed (≤ 1000 m) ----
   run400:  { label: 'Run 400 m', domain: 'speed', rtype: 'time', dir: 'lower', curve: [54, 62, 68, 76, 90], match: /^run 400 ?m/i },
@@ -354,7 +362,30 @@ const BENCHMARKS = {
   murph:   { label: 'Murph', domain: 'long', rtype: 'time', dir: 'lower', curve: [2100, 2457, 2800, 3325, 4200], match: /^murph$/i, provisional: true },
   filthy:  { label: 'Filthy Fifty', domain: 'long', rtype: 'time', dir: 'lower', curve: [900, 1073, 1240, 1495, 1920], match: /^filthy fifty$/i, provisional: true },
   eva:     { label: 'Eva', domain: 'long', rtype: 'time', dir: 'lower', curve: [1800, 2106, 2400, 2850, 3600], match: /^eva$/i, provisional: true },
+
+  // ---- Death-by workouts (E — modeled anchors, no published pro standard) ----
+  // Score = intervals completed (last full minute). tier:'E' → weight 0.4, flagged estimated.
+  // Curves are modeled from coaching references and TUNABLE in-app later. Death-bys carry
+  // bkey:null in the seed, so benchmarkFor matches E anchors by name (see fitness.js).
+  db_pullup:   { label: 'Death By: Pull-ups', domain: 'bodyweight', rtype: 'rounds', dir: 'higher', tier: 'E', curve: [22, 19, 16, 13, 9], match: /^death by: pull-ups$/i },
+  db_pushup:   { label: 'Death By: Push-ups', domain: 'bodyweight', rtype: 'rounds', dir: 'higher', tier: 'E', curve: [22, 19, 16, 13, 9], match: /^death by: push-ups$/i },
+  db_pushup2:  { label: 'Death By: Push-ups [x2]', domain: 'bodyweight', rtype: 'rounds', dir: 'higher', tier: 'E', curve: [14, 12, 10, 8, 5], match: /^death by: push-ups \[x2\]$/i },
+  db_burpee:   { label: 'Death By: Burpees', domain: 'bodyweight', rtype: 'rounds', dir: 'higher', tier: 'E', curve: [21, 18, 15, 12, 9], match: /^death by: burpees$/i },
+  db_situp:    { label: 'Death By: Sit-ups', domain: 'bodyweight', rtype: 'rounds', dir: 'higher', tier: 'E', curve: [24, 21, 18, 14, 10], match: /^death by: sit-ups$/i },
+  db_absitup:  { label: 'Death By: AbMat Sit-ups', domain: 'bodyweight', rtype: 'rounds', dir: 'higher', tier: 'E', curve: [24, 21, 18, 14, 10], match: /^death by: abmat sit-ups$/i },
+  db_boxjump:  { label: 'Death By: Box Jumps', domain: 'bodyweight', rtype: 'rounds', dir: 'higher', tier: 'E', curve: [22, 19, 16, 13, 9], match: /^death by: box jumps$/i },
+  db_backsquat:{ label: 'Death By: Back Squats', domain: 'bodyweight', rtype: 'rounds', dir: 'higher', tier: 'E', curve: [22, 19, 16, 13, 9], match: /^death by: back squats$/i },
+  db_du:       { label: 'Death By: Double Unders', domain: 'bodyweight', rtype: 'rounds', dir: 'higher', tier: 'E', curve: [18, 15, 13, 10, 7], match: /^death by: double unders/i },
+  db_rowcal:   { label: 'Death By: Row Calories', domain: 'bodyweight', rtype: 'rounds', dir: 'higher', tier: 'E', curve: [20, 17, 14, 11, 8], match: /^death by: row calories$/i },
+  db_hspu:     { label: 'Death By: Handstand Push-ups', domain: 'bodyweight', rtype: 'rounds', dir: 'higher', tier: 'E', curve: [16, 13, 11, 8, 5], match: /^death by: handstand push-ups$/i },
+  db_bmu:      { label: 'Death By: Bar Muscle-ups', domain: 'bodyweight', rtype: 'rounds', dir: 'higher', tier: 'E', curve: [15, 12, 10, 7, 4], match: /^death by: bar muscle-ups$/i },
+  db_spullup:  { label: 'Death By: Strict Pull-ups', domain: 'bodyweight', rtype: 'rounds', dir: 'higher', tier: 'E', curve: [16, 13, 11, 8, 5], match: /^death by: strict pull-ups$/i },
+  db_wpullup:  { label: 'Death By: Weighted Pull-ups', domain: 'bodyweight', rtype: 'rounds', dir: 'higher', tier: 'E', curve: [15, 12, 10, 7, 4], match: /^death by: weighted pull-ups$/i },
 };
+
+// Which benchmark tiers are "modeled" (estimated) rather than sourced — E anchors are
+// modeled, P are provisional, S are sourced. Used for the confidence flag + name-match gate.
+const MODELED_TIERS = new Set(['E']);
 
 const CURVE_LEVELS = [99, 90, 75, 50, 20];
 
@@ -1805,9 +1836,18 @@ function benchmarkFor(w) {
   // Phase 8: benchmark identity is decoupled from the display title. Seed workouts
   // carry an explicit `bkey` (key string, or null for "no benchmark"); custom and
   // classic workouts have no bkey and fall back to name matching.
-  if (w.bkey !== undefined) return w.bkey;
+  if (w.bkey) return w.bkey;
+  const name = (w.name || '').trim();
+  if (w.bkey === null) {
+    // Explicitly "no S/P benchmark" — but death-bys still match their modeled E anchor
+    // by name, so they score (weight 0.4, flagged) instead of counting for nothing.
+    for (const [k, b] of Object.entries(BENCHMARKS)) {
+      if (MODELED_TIERS.has(b.tier) && b.match && b.match.test(name)) return k;
+    }
+    return null;
+  }
   for (const [k, b] of Object.entries(BENCHMARKS)) {
-    if (b.match.test(w.name.trim())) return k;
+    if (b.match && b.match.test(name)) return k;
   }
   return null;
 }
@@ -1849,9 +1889,17 @@ function weightedLevel(items) {
   return ws > 0 ? Math.round(ls / ws) : null;
 }
 
+// current bodyweight for lift normalization (D2): the latest weight log, else Baruch's
+// stated ~195 lb until the weight tracker ships. bwIsDefault flags the assumed case.
+function currentBodyweight() {
+  const w = latestWeight();
+  return (w && w.lbs) ? { lbs: w.lbs, assumed: false } : { lbs: DEFAULT_BW_LB, assumed: true };
+}
+
 function assessment(windowDays = 365) {
   ftEnsure();
   const cutoff = Date.now() - windowDays * 86400000;
+  const bw = currentBodyweight();
   const collect = (liveOnly) => {
     const per = {};        // benchKey → {best, count, ts}  (true results that score the level)
     const estByKey = {};   // lift benchKey → best Epley-estimated 1RM (target, not scored)
@@ -1882,9 +1930,13 @@ function assessment(windowDays = 365) {
       const b = BENCHMARKS[k];
       const tier = tierOf(b);
       const weight = TIER_WEIGHT[tier] ?? 1;
-      const level = levelFromCurve(r.best, b.curve, b.dir);
+      // D2: lifts score bodyweight-relative — scale the lifted load by ref/bodyweight
+      // before the curve (keeps the absolute anchor curves + the displayed lb intact).
+      const scoreVal = b.normalize === 'bw' ? r.best * (LIFT_REF_LB / bw.lbs) : r.best;
+      const bwEstimated = b.normalize === 'bw' && bw.assumed;
+      const level = levelFromCurve(scoreVal, b.curve, b.dir);
       const dom = domains[b.domain];
-      dom.items.push({ key: k, label: b.label, best: r.best, level, count: r.count, rtype: b.rtype, tier, weight, provisional: tier !== 'S', estimate: estByKey[k] || null });
+      dom.items.push({ key: k, label: b.label, best: r.best, level, count: r.count, rtype: b.rtype, tier, weight, provisional: tier !== 'S', bwEstimated, estimate: estByKey[k] || null });
       dom.count += r.count;
       if (tier === 'S') dom.measured += r.count; else dom.provisional += r.count;
     });
@@ -1904,7 +1956,7 @@ function assessment(windowDays = 365) {
     });
     return { domains, overall: n ? Math.round(sum / n) : null, unlockedCount: n };
   };
-  return { live: collect(true), alltime: collect(false) };
+  return { live: collect(true), alltime: collect(false), bw };
 }
 
 function ftStats() {
@@ -1918,7 +1970,7 @@ function ftStats() {
   };
 }
 
-const FT = {ASSESS_DOMAINS,BENCHMARKS,FORMATS,RESULT_TYPES,RX_STATES,UNLOCK_MIN,addCard,addCustomWorkout,addLog,addWeight,allCards,allLogs,allWorkouts,assessment,benchmarkFor,buildResult,byDomain,cardAddPart,cardPartLabel,cardRemovePart,cardSetPartLog,defaultCardName,formatOf,ftStats,getCard,getWorkout,isPR,latestWeight,levelFromCurve,logsFor,movesToText,parseResult,prFor,removeCard,removeCustomWorkout,removeLog,removeWeight,rxLabel,rxStatusOf,weightedLevel,weights};
+const FT = {ASSESS_DOMAINS,BENCHMARKS,FORMATS,RESULT_TYPES,RX_STATES,UNLOCK_MIN,addCard,addCustomWorkout,addLog,addWeight,allCards,allLogs,allWorkouts,assessment,benchmarkFor,buildResult,byDomain,cardAddPart,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,formatOf,ftStats,getCard,getWorkout,isPR,latestWeight,levelFromCurve,logsFor,movesToText,parseResult,prFor,removeCard,removeCustomWorkout,removeLog,removeWeight,rxLabel,rxStatusOf,weightedLevel,weights};
 // Strive — Bible reading plans: any scope, canonical order, pace by chapters/day
 // or target date. Missed days roll forward. Multiple plans can run at once.
 
@@ -5904,6 +5956,7 @@ function fitnessHome() {
 
 // ---- assessment / Level view ----
 let ftLevelWindow = 'live';
+let ftLevelAuto = true;   // auto-fall to All-time when the live 12-mo window is empty (data age)
 
 function fmtBench(item) {
   if (item.rtype === 'time') return SC.fmtSecs(Math.round(item.best));
@@ -5911,32 +5964,60 @@ function fmtBench(item) {
   return item.best + ' lb';
 }
 
+// Ring radial (Phase 8 chunk c): number centered, brass progress arc around it (folio —
+// arc is a hairline, never a fill). Optional `best` draws a brass notch marking the
+// all-time best as a target to chase. Locked domains show a lock in a plain track ring.
+function levelRing(level, size, { best = null, stroke = 4 } = {}) {
+  const r = size / 2 - stroke, cx = size / 2, cy = size / 2, c = 2 * Math.PI * r;
+  const locked = level == null;
+  const pct = locked ? 0 : Math.min(1, level / 99);
+  const fs = Math.round(size * 0.34);
+  let notch = '';
+  if (best != null && best > 0 && !locked && Math.abs(best - level) >= 1) {
+    const ang = -Math.PI / 2 + 2 * Math.PI * Math.min(1, best / 99);
+    const ix = cx + (r - stroke) * Math.cos(ang), iy = cy + (r - stroke) * Math.sin(ang);
+    const ox = cx + (r + stroke) * Math.cos(ang), oy = cy + (r + stroke) * Math.sin(ang);
+    notch = `<line x1="${ix.toFixed(1)}" y1="${iy.toFixed(1)}" x2="${ox.toFixed(1)}" y2="${oy.toFixed(1)}" stroke="var(--gold)" stroke-width="1.5"/>`;
+  }
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--track)" stroke-width="${stroke}"/>
+    ${locked ? '' : `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--gold)" stroke-width="${stroke}" stroke-linecap="round"
+      stroke-dasharray="${(pct * c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${cx} ${cy})"/>`}
+    ${notch}
+    <text x="${cx}" y="${(cy + fs * 0.35).toFixed(1)}" text-anchor="middle" style="font-family:var(--serif-display);font-size:${fs}px;font-weight:700;fill:${locked ? 'var(--text-3)' : 'var(--text)'}">${locked ? '🔒' : level}</text>
+  </svg>`;
+}
+function tierTag(t) { return t === 'E' ? ' <span class="muted" style="font-size:10px">(modeled)</span>' : t === 'P' ? ' <span class="muted" style="font-size:10px">(provisional)</span>' : ''; }
+
 function ftLevel(body) {
   const a = FT.assessment();
+  if (ftLevelAuto && a.live.overall == null && a.alltime.overall != null) ftLevelWindow = 'alltime';
   const view = a[ftLevelWindow];
+  const liveView = ftLevelWindow === 'live';
   const toggle = h(`<div class="pillrow">
     <button class="pill ${ftLevelWindow === 'live' ? 'on' : ''}" data-w="live">Live (12 mo)</button>
     <button class="pill ${ftLevelWindow === 'alltime' ? 'on' : ''}" data-w="alltime">All-time</button>
   </div>`);
-  toggle.querySelectorAll('[data-w]').forEach(b => b.onclick = () => { ftLevelWindow = b.dataset.w; rerender(); });
+  toggle.querySelectorAll('[data-w]').forEach(b => b.onclick = () => { ftLevelWindow = b.dataset.w; ftLevelAuto = false; rerender(); });
   body.append(toggle);
 
   body.append(h(`
-    <div class="card" style="text-align:center;padding:24px 14px">
-      <div style="width:86px;height:86px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;color:#fff;background:${view.overall ? 'var(--accent)' : 'var(--line)'}">${view.overall ?? '—'}</div>
-      <div style="font-weight:700;margin-top:10px">Fitness Level</div>
-      <div class="muted" style="font-size:12px">${view.overall
+    <div class="card" style="text-align:center;padding:22px 14px">
+      <div style="display:flex;justify-content:center">${levelRing(view.overall ?? null, 96, { best: liveView ? a.alltime.overall : null, stroke: 5 })}</div>
+      <div style="font-weight:700;margin-top:8px">Fitness Level</div>
+      <div class="muted" style="font-size:12px">${view.overall != null
         ? view.unlockedCount + ' of 7 domains unlocked · 99 ≈ average professional'
-        : ftLevelWindow === 'live' ? 'No results in the last 12 months — log fresh benchmarks or view All-time.' : 'Not enough data yet.'}</div>
+        : liveView ? 'No results in the last 12 months — log fresh benchmarks or view All-time.' : 'Not enough data yet.'}</div>
     </div>`));
 
   FT.ASSESS_DOMAINS.forEach(([d, label]) => {
     const dom = view.domains[d];
     const hasDetail = dom.items.length || dom.targets.length;
+    const bestLvl = liveView && a.alltime.domains[d] ? a.alltime.domains[d].level : null;
     const card = h(`
       <div class="card" style="padding:12px 14px">
         <div class="row" data-a="head" style="${hasDetail ? 'cursor:pointer' : ''}">
-          <div style="width:40px;height:40px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff;background:${dom.unlocked ? 'var(--accent)' : 'var(--line)'}">${dom.level ?? '🔒'}</div>
+          <div style="flex-shrink:0">${levelRing(dom.unlocked ? dom.level : null, 46, { best: bestLvl })}</div>
           <div class="grow">
             <div style="font-weight:700">${label}</div>
             <div class="muted" style="font-size:12px">${hasDetail
@@ -5946,12 +6027,15 @@ function ftLevel(body) {
           ${hasDetail ? '<span class="chev" data-a="chev" style="transition:transform .15s">›</span>' : ''}
         </div>
         <div data-a="detail" style="display:none">
-          ${dom.items.map(it => `
+          ${dom.items.map(it => {
+            const tgt = (it.estimate && it.rtype === 'load' && it.estimate > it.best) ? ` <span class="muted" style="font-size:10px">· est 1RM ~${it.estimate}</span>` : '';
+            return `
             <div class="row" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
-              <div class="grow" style="font-size:13px">${esc(it.label)}${it.provisional ? ' <span class="muted" style="font-size:10px">(provisional)</span>' : ''}</div>
-              <div style="font-size:13px;font-weight:700">${fmtBench(it)}</div>
+              <div class="grow" style="font-size:13px">${esc(it.label)}${tierTag(it.tier)}</div>
+              <div style="font-size:13px;font-weight:700">${fmtBench(it)}${tgt}</div>
               <div style="width:34px;text-align:right;font-weight:700;color:var(--accent)">${it.level}</div>
-            </div>`).join('')}
+            </div>`;
+          }).join('')}
           ${dom.targets.map(t => `
             <div class="row" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
               <div class="grow" style="font-size:13px">${esc(t.label)} <span class="muted" style="font-size:10px">(est. — log a 1RM)</span></div>
@@ -5972,7 +6056,10 @@ function ftLevel(body) {
     }
     body.append(card);
   });
-  body.append(h(`<div class="muted" style="font-size:11px;margin:8px 4px">Levels weight measured anchors above provisional ones. Lifts score from true 1RMs only — rep work shows as an estimated target (~lb) to chase. A domain unlocks with ${FT.UNLOCK_MIN} results${ftLevelWindow === 'live' ? ' inside the 12-month window' : ''}.</div>`));
+  const notes = [`Levels weight measured anchors above provisional and modeled (death-by) ones. Lifts score from true 1RMs only, bodyweight-relative — rep work shows as an estimated target (~lb) to chase. A domain unlocks with ${FT.UNLOCK_MIN} results${liveView ? ' inside the 12-month window' : ''}.`];
+  if (a.bw && a.bw.assumed) notes.push(`Lifts scored at an assumed ~${a.bw.lbs} lb bodyweight — log your weight to refine.`);
+  if (liveView && a.alltime.overall != null) notes.push('The brass notch marks your all-time best — a target to chase.');
+  body.append(h(`<div class="muted" style="font-size:11px;margin:8px 4px">${notes.join(' ')}</div>`));
 }
 
 function logRow(l, { showName = true } = {}) {
