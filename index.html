@@ -857,6 +857,27 @@ function scMarkBump(n) {
   const dk = todayKey();
   S().markLog[dk] = (S().markLog[dk] || 0) + n;
 }
+
+// Per-project daily marks (Phase 9.4): net verses marked today for a given book+chapter,
+// keyed 'Book|ci'. Lets a memorization pace nudge read "done today" — markLog is global
+// (all books) so it can't. Additive/sync-safe; lazily created, timestamped by local day.
+function scDayBump(book, ci, n) {
+  if (!n) return;
+  if (!S().dayMarks) S().dayMarks = {};
+  const dk = todayKey();
+  if (!S().dayMarks[dk]) S().dayMarks[dk] = {};
+  const k = book + '|' + ci;
+  S().dayMarks[dk][k] = (S().dayMarks[dk][k] || 0) + n;
+}
+// verses marked today toward a project ({book, ch}; ch:null = whole book = sum of its chapters)
+function versesMarkedToday(item, dk = todayKey()) {
+  const dm = (S().dayMarks || {})[dk] || {};
+  if (item.ch == null) {
+    let n = 0; for (const k in dm) if (k.startsWith(item.book + '|')) n += dm[k];
+    return Math.max(0, n);
+  }
+  return Math.max(0, dm[item.book + '|' + (item.ch - 1)] || 0);
+}
 function versesMarked(fromKey, toKey) {
   const log = S().markLog || {};
   let n = 0;
@@ -872,7 +893,9 @@ function lifetimeVersesMarked() { return corpusStats(null).done; }
 function toggleVerse(book, ci, v) {
   const k = ci + '_' + v;
   S().progress[book.name][k] = !S().progress[book.name][k];
-  scMarkBump(S().progress[book.name][k] ? 1 : -1);
+  const d = S().progress[book.name][k] ? 1 : -1;
+  scMarkBump(d);
+  scDayBump(book.name, ci, d);
   if (S().progress[book.name][k]) recordStreakDay();
   save();
 }
@@ -885,6 +908,7 @@ function setChapter(book, ci, val) {
     S().progress[book.name][k] = val;
   }
   scMarkBump(delta);
+  scDayBump(book.name, ci, delta);
   if (val) recordStreakDay();
   save();
 }
@@ -964,7 +988,11 @@ function parseScopeInput(str, book) {
 function markBookMemorized(book) {
   const snap = JSON.parse(JSON.stringify(S().progress[book.name] || {}));
   let delta = 0;
-  book.verses.forEach((n, ci) => { for (let v = 1; v <= n; v++) { const k = ci + '_' + v; if (!S().progress[book.name][k]) delta++; S().progress[book.name][k] = true; } });
+  book.verses.forEach((n, ci) => {
+    let chDelta = 0;
+    for (let v = 1; v <= n; v++) { const k = ci + '_' + v; if (!S().progress[book.name][k]) { delta++; chDelta++; } S().progress[book.name][k] = true; }
+    scDayBump(book.name, ci, chDelta);
+  });
   scMarkBump(delta);
   recordStreakDay();
   save();
@@ -999,6 +1027,21 @@ function addCurrentItem(book, ch = null) {
   save();
 }
 function removeCurrentItem(id) { S().currentItems = currentItems().filter(it => it.id !== id); save(); }
+
+// ---- due dates on memorization projects (Phase 9.4 targets engine) ----
+// A finish-by date on a current project drives the self-adjusting verses/day pace.
+function setItemDue(id, date) {
+  const it = currentItems().find(x => x.id === id);
+  if (it) { it.due = date || null; it.dueBase = date ? { date: todayKey(), rem: versesLeft(it) } : null; save(); }
+}
+// unmemorized verses left in a project ({book, ch}; ch:null = whole book, ch:N = one chapter)
+function versesLeft(item) {
+  const book = allBooks.find(b => b.name === item.book);
+  if (!book) return 0;
+  if (item.ch == null) { const st = bookStats(book); return Math.max(0, st.total - st.done); }
+  const c = chapterStats(book, item.ch - 1);
+  return Math.max(0, c.total - c.done);
+}
 // single-item accessors kept for the current UI (multi-item UI lands in Phases 4–5)
 function currentBook() {
   const it = currentItems().find(x => x.ch == null) || currentItems()[0];
@@ -1091,8 +1134,9 @@ const ABBR = { Genesis: 'Gen', Exodus: 'Ex', Leviticus: 'Lev', Numbers: 'Num', D
 function abbr(name) { return ABBR[name] || name.slice(0, 3); }
 
 
-const SC = {BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookStats,bookXP,chapterStats,corpusStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,lifetimeVersesMarked,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,parseDuration,parseScopeInput,removeCurrentItem,removeReviewTime,resetBook,resetCorpus,restoreBookProgress,reviewHistory,reviewIntervalDays,reviewSecsBetween,scopeLabel,setChapter,setCurrentBook,setReviewInterval,toggleVerse,totalVerses,verseDone,versesMarked};
+const SC = {BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookStats,bookXP,chapterStats,corpusStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,lifetimeVersesMarked,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,parseDuration,parseScopeInput,removeCurrentItem,removeReviewTime,resetBook,resetCorpus,restoreBookProgress,reviewHistory,reviewIntervalDays,reviewSecsBetween,scopeLabel,setChapter,setCurrentBook,setItemDue,setReviewInterval,toggleVerse,totalVerses,verseDone,versesLeft,versesMarked,versesMarkedToday};
 // Strive — planner: day/week/month/year items, recurring rules
+
 
 
 
@@ -1132,6 +1176,8 @@ function itemsForDate(dk) {
   PW.scheduledSteps().forEach(({ p, s }) => {
     if (s.date === dk) out.push({ kind: 'pstep', id: s.id, pid: p.id, label: s.label, domain: p.name, done: !!s.done, timed: PW.isTimed(p) });
   });
+  // due-date pace nudges (Phase 9.4) — readonly, so dayStats ignores them
+  out.push(...TG.paceNudges(dk));
   return out;
 }
 
@@ -1469,6 +1515,33 @@ function estimate(b) {
   return { days, finish: new Date(Date.now() + days * 86400000), pace: p };
 }
 
+// ---- due date + remaining (Phase 9.4 targets engine) ----
+// A user-set finish-by date drives the self-adjusting daily pace (see targets.js).
+// dueBase snapshots the plan at set-time ({date, rem}) so the ahead/behind indicator has
+// a baseline to measure against; re-set the date and it re-baselines from today.
+function setBookDue(b, date) {
+  b.due = date || null;
+  b.dueBase = date ? { date: todayKey(), rem: pagesLeft(b) } : null;
+  b.updated = Date.now();
+  save();
+}
+// pages left to finish, counting front matter the same way pct() does
+function pagesLeft(b) {
+  const total = (b.pages || 0) + (b.prefacePages || 0);
+  const read = (b.currentPage || 0) + (b.prefaceRead || 0);
+  return Math.max(0, total - read);
+}
+// pages actually gained on a given local day-key (from the cumulative page logs),
+// so a pace nudge can read "done today" once the day's target is met
+function pagesOn(b, dk) {
+  const [y, m, d] = dk.split('-').map(Number);
+  const dayStart = new Date(y, m - 1, d).getTime(), dayEnd = dayStart + 86400000;
+  const logs = [...(b.logs || [])].sort((a, c) => a.ts - c.ts);
+  let before = 0, last = null;
+  logs.forEach(l => { if (l.ts < dayStart) before = l.page; else if (l.ts < dayEnd) last = l.page; });
+  return last !== null && last > before ? last - before : 0;
+}
+
 // Pages read across all books between two instants (Phase 5 · D2).
 // Logs store cumulative positions, so per book: (last position in window) − (position at window start).
 function pagesBetween(fromTs, toTs = Date.now()) {
@@ -1562,7 +1635,7 @@ function removeTag(name) {
   save();
 }
 
-const RD = {QUEUE_CAP,addBook,addCategory,addQuestion,addQuote,addTag,allSorted,authorLastName,books,byStatus,chapterInfo,currentChapter,estimate,get,libraryLevel,lifetime,logPage,logPreface,moveInQueue,numberedChapters,pace,pagesBetween,pct,removeBook,removeCategory,removeQuestion,removeQuote,removeTag,setBookCategory,setChapterList,setPrefacePages,setStatus,setSummary};
+const RD = {QUEUE_CAP,addBook,addCategory,addQuestion,addQuote,addTag,allSorted,authorLastName,books,byStatus,chapterInfo,currentChapter,estimate,get,libraryLevel,lifetime,logPage,logPreface,moveInQueue,numberedChapters,pace,pagesBetween,pagesLeft,pagesOn,pct,removeBook,removeCategory,removeQuestion,removeQuote,removeTag,setBookCategory,setBookDue,setChapterList,setPrefacePages,setStatus,setSummary};
 // Strive — Creeds, Catechisms & Confessions domain.
 // Static texts from the Van Dixhoorn edition; per-document track (read/memorize) and section progress.
 
@@ -1572,6 +1645,8 @@ const C = () => state.creeds;
 function ensure() {
   if (!C().track) C().track = {};
   if (!C().progress) C().progress = {};
+  if (!C().due) C().due = {};   // due[docId] = 'YYYY-MM-DD' (Phase 9.4)
+  if (!C().dueBase) C().dueBase = {};   // dueBase[docId] = {date, rem} baseline for ahead/behind
   if (C().current === undefined) C().current = 'heidelberg';
   if (!C().track.heidelberg) C().track.heidelberg = 'memorize';
 }
@@ -1618,11 +1693,28 @@ function lifetimeSectionsMarked() {
   return CREEDS.reduce((sum, d) => sum + d.sections.filter(s => isDone(d.id, s.n)).length, 0);
 }
 
+// Per-doc daily marks (Phase 9.4): net sections marked today for a document, so a creed
+// pace nudge can read "done today" — markLog is global and can't. Additive/sync-safe.
+function crDayBump(id, n) {
+  if (!n) return;
+  ensure();
+  if (!C().dayMarks) C().dayMarks = {};
+  const dk = todayKey();
+  if (!C().dayMarks[dk]) C().dayMarks[dk] = {};
+  C().dayMarks[dk][id] = (C().dayMarks[dk][id] || 0) + n;
+}
+function sectionsMarkedToday(id, dk = todayKey()) {
+  const dm = (C().dayMarks || {})[dk] || {};
+  return Math.max(0, dm[id] || 0);
+}
+
 function toggleSection(id, n) {
   ensure();
   if (!C().progress[id]) C().progress[id] = {};
   C().progress[id][n] = !C().progress[id][n];
-  crMarkBump(C().progress[id][n] ? 1 : -1);
+  const d = C().progress[id][n] ? 1 : -1;
+  crMarkBump(d);
+  crDayBump(id, d);
   if (C().progress[id][n]) recordStreakDay('cr');
   save();
 }
@@ -1636,6 +1728,18 @@ function docStats(id) {
   const pct = total ? Math.round(100 * done / total) : 0;
   return { done, total, pct, level: total ? Math.floor(100 * done / total) : 0 };
 }
+
+// ---- due dates on documents (Phase 9.4 targets engine) ----
+// A finish-by date on a doc drives the self-adjusting sections/day pace.
+function docDueOf(id) { ensure(); return C().due[id] || null; }
+function dueBaseOf(id) { ensure(); return C().dueBase[id] || null; }
+function setDocDue(id, date) {
+  ensure();
+  if (date) { C().due[id] = date; C().dueBase[id] = { date: todayKey(), rem: sectionsLeft(id) }; }
+  else { delete C().due[id]; delete C().dueBase[id]; }
+  save();
+}
+function sectionsLeft(id) { const s = docStats(id); return Math.max(0, s.total - s.done); }
 
 function sectionLabel(d, s) {
   if (s.label) return s.label;
@@ -1679,7 +1783,7 @@ function lastPracticeTs(docId, n) {
   return arr.length ? arr[arr.length - 1].ts : 0;
 }
 
-const CR = {GROUPS,currentDoc,docStats,docs,getDoc,isDone,lastPracticeTs,lifetimeSectionsMarked,logPractice,mastery,practiceCountBetween,practiceHistory,sectionLabel,sectionsMarked,setCurrentDoc,setTrack,toggleSection,trackOf};
+const CR = {GROUPS,currentDoc,docDueOf,docStats,docs,dueBaseOf,getDoc,isDone,lastPracticeTs,lifetimeSectionsMarked,logPractice,mastery,practiceCountBetween,practiceHistory,sectionLabel,sectionsLeft,sectionsMarked,sectionsMarkedToday,setCurrentDoc,setDocDue,setTrack,toggleSection,trackOf};
 // Strive — Fitness domain: workout database (seeded from btwb export), logbook,
 // custom workout builder, weight log. Assessment scoring arrives in a later phase.
 
@@ -2391,6 +2495,130 @@ function upNext(plan) {
 }
 
 const RP = {PLAN_PRESETS,PREFABS,booksForPreset,chaptersOf,chaptersRead,completeToday,createPlan,createPrefab,estFinish,getPlan,isDoneToday,isReadingDay,mcheyneRef,planItemsForDate,planStats,planTotal,plans,portionRef,projectedPortion,refFor,refForRange,removePlan,todaysPortion,togglePlanDay,uncompleteToday,upNext};
+// Strive — targets engine (Phase 9.4): due dates + self-adjusting daily pace.
+//
+// Locked rule D-F: needed/day = remaining ÷ days-remaining (today inclusive),
+// recomputed on every open. Skip a day and it rises; get ahead and it drops.
+// No days-per-week setting. Past the due date → OVERDUE: the whole remainder is
+// due now (mirrors the 9.3 overdue pattern).
+//
+// The schedule is derived from TODAY's remaining spread evenly across today→due,
+// so every day in the window shows the same steady amount — and the moment you get
+// ahead (remaining drops), the whole schedule re-levels lower on the next open.
+// This is what lets Today, the weekly view, and the monthly calendar all show the
+// planned amount for any day, updating as you go.
+//
+// Bible reading plans already carry their own bydate pace (readingplans.js), so
+// this module unifies the other three domains — book reading, memorization, and
+// creeds. The core (dayPlan) is domain-agnostic; each domain just supplies its
+// remaining count and today's progress.
+
+
+
+
+
+function keyToDays(k) { const [y, m, d] = k.split('-').map(Number); return Date.UTC(y, m - 1, d) / 86400000; }
+// whole days from fromKey → dueKey (0 = same day, negative = past). UTC math keeps it
+// DST-safe: both keys are pinned to midnight UTC, so no hour ever goes missing.
+function daysUntil(dueKey, fromKey) { return Math.round(keyToDays(dueKey) - keyToDays(fromKey || todayKey())); }
+
+// The plan for a single day `dk`. `remaining` (domain units: pages/verses/sections)
+// and `progress` (work already done — only meaningful for today) are supplied by the
+// caller. Returns null when there's no due date, nothing left, or `dk` is outside the
+// today→due window. `today` is injectable for testing.
+//   • today: perDay = ceil(remaining / daysInWindow); done once progress ≥ perDay.
+//   • future day in-window: the same steady amount (last day may be a smaller remainder).
+//   • past the due date: OVERDUE on today only — the whole remainder is due now.
+function dayPlan(remaining, dueKey, dk, { progress = 0, today = todayKey() } = {}) {
+  remaining = Math.max(0, Math.round(remaining));
+  if (!dueKey || remaining === 0 || dk < today) return null;
+  if (dueKey < today) {   // overdue → surfaces on today only
+    if (dk !== today) return null;
+    return { overdue: true, perDay: remaining, remaining, progress, done: progress >= remaining, left: Math.max(0, remaining - progress), future: false };
+  }
+  if (dk > dueKey) return null;
+  const windowDays = daysUntil(dueKey, today) + 1;         // today counts
+  const steady = Math.ceil(remaining / windowDays);
+  const i = daysUntil(dk, today);                          // 0 = today
+  const amount = Math.max(0, Math.min(steady, remaining - steady * i));
+  if (amount === 0) return null;                           // already covered by earlier days
+  const isToday = dk === today;
+  const prog = isToday ? progress : 0;
+  return { overdue: false, perDay: amount, remaining, progress: prog, done: prog >= amount, left: Math.max(0, amount - prog), future: !isToday };
+}
+
+// ---- schedule variance (ahead / behind) ----
+// The daily number always re-spreads remaining across the window, so it can't show that
+// you're ahead — it just floors at 1/day. This compares your ACTUAL remaining to the even
+// plan captured when the due date was set (baseline = {date, rem}), and returns whole days
+// ahead(+) / behind(−) / 0 (on pace). Null when there's no baseline. A generous deadline
+// alone never reads as "ahead": on the set day expected == actual == 0.
+function scheduleDelta(baseline, dueKey, currentRemaining, today = todayKey()) {
+  if (!baseline || !baseline.date || !dueKey) return null;
+  const planDays = daysUntil(dueKey, baseline.date) + 1;      // window at set-time (set day counts)
+  if (planDays <= 0) return null;
+  const rate = baseline.rem / planDays;                        // planned units/day
+  if (rate <= 0) return null;
+  const elapsed = daysUntil(today, baseline.date);             // days since set (0 on set day)
+  const expectedRemaining = Math.max(0, baseline.rem - rate * elapsed);
+  const gap = expectedRemaining - Math.max(0, currentRemaining);   // + = fewer left than planned = ahead
+  return Math.round(gap / rate);
+}
+
+// ---- book reading ----
+// info for a specific day (defaults to today for the header/dashboard readouts).
+// Reading is the one domain with timestamped progress, so its nudge can read "done today".
+function readPaceInfo(b, dk = todayKey()) {
+  if (!b || !b.due) return null;
+  const info = dayPlan(RD.pagesLeft(b), b.due, dk, { progress: RD.pagesOn(b, dk) });
+  if (info) info.delta = scheduleDelta(b.dueBase, b.due, RD.pagesLeft(b));
+  return info;
+}
+
+// ---- memorization (a current project: whole book or one chapter) ----
+// Per-project day-marks (Phase 9.4) give today's verses, so the nudge reads "done today".
+function memPaceInfo(item, dk = todayKey()) {
+  if (!item || !item.due) return null;
+  const info = dayPlan(SC.versesLeft(item), item.due, dk, { progress: SC.versesMarkedToday(item, dk) });
+  if (info) info.delta = scheduleDelta(item.dueBase, item.due, SC.versesLeft(item));
+  return info;
+}
+
+// ---- creeds / catechisms / confessions (a document) ----
+function creedPaceInfo(id, dk = todayKey()) {
+  const due = CR.docDueOf(id);
+  if (!due) return null;
+  const info = dayPlan(CR.sectionsLeft(id), due, dk, { progress: CR.sectionsMarkedToday(id, dk) });
+  if (info) info.delta = scheduleDelta(CR.dueBaseOf(id), due, CR.sectionsLeft(id));
+  return info;
+}
+
+// ---- planner nudges for a given day ----
+// One informational row per active target that wants work on `dk`, today→due (overdue
+// lands on today only). Rows are readonly — progress is made in the domain, not by
+// checking the nudge — so dayStats, which counts only non-readonly items, ignores them.
+// `goto` tells the planner UI which screen to open when the row is tapped.
+function paceNudges(dk) {
+  const out = [];
+  RD.books().filter(b => b.status === 'reading' && b.due).forEach(b => {
+    const info = readPaceInfo(b, dk);
+    if (info) out.push({ kind: 'pace', id: 'pace-rd-' + b.id, domain: 'Reading', title: b.title, unit: 'pages', info, readonly: true, goto: { t: 'book', id: b.id } });
+  });
+  SC.currentItems().filter(it => it.due).forEach(it => {
+    const info = memPaceInfo(it, dk);
+    if (info) out.push({ kind: 'pace', id: 'pace-sc-' + it.id, domain: 'Memorize', title: it.ch == null ? it.book : it.book + ' ' + it.ch, unit: 'verses', info, readonly: true, goto: { t: 'mem', book: it.book, ch: it.ch } });
+  });
+  CR.docs().forEach(d => {
+    const info = creedPaceInfo(d.id, dk);
+    if (info) out.push({ kind: 'pace', id: 'pace-cr-' + d.id, domain: 'Creeds', title: d.name, unit: 'sections', info, readonly: true, goto: { t: 'creed', id: d.id } });
+  });
+  return out;
+}
+
+// Does any target want work on `dk`? Cheap check for the month grid's marker dot.
+function hasNudges(dk) { return paceNudges(dk).length > 0; }
+
+const TG = {creedPaceInfo,dayPlan,daysUntil,hasNudges,memPaceInfo,paceNudges,readPaceInfo,scheduleDelta};
 // Strive — cross-device sync (Phase 2). Whole-state blob → Supabase, last-write-wins
 // with a conflict guard. Dependency-free: raw fetch against Supabase Auth + REST.
 // Because the entire state object syncs as one blob, later schema additions never
@@ -2821,6 +3049,7 @@ const VIS = {setVisionKey,visionKey,visionReady,visionScanToc};
 
 
 
+
 load();
 SC.ensureKeys();
 
@@ -3083,12 +3312,15 @@ function currentBookSection() {
     const sub = inf.ch != null
       ? (inf.done === inf.total ? 'chapter complete! 🎉' : 'standalone chapter')
       : next ? 'working on chapter ' + (next.ci + 1) + ' (' + next.done + '/' + next.total + ')' : 'book complete! 🎉';
+    const pi = TG.memPaceInfo(items[0]);
+    const paceLine = pi ? `<div style="font-size:12px;font-weight:600;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? pi.remaining + ' verses due now' : pi.perDay + ' verses/day to ' + shortDate(items[0].due)}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>` : '';
     return `<div id="d-current" style="cursor:pointer;border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
       <h3 style="margin-bottom:8px">Currently Memorizing</h3>
       <div class="row">
         <span class="badge ${inf.b.t}">${inf.b.t.toUpperCase()}</span>
         <div class="grow"><div style="font-size:17px;font-weight:700;">${esc(inf.label)}</div>
           <div class="muted" style="font-size:12px">${inf.done}/${inf.total} verses · ${sub}${inf.stale ? ' · <span style="color:var(--danger)">⚠ review needed</span>' : ''}</div>
+          ${paceLine}
         </div>
         <div style="text-align:right;flex-shrink:0"><div class="big" style="color:var(--accent)">${inf.pct}%</div></div>
       </div>
@@ -3211,6 +3443,7 @@ function dashboard() {
           <div class="row"><div class="grow" style="font-weight:700;font-size:14px">${esc(b.title)}</div>
           <div style="font-weight:700;color:var(--accent)">${RD.pct(b)}%</div></div>
           <div class="muted" style="font-size:12px">p. ${b.currentPage || 0} of ${b.pages || '?'}${est ? ' · ~' + est.days + ' days left (' + est.finish.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ')' : ''}</div>
+          ${(() => { const pi = TG.readPaceInfo(b); return pi ? `<div style="font-size:12px;font-weight:600;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? pi.remaining + ' pages due now' : '~' + pi.perDay + '/day to ' + shortDate(b.due)}${!pi.overdue && pi.done ? ' ✓' : ''}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>` : ''; })()}
           <div class="progressbar" style="margin-top:5px"><div style="width:${RD.pct(b)}%"></div></div>
         </div>`;
       }).join('') : '<div class="muted" style="margin-bottom:8px">Nothing being read right now.</div>'}
@@ -3376,6 +3609,40 @@ function today() {
   renderDayChecklist(main(), todayKey(), { showPathways: true });
 }
 
+// open the screen behind a due-date pace nudge (9.4)
+function navPace(g) {
+  if (!g) return;
+  if (g.t === 'book') { const bk = RD.get(g.id); if (bk) render(() => bookDetail(bk)); }
+  else if (g.t === 'creed') { const d = CR.getDoc(g.id); if (d) render(() => creedDocScreen(d)); }
+  else if (g.t === 'mem') { const b = allBooks.find(x => x.name === g.book); if (b) render(() => g.ch == null ? bookScreen(b) : chapterScreen(b, g.ch - 1)); }
+}
+
+// green/red schedule-position dot (9.4). null → nothing; 0 → on pace; ± → days ahead/behind.
+function paceDeltaChip(delta) {
+  if (delta == null) return '';
+  if (delta === 0) return ` <span style="color:var(--text-2);font-size:11px">● on pace</span>`;
+  const n = Math.abs(delta), ahead = delta > 0;
+  return ` <span style="color:${ahead ? 'var(--forest)' : 'var(--danger)'};font-size:11px;font-weight:600">● ${n} day${n === 1 ? '' : 's'} ${ahead ? 'ahead' : 'behind'}</span>`;
+}
+
+// reusable "Finish by" date card with a live pace readout (9.4).
+// onSet receives the new date string or null; info is a dayPlan result (or null).
+function dueControl({ label, hint, value, onSet, info, unit }) {
+  const FIN = 'padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px';
+  const readout = info
+    ? `<div style="font-size:12px;font-weight:600;margin-top:8px;${info.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${info.overdue ? 'Overdue — ' + info.remaining + ' ' + unit + ' left, due now' : info.perDay + ' ' + unit + '/day to stay on pace'}${info.overdue ? '' : paceDeltaChip(info.delta)}</div>`
+    : `<div class="muted" style="font-size:12px;margin-top:8px">${esc(hint || 'Set a date for a self-adjusting daily pace — shows in Today, Week & Month.')}</div>`;
+  const card = h(`<div class="card"><h3>${esc(label)}</h3>
+    <div class="row">
+      <input data-a="due" type="date" value="${value || ''}" style="flex:1;min-width:0;${FIN}">
+      <button class="pill" data-a="clr" style="padding:9px 12px;${value ? '' : 'display:none'}">Clear</button>
+    </div>${readout}
+  </div>`).firstElementChild;
+  card.querySelector('[data-a=due]').onchange = e => onSet(e.target.value || null);
+  card.querySelector('[data-a=clr]').onclick = () => onSet(null);
+  return card;
+}
+
 function renderDayChecklist(container, dk, { showPathways = false } = {}) {
   const wrap = document.createElement('div');
   const items = PL.itemsForDate(dk);
@@ -3396,6 +3663,25 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
         </div>`);
       el.querySelector('.check').onclick = () => { PL.toggle(dk, entry); rerender(); };
       el.querySelector('[data-a=t]').onclick = () => { if (p) render(() => stepTimer(p, entry.id)); };
+      wrap.append(el);
+      return;
+    }
+    // due-date pace nudge (9.4): informational, opens the underlying item; the check
+    // fills once the day's target is met, but isn't tappable (progress is made in-domain)
+    if (entry.kind === 'pace') {
+      const pi = entry.info;
+      const txt = pi.overdue
+        ? '⚠ Overdue — ' + pi.left + ' ' + entry.unit + ' due now'
+        : pi.perDay + ' ' + entry.unit + '/day' + (pi.done ? ' · done today ✓' : pi.progress ? ' · ' + pi.left + ' to go' : '');
+      const el = h(`
+        <div class="list-item" style="cursor:pointer${pi.overdue ? ';border-color:var(--danger)' : ''}">
+          <div class="check"${pi.done ? ' style="background:var(--accent);border-color:var(--accent);color:#fff"' : ''}>✓</div>
+          <div class="grow">
+            <div class="title">${esc(entry.title)}</div>
+            <div class="sub">🎯 ${esc(entry.domain)} · ${txt}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>
+          </div>
+        </div>`);
+      el.querySelector('.list-item').onclick = () => navPace(entry.goto);
       wrap.append(el);
       return;
     }
@@ -3512,11 +3798,19 @@ function planWeek(body) {
     const dk = PL.addDays(start, i);
     const st = PL.dayStats(dk);
     const isToday = dk === todayKey();
+    const nudges = TG.paceNudges(dk);   // due-date pace amounts planned for this day (9.4)
+    const paceLines = nudges.map(nd => {
+      const pi = nd.info;
+      const amt = pi.overdue ? '⚠ ' + pi.left + ' ' + nd.unit + ' due now'
+        : pi.perDay + ' ' + nd.unit + (pi.done ? ' ✓' : '');
+      return `<div class="sub" style="${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${esc(nd.title)} · ${amt}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>`;
+    }).join('');
     const el = h(`
       <div class="list-item" style="${isToday ? 'border-color:var(--accent)' : ''}">
         <div class="grow">
           <div class="title">${PL.fmtDate(dk)}${isToday ? ' · today' : ''}</div>
-          <div class="sub">${st.total ? st.done + '/' + st.total + ' done' : 'nothing planned'}</div>
+          <div class="sub">${st.total ? st.done + '/' + st.total + ' done' : (nudges.length ? 'targets below' : 'nothing planned')}</div>
+          ${paceLines}
           ${st.total ? `<div class="progressbar" style="margin-top:6px"><div style="width:${st.done / st.total * 100}%"></div></div>` : ''}
         </div>
         <span class="chev">›</span>
@@ -3546,9 +3840,13 @@ function planMonth(body) {
     const dk = PL.key(new Date(y, m, day));
     const st = PL.dayStats(dk);
     const isToday = dk === todayKey();
+    const hasTarget = TG.hasNudges(dk);   // a due-date pace amount is planned this day (9.4)
     const cell = document.createElement('div');
     cell.style.cssText = `aspect-ratio:1;border-radius:3px;border:1px solid ${isToday ? 'var(--accent)' : 'var(--line)'};background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;font-weight:600;cursor:pointer;gap:2px`;
-    cell.innerHTML = `<span>${day}</span>` + (st.total ? `<span style="width:5px;height:5px;border-radius:50%;background:${st.done === st.total ? 'var(--accent)' : 'var(--gold)'}"></span>` : '');
+    const dots = [];
+    if (st.total) dots.push(`<span style="width:5px;height:5px;border-radius:50%;background:${st.done === st.total ? 'var(--accent)' : 'var(--gold)'}"></span>`);
+    if (hasTarget) dots.push(`<span title="reading/pace target" style="width:5px;height:5px;border-radius:50%;border:1.5px solid var(--accent);background:transparent"></span>`);
+    cell.innerHTML = `<span>${day}</span>` + (dots.length ? `<span style="display:flex;gap:2px">${dots.join('')}</span>` : '');
     cell.onclick = () => { planCursor = dk; planMode = 'day'; rerender(); };
     grid.append(cell);
   }
@@ -4240,6 +4538,16 @@ function bookScreen(b) {
   };
   wrap.append(curBtn);
 
+  // 9.4 — finish-by date drives a verses/day pace (only while it's a current project)
+  if (isCurrent) {
+    const it = state.scripture.currentItems.find(x => x.book === b.name && x.ch == null);
+    wrap.append(dueControl({
+      label: 'Finish memorizing by',
+      value: it.due, unit: 'verses', info: TG.memPaceInfo(it),
+      onSet: v => { SC.setItemDue(it.id, v); render(() => bookScreen(b), false); }
+    }));
+  }
+
   wrap.append(sectionTitle('Chapters'));
   const grid = document.createElement('div');
   grid.className = 'grid';
@@ -4459,6 +4767,16 @@ function chapterScreen(b, ci) {
     render(() => chapterScreen(b, ci), false);
   };
   wrap.append(saBtn);
+
+  // 9.4 — finish-by date for a standalone chapter project
+  if (isItem) {
+    const it = state.scripture.currentItems.find(x => x.book === b.name && x.ch === ci + 1);
+    wrap.append(dueControl({
+      label: 'Finish memorizing by',
+      value: it.due, unit: 'verses', info: TG.memPaceInfo(it),
+      onSet: v => { SC.setItemDue(it.id, v); render(() => chapterScreen(b, ci), false); }
+    }));
+  }
 
   const grid = document.createElement('div');
   grid.className = 'grid';
@@ -4890,7 +5208,8 @@ function bookDetail(b) {
         <div class="grow"><div class="big">${RD.pct(b)}%</div>
         <div class="muted">${esc(b.author || '')}${b.pages ? (b.author ? ' · ' : '') + 'p. ' + (b.currentPage || 0) + ' of ' + b.pages : ''}</div>
         ${curCh ? `<div class="muted" style="font-size:12px;color:var(--accent);font-weight:600">📖 Ch. ${curCh.n}${curCh.title ? ' — ' + esc(curCh.title) : ''}</div>` : ''}
-        ${est ? `<div class="muted" style="font-size:12px">~${est.pace.toFixed(0)} pages/day · ~${est.days} days left · done ${est.finish.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</div>` : ''}</div>
+        ${est ? `<div class="muted" style="font-size:12px">~${est.pace.toFixed(0)} pages/day · ~${est.days} days left · done ${est.finish.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</div>` : ''}
+        ${(() => { const pi = TG.readPaceInfo(b); return pi ? `<div style="font-size:12px;font-weight:600;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? 'Overdue — ' + pi.remaining + ' pages left, due now' : pi.perDay + ' pages/day to finish by ' + shortDate(b.due)}</div>` : ''; })()}</div>
         <div style="text-align:right"><span class="badge" style="background:var(--accent)">${{ library: 'Library', upnext: 'Up Next', reading: 'Reading', finished: 'Finished' }[b.status]}</span></div>
       </div>
       <div class="progressbar" style="margin-top:8px"><div style="width:${RD.pct(b)}%"></div></div>
@@ -4925,6 +5244,15 @@ function bookDetail(b) {
     rerender();
   };
   wrap.append(det);
+
+  // 9.4 — dedicated "Finish by" card (its own card, like memorization & creeds), saves
+  // instantly and shows the live pages/day pace
+  wrap.append(dueControl({
+    label: 'Finish by',
+    hint: 'Set a date for a self-adjusting daily page pace — shows here and in Today, Week & Month.',
+    value: b.due, unit: 'pages', info: TG.readPaceInfo(b),
+    onSet: v => { RD.setBookDue(b, v); toast(v ? 'Target set' : 'Target cleared'); rerender(); }
+  }));
 
   // progress logging
   if (b.status === 'reading') {
@@ -5645,6 +5973,13 @@ function creedDocScreen(d) {
     rerender();
   });
   wrap.append(trackCard);
+
+  // 9.4 — finish-by date drives a sections/day pace across Today, Week & Month
+  wrap.append(dueControl({
+    label: 'Finish by',
+    value: CR.docDueOf(d.id), unit: (d.group === 'catechisms' ? 'Q&As' : 'sections'), info: TG.creedPaceInfo(d.id),
+    onSet: v => { CR.setDocDue(d.id, v); rerender(); }
+  }));
 
   if (d.group === 'catechisms') {
     const prBtn = h(`<button class="btn" style="margin-bottom:4px">🎯 Practice</button>`);
