@@ -5281,12 +5281,32 @@ function readingHome() {
 
 let rdNoteMode = 'summaries';
 
+// ---- reusable bottom sheet (D-X) — a focused overlay for one action; dismiss to return ----
+function openSheet(title, build) {
+  const back = document.createElement('div');
+  back.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.38);display:flex;flex-direction:column;justify-content:flex-end';
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:var(--card);border-top-left-radius:14px;border-top-right-radius:14px;max-height:88vh;overflow:auto;padding:4px 16px 26px;box-shadow:0 -8px 30px rgba(0,0,0,.28)';
+  panel.innerHTML = `<div style="display:flex;justify-content:center;padding:8px 0 6px"><div style="width:38px;height:4px;border-radius:2px;background:var(--line)"></div></div>
+    <div class="row" style="align-items:center;margin-bottom:12px"><h3 style="border:none;margin:0;padding:0;flex:1">${esc(title)}</h3><button data-a="x" style="border:none;background:none;color:var(--text-2);font-size:24px;line-height:1;cursor:pointer">×</button></div>`;
+  const body = document.createElement('div');
+  panel.append(body);
+  back.append(panel);
+  const close = () => back.remove();
+  back.onclick = e => { if (e.target === back) close(); };
+  panel.querySelector('[data-a=x]').onclick = close;
+  build(body, close);
+  document.body.append(back);
+  return close;
+}
+
 function bookDetail(b) {
   setHeader(b.title, { back: true });
   const wrap = document.createElement('div');
   const est = RD.estimate(b);
-
   const curCh = RD.currentChapter(b);
+
+  // status card
   wrap.append(h(`
     <div class="card">
       <div class="row">
@@ -5300,46 +5320,7 @@ function bookDetail(b) {
       <div class="progressbar" style="margin-top:8px"><div style="width:${RD.pct(b)}%"></div></div>
     </div>`));
 
-  const chBtn = h(`<button class="btn secondary" style="margin-bottom:4px">${b.chapterList && b.chapterList.length ? '📑 Edit chapters (' + b.chapterList.length + ')' : '📷 Scan TOC / add chapter milestones'}</button>`);
-  chBtn.firstChild.onclick = () => render(() => chapterEditor(b));
-  wrap.append(chBtn);
-
-  // Phase 6 — category (R5) + front matter (R1)
-  const FIN2 = 'padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px';
-  const det = h(`<div class="card"><h3>Details</h3>
-    <div class="row" style="margin-bottom:8px">
-      <span class="muted" style="width:74px;font-size:13px">Category</span>
-      <input data-a="cat" list="rd-cats-d" value="${esc(b.category || '')}" placeholder="type to create or pick" style="flex:1;min-width:0;${FIN2}">
-      <datalist id="rd-cats-d">${(state.reading.categories || []).map(c => `<option value="${esc(c)}">`).join('')}</datalist>
-    </div>
-    <div class="row">
-      <span class="muted" style="width:74px;font-size:13px">Preface</span>
-      <input data-a="pr" value="${b.prefaceRead || ''}" placeholder="read" inputmode="numeric" style="width:64px;${FIN2};text-align:center">
-      <span class="muted" style="font-size:13px">of</span>
-      <input data-a="pp" value="${b.prefacePages || ''}" placeholder="pages" inputmode="numeric" style="width:64px;${FIN2};text-align:center">
-      <div class="grow muted" style="font-size:11px">roman-numeral pages — count toward %</div>
-    </div>
-    <button class="btn secondary" data-a="save" style="margin-top:10px">Save details</button>
-  </div>`).firstElementChild;
-  det.querySelector('[data-a=save]').onclick = () => {
-    RD.setBookCategory(b, det.querySelector('[data-a=cat]').value.trim());
-    RD.setPrefacePages(b, det.querySelector('[data-a=pp]').value);
-    RD.logPreface(b, det.querySelector('[data-a=pr]').value);
-    toast('Details saved — ' + RD.pct(b) + '%');
-    rerender();
-  };
-  wrap.append(det);
-
-  // 9.4 — dedicated "Finish by" card (its own card, like memorization & creeds), saves
-  // instantly and shows the live pages/day pace
-  wrap.append(dueControl({
-    label: 'Finish by',
-    hint: 'Set a date for a self-adjusting daily page pace — shows here and in Today, Week & Month.',
-    value: b.due, unit: 'pages', info: TG.readPaceInfo(b),
-    onSet: v => { RD.setBookDue(b, v); toast(v ? 'Target set' : 'Target cleared'); rerender(); }
-  }));
-
-  // progress logging
+  // primary action: Log progress while reading; otherwise the natural next status move
   if (b.status === 'reading') {
     const log = h(`
       <div class="card"><h3>Log progress</h3>
@@ -5356,29 +5337,117 @@ function bookDetail(b) {
       rerender();
     };
     wrap.append(log);
+  } else {
+    const primary = { library: ['Move to Up Next', 'upnext'], upnext: ['Start Reading', 'reading'], finished: ['Re-read — back to Reading', 'reading'] }[b.status];
+    if (primary) {
+      const pb = h(`<button class="btn">${primary[0]}</button>`);
+      pb.firstChild.onclick = () => {
+        const r = RD.setStatus(b, primary[1]); if (!r.ok) { toast(r.reason); return; }
+        rerender();
+      };
+      wrap.append(pb);
+    }
   }
 
-  // status moves
-  const moves = [];
-  if (b.status === 'library') moves.push(['Move to Up Next', 'upnext']);
-  if (b.status === 'upnext') moves.push(['Start Reading', 'reading'], ['Back to Library', 'library']);
-  if (b.status === 'reading') moves.push(['Mark Finished 🎉', 'finished'], ['Pause — back to Up Next', 'upnext']);
-  if (b.status === 'finished') moves.push(['Re-read — back to Reading', 'reading']);
-  const mvCard = document.createElement('div');
-  moves.forEach(([label, status]) => {
-    const btn = h(`<button class="btn ${status === 'finished' || status === 'reading' ? '' : 'secondary'}">${label}</button>`);
-    btn.firstChild.onclick = () => {
-      const r = RD.setStatus(b, status);
-      if (!r.ok) { toast(r.reason); return; }
-      if (status === 'finished') celebrate('Book finished! 📚');
-      rerender();
-    };
-    mvCard.append(btn);
-  });
-  wrap.append(mvCard);
+  // pill row — each opens a focused sheet (or its full editor)
+  const pills = h(`<div class="pillrow" style="margin-top:12px">
+    <button class="pill" data-s="due">Finish by</button>
+    <button class="pill" data-s="notes">Notes</button>
+    <button class="pill" data-s="details">Details</button>
+    <button class="pill" data-s="chapters">${b.chapterList && b.chapterList.length ? 'Chapters (' + b.chapterList.length + ')' : 'Chapters'}</button>
+    <button class="pill" data-s="status">Status</button>
+    <button class="pill" data-s="remove" style="color:var(--danger)">Remove</button>
+  </div>`);
+  pills.querySelector('[data-s=due]').onclick = () => bookDueSheet(b);
+  pills.querySelector('[data-s=notes]').onclick = () => render(() => bookNotes(b));
+  pills.querySelector('[data-s=details]').onclick = () => bookDetailsSheet(b);
+  pills.querySelector('[data-s=chapters]').onclick = () => render(() => chapterEditor(b));
+  pills.querySelector('[data-s=status]').onclick = () => bookStatusSheet(b);
+  pills.querySelector('[data-s=remove]').onclick = () => bookRemoveSheet(b);
+  wrap.append(pills);
 
-  // structured notes
-  wrap.append(sectionTitle('Notes'));
+  main().append(wrap);
+}
+
+// Finish-by (due date) sheet — reuses the shared dueControl
+function bookDueSheet(b) {
+  openSheet('Finish by', (body, close) => {
+    body.append(dueControl({
+      label: 'Finish by',
+      hint: 'Set a date for a self-adjusting daily page pace — shows here and in Today, Week & Month.',
+      value: b.due, unit: 'pages', info: TG.readPaceInfo(b),
+      onSet: v => { RD.setBookDue(b, v); toast(v ? 'Target set' : 'Target cleared'); close(); rerender(); }
+    }));
+  });
+}
+
+// Details sheet — category + front matter
+function bookDetailsSheet(b) {
+  openSheet('Details', (body, close) => {
+    const FIN2 = 'padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px';
+    const det = h(`<div>
+      <div class="row" style="margin-bottom:10px">
+        <span class="muted" style="width:74px;font-size:13px">Category</span>
+        <input data-a="cat" list="rd-cats-d" value="${esc(b.category || '')}" placeholder="type to create or pick" style="flex:1;min-width:0;${FIN2}">
+        <datalist id="rd-cats-d">${(state.reading.categories || []).map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+      </div>
+      <div class="row">
+        <span class="muted" style="width:74px;font-size:13px">Preface</span>
+        <input data-a="pr" value="${b.prefaceRead || ''}" placeholder="read" inputmode="numeric" style="width:64px;${FIN2};text-align:center">
+        <span class="muted" style="font-size:13px">of</span>
+        <input data-a="pp" value="${b.prefacePages || ''}" placeholder="pages" inputmode="numeric" style="width:64px;${FIN2};text-align:center">
+        <div class="grow muted" style="font-size:11px">roman-numeral pages — count toward %</div>
+      </div>
+      <button class="btn" data-a="save" style="margin-top:14px">Save details</button>
+    </div>`).firstElementChild;
+    det.querySelector('[data-a=save]').onclick = () => {
+      RD.setBookCategory(b, det.querySelector('[data-a=cat]').value.trim());
+      RD.setPrefacePages(b, det.querySelector('[data-a=pp]').value);
+      RD.logPreface(b, det.querySelector('[data-a=pr]').value);
+      toast('Details saved — ' + RD.pct(b) + '%');
+      close(); rerender();
+    };
+    body.append(det);
+  });
+}
+
+// Status sheet — every valid move for the current status
+function bookStatusSheet(b) {
+  openSheet('Status', (body, close) => {
+    const moves = [];
+    if (b.status === 'library') moves.push(['Move to Up Next', 'upnext']);
+    if (b.status === 'upnext') moves.push(['Start Reading', 'reading'], ['Back to Library', 'library']);
+    if (b.status === 'reading') moves.push(['Mark Finished 🎉', 'finished'], ['Pause — back to Up Next', 'upnext']);
+    if (b.status === 'finished') moves.push(['Re-read — back to Reading', 'reading']);
+    moves.forEach(([label, status]) => {
+      const btn = h(`<button class="btn ${status === 'finished' || status === 'reading' ? '' : 'secondary'}">${label}</button>`);
+      btn.firstChild.onclick = () => {
+        const r = RD.setStatus(b, status); if (!r.ok) { toast(r.reason); return; }
+        if (status === 'finished') celebrate('Book finished! 📚');
+        close(); rerender();
+      };
+      body.append(btn);
+    });
+  });
+}
+
+// Remove sheet — destructive, explicit
+function bookRemoveSheet(b) {
+  openSheet('Remove book', (body, close) => {
+    body.append(h(`<div class="muted" style="margin-bottom:14px">Remove “${esc(b.title)}” and its notes, quotes and questions? This can't be undone.</div>`));
+    const del = h(`<button class="btn danger">Remove this book</button>`);
+    del.firstChild.onclick = () => { RD.removeBook(b.id); toast('Book removed'); close(); goBack(); };
+    body.append(del);
+    const cancel = h(`<button class="btn secondary">Cancel</button>`);
+    cancel.firstChild.onclick = close;
+    body.append(cancel);
+  });
+}
+
+// Notes — a full sub-screen (summaries / quotes / questions), opened from the Notes pill
+function bookNotes(b) {
+  setHeader('Notes · ' + b.title, { back: true });
+  const wrap = document.createElement('div');
   const notePills = h(`<div class="pillrow">
     <button class="pill ${rdNoteMode === 'summaries' ? 'on' : ''}" data-n="summaries">Summaries</button>
     <button class="pill ${rdNoteMode === 'quotes' ? 'on' : ''}" data-n="quotes">Quotes (${b.quotes.length})</button>
@@ -5386,19 +5455,13 @@ function bookDetail(b) {
   </div>`);
   notePills.querySelectorAll('.pill').forEach(x => x.onclick = () => { rdNoteMode = x.dataset.n; rerender(); });
   wrap.append(notePills);
-
   const noteBody = document.createElement('div');
   if (rdNoteMode === 'summaries') renderSummaries(noteBody, b);
   if (rdNoteMode === 'quotes') renderQuotes(noteBody, b);
   if (rdNoteMode === 'questions') renderQuestions(noteBody, b);
   wrap.append(noteBody);
-
-  const delBtn = h(`<button class="btn danger" style="margin-top:20px">Remove this book</button>`);
-  delBtn.firstChild.onclick = () => { RD.removeBook(b.id); toast('Book removed'); goBack(); };
-  wrap.append(delBtn);
   main().append(wrap);
 }
-
 // ---- TOC scan (camera + on-device OCR) & chapter editor ----
 let tessPromise = null;
 function loadTesseract() {
