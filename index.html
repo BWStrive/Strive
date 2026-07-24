@@ -541,6 +541,7 @@ function defaultState() {
     },
     pathways: [],          // {id, name, domain, milestones:[{id, name, steps:[{id, label, done, doneTs, secs}]}]}
     modules: {},           // (D-AB) modules[bookName] = [{id, name, verses:{ci:[v,...]}, created}] — review chunks, verse-level
+    review: { covered: {} },  // (D-AB layer 2) covered['docId#n'] = ts — sticky per-verse reviewed dots
     settings: { migratedOldApp: false, esvKey: '', visionKey: '' }
   };
 }
@@ -731,6 +732,8 @@ function ensureShapes() {
   if (!state.planner) state.planner = def.planner;
   if (!Array.isArray(state.planner.targets)) state.planner.targets = [];   // Phase 9.5 (additive)
   if (!state.modules || typeof state.modules !== 'object' || Array.isArray(state.modules)) state.modules = {};   // D-AB Modules (additive)
+  if (!state.review || typeof state.review !== 'object' || Array.isArray(state.review)) state.review = { covered: {} };   // D-AB review coverage (additive)
+  if (!state.review.covered || typeof state.review.covered !== 'object') state.review.covered = {};
   if (!state.settings) state.settings = def.settings;
 }
 
@@ -1353,6 +1356,51 @@ function joinRanges(nums) {
 }
 
 const MOD = {blankModule,commitModule,copyModule,deleteModule,ensureModules,getModule,moduleAutoName,moduleChapterState,moduleChapters,moduleCount,moduleCoverage,moduleHasVerse,moduleIsEmpty,moduleParts,moduleReviewScope,moduleVerseCount,moduleVerseKeys,modulesFor,setModuleChapter,toggleModuleChapter,toggleModuleVerse};
+// Strive — Review coverage (Phase 11, D-AB layer 2) + binary-flashcard deck helpers.
+// A verse's "reviewed dot" is STICKY and PER-VERSE, shared across scopes (D-M5): it's keyed by the
+// same docId#n that a practice card already carries, so any scope containing the verse reads/writes
+// the same key (review Heb 1–4 as a module → those verses count reviewed for the whole book too).
+// Additive + sync-safe: state.review.covered = { 'bible:Hebrews:1#5': ts, ... }.
+
+
+function RVS() {
+  if (!state.review || typeof state.review !== 'object') state.review = {};
+  if (!state.review.covered || typeof state.review.covered !== 'object') state.review.covered = {};
+  return state.review;
+}
+function ensureReview() { RVS(); }
+
+function coverageKey(docId, n) { return docId + '#' + n; }
+function isCovered(key) { return !!RVS().covered[key]; }
+function markCovered(key, ts = Date.now()) { RVS().covered[key] = ts; save(); }      // incremental auto-save
+function clearCovered(key) { delete RVS().covered[key]; save(); }                     // the cadence layer resets dots
+function coveredCount(keys) { const c = RVS().covered; let n = 0; for (const k of keys) if (c[k]) n++; return n; }
+
+// Coverage-aware binary deck: the first N cards (in the given/written order) whose verse isn't
+// covered yet. cards: [{key, ...}]. n falsy/≤0 = all uncovered. Clearing these → next call yields
+// the next N (they walk the selection 1–20, 21–40, …).
+function uncoveredDeck(cards, n) {
+  const un = cards.filter(c => !isCovered(c.key));
+  return (n && n > 0) ? un.slice(0, n) : un;
+}
+
+// Where a missed card re-enters the working queue (queueLen = remaining cards, current already removed):
+//   'end'  → after everything left.
+//   'fold' → 3–5 cards ahead (small random gap so it's soon but doesn't clump), clamped to the end.
+function missInsertIndex(placement, queueLen, rnd = Math.random) {
+  if (placement === 'end') return queueLen;
+  const gap = 3 + Math.floor(rnd() * 3);   // 3, 4, or 5
+  return Math.min(gap, queueLen);
+}
+
+// Fisher–Yates (injectable rng for tests). Returns a new array.
+function shuffled(arr, rnd = Math.random) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+const RV = {clearCovered,coverageKey,coveredCount,ensureReview,isCovered,markCovered,missInsertIndex,shuffled,uncoveredDeck};
 // Strive — planner: day/week/month/year items, recurring rules
 
 
@@ -5513,15 +5561,26 @@ function moduleVerseScreen(b, ci) {
   main().append(wrap);
 }
 
+// reviewed-coverage count for a module (per-verse dots, keyed like the practice cards)
+function moduleReviewedCount(b, mod) {
+  let n = 0;
+  for (const ci in (mod.verses || {})) for (const v of mod.verses[ci]) {
+    if (RV.isCovered(RV.coverageKey('bible:' + b.name + ':' + (Number(ci) + 1), v))) n++;
+  }
+  return n;
+}
+
 // Module detail — practice the module now (Flashcards / First-Letter / Fade), plus Edit + Delete.
 // (The ◎ unified Practice/Review front door and timed-Review coverage arrive with the review engine.)
 function moduleScreen(b, mod) {
   const title = mod.name || MOD.moduleAutoName(mod, b);
   setHeader(title, { back: true });
   const wrap = document.createElement('div');
+  const vtotal = MOD.moduleVerseCount(mod), vreviewed = moduleReviewedCount(b, mod);
   wrap.append(h(`<div class="card">
     <div class="big" style="font-size:20px">${esc(title)}</div>
-    <div class="muted" style="margin-top:4px">${esc(MOD.moduleCoverage(mod, b))} · ${MOD.moduleVerseCount(mod)} verses</div>
+    <div class="muted" style="margin-top:4px">${esc(MOD.moduleCoverage(mod, b))} · ${vtotal} verses</div>
+    <div class="muted" style="font-size:12px;margin-top:6px">✓ ${vreviewed} / ${vtotal} reviewed${vreviewed === vtotal && vtotal ? ' · fully reviewed' : ''}</div>
   </div>`));
 
   wrap.append(sectionTitle('Practice'));
@@ -7248,6 +7307,7 @@ function practiceSetup(d, intent = 'practice') {
     <button class="pill ${s.mode === 'typer' ? 'on' : ''}" data-m="typer">First-Letter</button>
     <button class="pill ${s.mode === 'flash' ? 'on' : ''}" data-m="flash">Flashcards</button>
     <button class="pill ${s.mode === 'scramble' ? 'on' : ''}" data-m="scramble">Scramble</button>
+    <button class="pill ${s.mode === 'binary' ? 'on' : ''}" data-m="binary">Got it / Missed</button>
     ${d.bible ? `<button class="pill ${s.mode === 'review' ? 'on' : ''}" data-m="review">Review ⏱</button>` : ''}
   </div>`);
   modes.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { s.mode = b.dataset.m; rerender(); });
@@ -7257,6 +7317,7 @@ function practiceSetup(d, intent = 'practice') {
     typer: 'Type the first letter of each word. Three misses reveals the word. Accuracy feeds mastery.',
     flash: 'Adaptive deck: weak cards return often, new cards enter once the active ones reach 3+. Exit ratings feed mastery.',
     scramble: 'Rebuild the text by tapping the pieces in order. First-try accuracy feeds mastery.',
+    binary: 'Got it / Missed — the review pass. Got it marks the verse reviewed; missed cards repeat until cleared. Save & exit anytime.',
     review: 'Timed recitation of this selection — logs to the review tracker. Tap 📖 View text to peek without stopping the clock.'
   }[s.mode]}</div>`));
 
@@ -7272,6 +7333,12 @@ function practiceSetup(d, intent = 'practice') {
     const startR = h(`<button class="btn" style="margin-top:16px">⏱ Start review timer</button>`).firstChild;
     startR.onclick = () => render(() => reviewTimer(bk, scope));
     wrap.append(startR);
+    main().append(wrap);
+    return;
+  }
+
+  if (s.mode === 'binary') {
+    wrap.append(binarySetupBlock(d, intent));
     main().append(wrap);
     return;
   }
@@ -7841,6 +7908,151 @@ function orderedFlashCard(d, queue, idx, exit) {
     CR.logPractice(prDocId(d, item), prN(item), 'flash', r * 20);
     render(() => orderedFlashCard(d, queue, idx + 1, exit), false);
   }
+}
+
+// ===== Binary Got-it / Missed-it review mode (D-O + coverage layer, D-AB) =====
+// Distinct flashcard mode. Two dials (order × miss placement), deck = first N not-yet-reviewed
+// verses, each Got-it marks the verse reviewed (RV coverage, incremental + auto-saved), missed
+// cards repeat until cleared. Save & exit anytime → scorecard; resume picks up the next un-dotted.
+let binaryOpts = { order: 'inorder', miss: 'fold', count: 20 };
+
+function binaryMarkMemorized(d, item) {
+  if (d.bible) {
+    const book = allBooks.find(b => b.name === d.bible.book);
+    const ci = item.ci != null ? item.ci : d.bible.ci;
+    const v = item.vn != null ? item.vn : item.n;
+    if (book && ci != null && !SC.verseDone(book, ci, v)) SC.toggleVerse(book, ci, v);
+  } else if (!CR.isDone(d.id, item.n)) {
+    CR.toggleSection(d.id, item.n);
+  }
+}
+
+// The setup (rendered inside practiceSetup's 'binary' mode): coverage readout + two dials + count.
+function binarySetupBlock(d, intent) {
+  const wrap = document.createElement('div');
+  const keys = d.sections.map(sec => RV.coverageKey(prDocId(d, sec), prN(sec)));
+  const total = keys.length, covered = RV.coveredCount(keys), remaining = total - covered;
+  const o = binaryOpts;
+  wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 10px">Got it / Missed — the review pass. Each verse you clear gets a ✓ reviewed dot; missed cards repeat until you clear them. Save & exit anytime.</div>`));
+  wrap.append(h(`<div class="card"><div class="row"><span class="grow">Reviewed</span><b>${covered} / ${total}</b></div>
+    <div class="progressbar" style="margin-top:8px;height:7px"><div style="width:${total ? covered / total * 100 : 0}%"></div></div>
+    ${remaining === 0 ? `<div class="muted" style="font-size:12px;margin-top:8px">All reviewed — a fresh pass reviews them again without changing the dots.</div>` : ''}</div>`));
+
+  wrap.append(sectionTitle('Order'));
+  const ord = h(`<div class="pillrow">
+    <button class="pill ${o.order === 'inorder' ? 'on' : ''}" data-o="inorder">In order</button>
+    <button class="pill ${o.order === 'shuffled' ? 'on' : ''}" data-o="shuffled">Shuffled</button>
+  </div>`);
+  ord.querySelectorAll('[data-o]').forEach(b => b.onclick = () => { o.order = b.dataset.o; rerender(); });
+  wrap.append(ord);
+
+  wrap.append(sectionTitle('Missed cards'));
+  const mis = h(`<div class="pillrow">
+    <button class="pill ${o.miss === 'fold' ? 'on' : ''}" data-x="fold">Fold back in</button>
+    <button class="pill ${o.miss === 'end' ? 'on' : ''}" data-x="end">At the end</button>
+  </div>`);
+  mis.querySelectorAll('[data-x]').forEach(b => b.onclick = () => { o.miss = b.dataset.x; rerender(); });
+  wrap.append(mis);
+  wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 4px">${o.miss === 'fold' ? 'A missed card comes back 3–5 cards later.' : 'Missed cards line up at the very end — you finish only after clearing them.'}</div>`));
+
+  wrap.append(sectionTitle('How many cards'));
+  const cnt = h(`<div class="pillrow">${[[20, '20'], [50, '50'], [0, 'All']].map(([v, l]) => `<button class="pill ${o.count === v ? 'on' : ''}" data-c="${v}">${l}</button>`).join('')}</div>`);
+  cnt.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { o.count = Number(b.dataset.c); rerender(); });
+  wrap.append(cnt);
+
+  const start = h(`<button class="btn" style="margin-top:16px">${remaining === 0 ? 'Review again (fresh pass)' : 'Start review'}</button>`);
+  start.firstChild.onclick = () => {
+    const full = d.sections.map(sec => ({ n: sec.n, q: sec.label, a: sec.text, docId: sec.docId, vn: sec.vn, ci: sec.ci, key: RV.coverageKey(prDocId(d, sec), prN(sec)) }));
+    let deck = RV.uncoveredDeck(full, o.count);
+    if (!deck.length) deck = (o.count && o.count > 0) ? full.slice(0, o.count) : full;   // fresh pass over already-reviewed
+    if (!deck.length) { toast('Nothing to review'); return; }
+    if (o.order === 'shuffled') deck = RV.shuffled(deck);
+    render(() => binaryFlashScreen(d, deck, { order: o.order, miss: o.miss, intent }));
+  };
+  wrap.append(start);
+  return wrap;
+}
+
+function binaryFlashScreen(d, deck, opts) {
+  const session = { queue: deck.slice(), total: deck.length, cleared: 0, missEvents: 0, memorized: 0, missedNs: new Set(), firstTryNs: new Set(), startTs: Date.now(), opts };
+  binaryCard(d, session);
+}
+
+function binaryCard(d, session) {
+  if (!session.queue.length) { render(() => binaryScorecard(d, session), false); return; }
+  const item = session.queue[0];
+  setHeader('Review · Got it / Missed', { back: true });
+  let flipped = false;
+  const wrap = document.createElement('div');
+  wrap.append(h(`<div class="row" style="margin:2px 4px 10px"><div class="grow muted">${session.cleared} of ${session.total} cleared · ${session.queue.length} in queue</div></div>`));
+  wrap.append(h(`<div class="progressbar" style="margin-bottom:12px"><div style="width:${session.total ? session.cleared / session.total * 100 : 0}%"></div></div>`));
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.style.cssText = 'min-height:220px;display:flex;flex-direction:column;justify-content:center;cursor:pointer;text-align:center;padding:24px 18px';
+  draw();
+  wrap.append(card);
+  const endBtn = h(`<button class="btn secondary" style="margin-top:14px">Save &amp; exit</button>`);
+  endBtn.firstChild.onclick = () => render(() => binaryScorecard(d, session), false);
+  wrap.append(endBtn);
+  main().append(wrap);
+
+  function draw() {
+    card.innerHTML = '';
+    if (!flipped) {
+      card.append(h(`<div><div class="muted" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">${esc(item.q)}</div><div class="muted" style="margin-top:18px;font-size:13px">tap to reveal</div></div>`));
+      card.onclick = () => { flipped = true; draw(); };
+    } else {
+      card.onclick = null;
+      card.append(h(`<div><div style="font-size:15px;line-height:1.65;text-align:left;white-space:pre-line">${esc(item.a)}</div>
+        <div class="row" style="justify-content:center;gap:8px;margin-top:18px">
+          <button class="pill" data-b="missed" style="border-color:var(--danger);color:var(--danger);padding:11px 13px">Missed</button>
+          <button class="pill" data-b="mem" style="padding:11px 13px">Memorized</button>
+          <button class="pill" data-b="got" style="border-color:var(--forest);color:var(--forest);padding:11px 13px">Got it</button>
+        </div></div>`));
+      card.querySelector('[data-b=missed]').onclick = () => answer('missed');
+      card.querySelector('[data-b=mem]').onclick = () => answer('mem');
+      card.querySelector('[data-b=got]').onclick = () => answer('got');
+    }
+  }
+  function answer(kind) {
+    session.queue.shift();
+    if (kind === 'got') {
+      RV.markCovered(item.key);
+      CR.logPractice(prDocId(d, item), prN(item), 'flash', 100);
+      session.cleared++;
+      if (!session.missedNs.has(item.n)) session.firstTryNs.add(item.n);
+    } else if (kind === 'missed') {
+      session.missEvents++;
+      session.missedNs.add(item.n);
+      session.firstTryNs.delete(item.n);
+      session.queue.splice(RV.missInsertIndex(session.opts.miss, session.queue.length), 0, item);
+    } else {
+      binaryMarkMemorized(d, item);
+      session.memorized++;
+    }
+    render(() => binaryCard(d, session), false);
+  }
+}
+
+function binaryScorecard(d, session) {
+  setHeader('Review scorecard', { back: true });
+  const s = session, secs = Math.round((Date.now() - s.startTs) / 1000);
+  const left = s.total - s.cleared - s.memorized;
+  const firstTry = s.firstTryNs.size, repeated = s.cleared - firstTry;
+  const wrap = document.createElement('div');
+  wrap.append(h(`<div class="card" style="text-align:center;padding:24px 16px">
+    <div class="big">${s.cleared}/${s.total}</div>
+    <div style="font-weight:700;margin-top:4px">reviewed this session</div>
+    <div class="muted" style="margin-top:4px">${SC.fmtSecs(secs)}${s.memorized ? ' · ' + s.memorized + ' marked memorized' : ''}</div></div>`));
+  const lines = [`${firstTry} first try · ${repeated} needed another pass`, `${s.missEvents} miss${s.missEvents === 1 ? '' : 'es'} total`];
+  lines.push(left > 0 ? `${left} still to review — pick up next time where you left off` : 'Selection fully reviewed ✓');
+  const card = document.createElement('div'); card.className = 'card';
+  lines.forEach(l => card.append(h(`<div style="font-size:13px;padding:5px 0;border-bottom:1px solid var(--line)">${esc(l)}</div>`)));
+  wrap.append(card);
+  const done = h(`<button class="btn">Done</button>`);
+  done.firstChild.onclick = () => { if (stack.length > 1) stack.pop(); rerender(); };
+  wrap.append(done);
+  main().append(wrap);
 }
 
 function practiceSummary(d, mode, lines, count) {
@@ -9526,6 +9738,7 @@ function plusPracticeMode(fan, b, scope, intent) {
   const shared = [
     { label: 'Flashcards', on: () => plusPracticeLaunch(fan, b, scope, 'flash', intent) },
     { label: 'First-Letter', on: () => plusPracticeLaunch(fan, b, scope, 'typer', intent) },
+    { label: 'Got it/Missed', on: () => plusPracticeLaunch(fan, b, scope, 'binary', intent) },
   ];
   const modes = intent === 'review'
     ? [...shared, { label: 'Timer ⏱', on: () => plusPracticeLaunch(fan, b, scope, 'timer', intent) }]
@@ -9558,7 +9771,8 @@ async function plusPracticeLaunch(fan, b, scope, mode, intent) {
       doc = bibleDoc(b, scope.ci, e.verses);
       if (scope.kind === 'verses') doc.sections = doc.sections.filter(x => scope.verses.includes(x.n));
     }
-    plusLaunchSession(doc, mode);
+    if (mode === 'binary') { closePlusFan(); prSetup.mode = 'binary'; render(() => practiceSetup(doc, intent)); }
+    else plusLaunchSession(doc, mode);
   } catch (err) { closePlusFan(); esvErrToast(err); }
 }
 function plusPracticeCreeds(fan, intent) {
