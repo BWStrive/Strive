@@ -112,21 +112,21 @@ header.topbar .avatar {
 }
 .plus-fan {
   position: relative; width: 100%; max-width: 480px;
-  height: 320px; margin-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  height: 340px; margin-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
 }
 .plus-item {
   position: absolute; transform: translate(-50%, -50%);
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  width: 60px; text-align: center; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
   animation: plus-pop .18s ease-out both;
 }
 .plus-item .g {
   width: 46px; height: 46px; border-radius: 50%;
   background: var(--card); border: 1px solid var(--gold); color: var(--accent);
-  display: flex; align-items: center; justify-content: center; font-size: 20px;
+  display: flex; align-items: center; justify-content: center;
   box-shadow: 0 1px 4px rgba(0,0,0,.1);
 }
-.plus-item .l { font-family: var(--serif-display); font-size: 8px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); }
+.plus-ico { display: block; }
 @keyframes plus-pop { from { opacity: 0; transform: translate(-50%, -30%) scale(.7); } to { opacity: 1; } }
 .plus-entry {
   position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
@@ -145,6 +145,7 @@ header.topbar .avatar {
 .plus-cfg-row { display: flex; align-items: center; gap: 9px; padding: 9px 0; border-bottom: 1px solid var(--line); background: var(--card); }
 .plus-cfg-row:last-child { border-bottom: none; }
 .plus-cfg-glyph { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--gold); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 14px; flex: 0 0 auto; }
+.plus-cfg-glyph .plus-ico { width: 17px; height: 17px; }
 .plus-cfg-row .grow { flex: 1; min-width: 0; }   /* label fills the gap so every pill segment starts at the same column */
 .plus-cfg-row [data-seg] { flex: 0 0 auto; }
 .plus-cfg-row .plus-chip { padding: 5px 9px; }
@@ -8718,20 +8719,43 @@ function syncCard() {
 }
 
 // ---------- ＋ quick-add fan (D-Y) ----------
-// Placeholder glyphs + small labels for now; the folio icon set replaces them later (icons-only then).
+// Folio icon set (shell3): the fan is icons-only. Each item draws plusIconSvg(key).
 const PLUS_ITEMS = [
-  { key: 'pages',     label: 'Pages',    glyph: '▤', tier: 2, def: 'click' },
-  { key: 'verses',    label: 'Verses',   glyph: '✝', tier: 2, def: 'click' },
-  { key: 'workout',   label: 'Workout',  glyph: '❖', tier: 2, def: 'click' },
-  { key: 'water',     label: 'Water',    glyph: '◍', tier: 1, def: 'click' },
-  { key: 'sleep',     label: 'Sleep',    glyph: '☾', tier: 1, def: 'click' },
-  { key: 'weight',    label: 'Weight',   glyph: '⚖', tier: 1, def: 'click' },
-  { key: 'macros',    label: 'Macros',   glyph: '◇', tier: 1, def: 'click' },
-  { key: 'review',    label: 'Review',   glyph: '⏱', tier: 2, def: 'click' },
-  { key: 'practice',  label: 'Practice', glyph: '◎', tier: 3, def: 'long' },
-  { key: 'creed',     label: 'Creed §',  glyph: '§', tier: 2, def: 'off' },
-  { key: 'bibleplan', label: 'Bible',    glyph: '▦', tier: 2, def: 'off' },
+  { key: 'pages',     label: 'Pages',    tier: 2, def: 'click' },
+  { key: 'verses',    label: 'Verses',   tier: 2, def: 'click' },
+  { key: 'workout',   label: 'Workout',  tier: 2, def: 'click' },
+  { key: 'water',     label: 'Water',    tier: 1, def: 'click' },
+  { key: 'sleep',     label: 'Sleep',    tier: 1, def: 'click' },
+  { key: 'weight',    label: 'Weight',   tier: 1, def: 'click' },
+  { key: 'macros',    label: 'Macros',   tier: 1, def: 'click' },
+  { key: 'review',    label: 'Review',   tier: 2, def: 'click' },
+  { key: 'practice',  label: 'Practice', tier: 3, def: 'long' },
+  { key: 'creed',     label: 'Creed §',  tier: 2, def: 'off' },
+  { key: 'bibleplan', label: 'Bible',    tier: 2, def: 'off' },
 ];
+
+// Folio line-art icons — burgundy engraved style, drawn in a -14..14 art box, stroke=currentColor
+// so they inherit --accent in the fan and the customizer. (Confirmed with Baruch: sleep = ascending
+// Zzz; creed = his triquetra, enlarged ~20% to match the set's visual mass; bibleplan = open Bible + ribbon.)
+const PLUS_ICONS = {
+  pages:    '<path d="M-8 -11 L4 -11 L9 -6 L9 11 L-8 11 Z"/><path d="M4 -11 L4 -6 L9 -6"/><path d="M-4 -1 H5 M-4 4 H5 M-4 9 H1"/>',
+  verses:   '<path d="M0 -12 V12 M-7 -5 H7"/>',
+  workout:  '<path d="M-7 0 H7 M-7 -8 V8 M-10 -5 V5 M7 -8 V8 M10 -5 V5"/>',
+  water:    '<path d="M0 -11 Q7 -1 7 4 A7 7 0 1 1 -7 4 Q-7 -1 0 -11 Z"/>',
+  sleep:    '<polyline points="-11,4 -6,4 -11,9 -6,9"/><polyline points="-5,-2 2,-2 -5,5 2,5"/><polyline points="3,-11 12,-11 3,-3 12,-3"/>',
+  weight:   '<path d="M0 -8 V9 M-6 9 H6 M-10 -8 H10"/><circle cx="0" cy="-10" r="2"/><path d="M-10 -8 L-12 -2 M-10 -8 L-8 -2 M-13 -2 Q-10 4 -7 -2"/><path d="M10 -8 L12 -2 M10 -8 L8 -2 M7 -2 Q10 4 13 -2"/>',
+  macros:   '<path d="M0 12 V-3 M-5 -3 H5 M-5 -3 V-11 M0 -3 V-11 M5 -3 V-11"/>',
+  review:   '<circle cx="0" cy="2" r="9"/><path d="M0 -7 V-11 M-3 -11 H3 M0 2 L4 -3"/>',
+  practice: '<circle r="11"/><circle r="6.5"/><circle r="2" fill="currentColor" stroke="none"/>',
+  creed:    '<path d="M0 -13.2 A11.8 11.8 0 0 1 0 4.8 A11.8 11.8 0 0 1 0 -13.2 Z"/><path d="M0 -13.2 A11.8 11.8 0 0 1 0 4.8 A11.8 11.8 0 0 1 0 -13.2 Z" transform="rotate(120)"/><path d="M0 -13.2 A11.8 11.8 0 0 1 0 4.8 A11.8 11.8 0 0 1 0 -13.2 Z" transform="rotate(240)"/>',
+  bibleplan:'<path d="M0 -6 Q-5 -9 -10 -7 L-10 7 Q-5 5 0 8 Q5 5 10 7 L10 -7 Q5 -9 0 -6 Z"/><path d="M0 -6 V8"/><path d="M0 -8 L-2 11 L0 9 L2 11 Z" fill="currentColor" stroke="none"/>',
+};
+function plusIconSvg(key, size) {
+  const inner = PLUS_ICONS[key] || '';
+  const sw = key === 'creed' ? 1.8 : (key === 'verses' ? 2.4 : 2.1);
+  const s = size || 26;
+  return `<svg class="plus-ico" viewBox="-14 -14 28 28" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+}
 
 // per-loggable fan assignment: 'click' | 'long' | 'off'. Additive + sync-safe on state.settings.
 function plusFanCfg() {
@@ -8788,15 +8812,31 @@ function openPlusFan(which) {
       `<div class="muted" style="font-size:13px">No actions on this fan yet — assign some in You → Quick-add.</div>`);
     return;
   }
-  const W = fan.clientWidth || 360, H = fan.clientHeight || 320;
-  const cx = W / 2, base = H - 40;
-  const R = Math.min(150, W / 2 - 46);
+  // Tightened Gothic (pointed) arch — narrower base, taller point, icons only.
+  // Two equilateral arcs spring from the base corners and meet at the apex; items ride a single
+  // parameter s∈[0,1] left→right, so an ODD count lands one icon on the apex (the crown/point)
+  // and an EVEN count straddles it (the gap makes the point). Adaptive, no per-count tuning.
+  const W = fan.clientWidth || 360, H = fan.clientHeight || 340;
+  const cx = W / 2, base = H - 30;
+  const bhw = Math.min(120, W / 2 - 44);          // base half-width (kept narrow for quick-access)
+  const rad = 2 * bhw;                             // equilateral pointed arch → apex 1.732·bhw above base
+  const cenL = { x: cx + bhw, y: base };           // left arc springs from the left corner, centered right
+  const cenR = { x: cx - bhw, y: base };           // right arc springs from the right corner, centered left
+  const posForS = s => {
+    if (s <= 0.5) { const t = s / 0.5, th = Math.PI + (Math.PI / 3) * t;
+      return { x: cenL.x + rad * Math.cos(th), y: cenL.y + rad * Math.sin(th) }; }
+    const t = (s - 0.5) / 0.5, th = -Math.PI / 3 + (Math.PI / 3) * t;
+    return { x: cenR.x + rad * Math.cos(th), y: cenR.y + rad * Math.sin(th) };
+  };
   const n = items.length;
+  let svals;
+  if (n === 1) svals = [0.5];                                  // single → crown the apex
+  else if (n === 2) svals = [0.34, 0.66];                      // pair → a low symmetric arch
+  else { const m = 0.08; svals = items.map((_, i) => m + (i / (n - 1)) * (1 - 2 * m)); }
   items.forEach((it, i) => {
-    const ang = n === 1 ? Math.PI / 2 : Math.PI - (i / (n - 1)) * Math.PI; // 180°→0°
-    const x = cx + R * Math.cos(ang), y = base - R * Math.sin(ang);
-    const el = h(`<div class="plus-item" style="left:${x}px;top:${y}px;animation-delay:${i * 20}ms" title="${esc(it.label)}">
-      <div class="g">${it.glyph}</div><div class="l">${esc(it.label)}</div></div>`).firstElementChild;
+    const p = posForS(svals[i]);
+    const el = h(`<div class="plus-item" style="left:${p.x}px;top:${p.y}px;animation-delay:${i * 22}ms" title="${esc(it.label)}" aria-label="${esc(it.label)}">
+      <div class="g">${plusIconSvg(it.key)}</div></div>`).firstElementChild;
     el.onclick = ev => { ev.stopPropagation(); plusRoute(it, fan); };
     fan.append(el);
   });
@@ -9140,14 +9180,14 @@ function plusWorkoutResult(fan, w) {
 function plusFanSettingsCard() {
   const cfg = plusFanCfg();
   const card = h(`<div class="card"><h3>Quick-add (＋)</h3>
-    <div class="muted" style="font-size:12px;margin-bottom:10px"><b>Click</b> = tap-＋ fan · <b>Long</b> = long-press-＋ fan · <b>Off</b> = hidden. Drag ≡ to reorder — top→bottom is left→right in the semicircle.</div>
+    <div class="muted" style="font-size:12px;margin-bottom:10px"><b>Click</b> = tap-＋ fan · <b>Long</b> = long-press-＋ fan · <b>Off</b> = hidden. Drag ≡ to reorder — top→bottom is left→right in the arch.</div>
     <div id="plus-order"></div>
   </div>`).firstElementChild;
   const list = card.querySelector('#plus-order');
   orderedPlusItems().forEach(it => {
     const row = h(`<div class="plus-cfg-row" data-key="${it.key}">
       <div class="pw-handle" title="Drag to reorder">≡</div>
-      <div class="plus-cfg-glyph">${it.glyph}</div>
+      <div class="plus-cfg-glyph">${plusIconSvg(it.key, 17)}</div>
       <div class="grow"><div class="title" style="font-size:14px">${esc(it.label)}</div></div>
       <div class="pillrow" data-seg style="margin:0;gap:5px;flex-wrap:nowrap"></div>
     </div>`).firstElementChild;
