@@ -5258,7 +5258,7 @@ function bookScreen(b) {
     <button class="btn" data-a="review" style="margin-top:0;flex:1">Review ⏱</button>
   </div>`).firstElementChild;
   actions.querySelector('[data-a=practice]').onclick = () => render(() => practiceScope(b));
-  actions.querySelector('[data-a=review]').onclick = () => render(() => reviewTimer(b));
+  actions.querySelector('[data-a=review]').onclick = () => render(() => practiceScope(b, 'review'));
   wrap.append(actions);
 
   // chapters grid — core navigation for marking verses, directly beneath the actions
@@ -5537,7 +5537,7 @@ function moduleScreen(b, mod) {
     </div>
   </div>`).firstElementChild;
   modes.querySelectorAll('[data-m]').forEach(btn => btn.onclick = () => {
-    if (btn.dataset.m === 'recite') render(() => reviewTimer(b, MOD.moduleReviewScope(mod)));   // speak it aloud, log the time
+    if (btn.dataset.m === 'recite') render(() => reviewTimer(b, MOD.moduleReviewScope(mod), title));   // speak it aloud, log the time
     else moduleLaunch(b, mod, btn.dataset.m, btn);
   });
   wrap.append(modes);
@@ -5556,23 +5556,30 @@ function moduleScreen(b, mod) {
   main().append(wrap);
 }
 
-// Fetch the module's chapters from ESV, build a practice doc scoped to its verses, launch the session.
+// Fetch a module's chapters from ESV and build a practice doc scoped to its verses (null if none load).
+// Shared by the module detail launch AND the Practice-flow module picker.
+async function moduleFetchDoc(b, mod, onStatus) {
+  const cis = MOD.moduleChapters(mod);
+  if (!cis.length) return null;
+  const textByCi = {};
+  for (const ci of cis) {
+    if (onStatus) onStatus('Loading ' + SC.abbr(b.name) + ' ' + (ci + 1) + '…');
+    const e = await esvFetchChapter(b.name, ci + 1);
+    textByCi[ci] = e.verses;
+  }
+  const parts = MOD.moduleParts(mod, textByCi);
+  return parts.length ? bibleMultiDoc(b, parts) : null;
+}
+
+// Launch a module directly into a practice session (from the module detail screen).
 async function moduleLaunch(b, mod, mode, btn) {
   if (btn && btn.dataset.busy) return;
-  const cis = Object.keys(mod.verses || {}).map(Number).filter(ci => (mod.verses[ci] || []).length).sort((x, y) => x - y);
-  if (!cis.length) { toast('This module has no verses'); return; }
+  if (!MOD.moduleChapters(mod).length) { toast('This module has no verses'); return; }
   const orig = btn ? btn.textContent : '';
-  if (btn) { btn.dataset.busy = '1'; }
+  if (btn) btn.dataset.busy = '1';
   try {
-    const textByCi = {};
-    for (const ci of cis) {
-      if (btn) btn.textContent = 'Loading ' + SC.abbr(b.name) + ' ' + (ci + 1) + '…';
-      const e = await esvFetchChapter(b.name, ci + 1);
-      textByCi[ci] = e.verses;
-    }
-    const parts = MOD.moduleParts(mod, textByCi);
-    if (!parts.length) { if (btn) { delete btn.dataset.busy; btn.textContent = orig; } toast('Could not load verses'); return; }
-    const doc = bibleMultiDoc(b, parts);
+    const doc = await moduleFetchDoc(b, mod, s => { if (btn) btn.textContent = s; });
+    if (!doc) { if (btn) { delete btn.dataset.busy; btn.textContent = orig; } toast('Could not load verses'); return; }
     const queue = doc.sections.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn }));
     if (mode === 'fade') render(() => fadeScreen(doc, queue, 0, 0, []));
     else if (mode === 'typer') render(() => typerScreen(doc, queue, 0, []));
@@ -5603,8 +5610,10 @@ async function fetchChaptersProgress(b, cis, btn) {
   return parts;
 }
 
-function practiceScope(b) {
-  setHeader('Practice · ' + b.name, { back: true });
+// intent 'practice' | 'review' — same scope→mode flow for both (D-AB unification);
+// Review currently differs only in label. Marking a module reviewed (coverage) is the Phase 11 engine.
+function practiceScope(b, intent = 'practice') {
+  setHeader((intent === 'review' ? 'Review' : 'Practice') + ' · ' + b.name, { back: true });
   if (prScope.book !== b.name) prScope = { book: b.name, mode: b.chapters <= WHOLE_BOOK_CAP ? 'book' : 'chapters', chapters: {}, vch: null, verses: {} };
   const s = prScope;
   const wrap = document.createElement('div');
@@ -5614,6 +5623,7 @@ function practiceScope(b) {
     ${b.chapters <= WHOLE_BOOK_CAP ? `<button class="pill ${s.mode === 'book' ? 'on' : ''}" data-m="book">Whole book</button>` : ''}
     <button class="pill ${s.mode === 'chapters' ? 'on' : ''}" data-m="chapters">Chapters</button>
     <button class="pill ${s.mode === 'verses' ? 'on' : ''}" data-m="verses">Verses</button>
+    ${MOD.moduleCount(b.name) ? `<button class="pill ${s.mode === 'modules' ? 'on' : ''}" data-m="modules">Modules</button>` : ''}
   </div>`);
   pills.querySelectorAll('[data-m]').forEach(p => p.onclick = () => { s.mode = p.dataset.m; rerender(); });
   wrap.append(pills);
@@ -5662,6 +5672,28 @@ function practiceScope(b) {
     }
   }
 
+  if (s.mode === 'modules') {
+    wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 8px">Pick a module to practice — you'll choose the mode next.</div>`));
+    MOD.modulesFor(b.name).forEach(mod => {
+      const row = h(`<div class="list-item" style="cursor:pointer"><div class="grow"><div class="title" style="font-size:14px">${esc(mod.name || MOD.moduleAutoName(mod, b))}</div><div class="sub">${esc(MOD.moduleCoverage(mod, b))} · ${MOD.moduleVerseCount(mod)} verses</div></div><span class="chev">›</span></div>`).firstElementChild;
+      const label = row.querySelector('.title');
+      row.onclick = async () => {
+        if (row.dataset.busy) return;
+        row.dataset.busy = '1';
+        const orig = label.textContent;
+        label.textContent = 'Loading ESV…';
+        try {
+          const doc = await moduleFetchDoc(b, mod, st => { label.textContent = st; });
+          if (!doc) { delete row.dataset.busy; label.textContent = orig; toast('Could not load verses'); return; }
+          render(() => practiceSetup(doc, intent));
+        } catch (e) { delete row.dataset.busy; label.textContent = orig; esvErrToast(e); }
+      };
+      wrap.append(row);
+    });
+    main().append(wrap);
+    return;
+  }
+
   const startFrag = h(`<button class="btn" style="margin-top:16px">Fetch text &amp; choose mode</button>`);
   const start = startFrag.firstChild;
   start.onclick = async () => {
@@ -5692,7 +5724,7 @@ function practiceScope(b) {
         doc = bibleMultiDoc(b, parts);
       }
       if (!doc.sections.length) { toast('No verses in that selection'); start.textContent = orig; return; }
-      render(() => practiceSetup(doc));
+      render(() => practiceSetup(doc, intent));
     } catch (e) {
       delete start.dataset.busy;
       start.textContent = orig;
@@ -5786,12 +5818,12 @@ function chapterScreen(b, ci) {
   main().append(wrap);
 }
 
-function reviewTimer(b, presetScope = null) {
+function reviewTimer(b, presetScope = null, scopeName = null) {
   setHeader('Review · ' + b.name, { back: true });
   const wrap = h(`
     <div class="card" style="text-align:center;padding:30px 14px">
       <div class="big" id="rt-clock" style="font-size:52px">0:00</div>
-      <div class="muted" style="margin-top:4px">reviewing ${esc(b.name)}${presetScope ? ' · ' + SC.scopeLabel(presetScope) : ''}</div>
+      <div class="muted" style="margin-top:4px">reviewing ${esc(b.name)}${(scopeName || presetScope) ? ' · ' + esc(scopeName || SC.scopeLabel(presetScope)) : ''}</div>
       ${presetScope ? '' : `<input id="rt-scope" placeholder="chapters — e.g. 5 or 1–7 · empty = whole book" style="width:100%;margin-top:14px;padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">`}
       <button class="btn" id="rt-done" style="margin-top:22px">Finish &amp; log</button>
       <button class="btn secondary" id="rt-peek" style="margin-top:10px">📖 View text — keeps timing</button>
@@ -7183,8 +7215,8 @@ function reviewScopeFromDoc(d) {
   return contiguous ? { kind: 'range', from: chs[0], to: chs[chs.length - 1] } : null;
 }
 
-function practiceSetup(d) {
-  setHeader('Practice', { back: true });
+function practiceSetup(d, intent = 'practice') {
+  setHeader(intent === 'review' ? 'Review' : 'Practice', { back: true });
   const wrap = document.createElement('div');
   const s = prSetup;
   // Review is Scripture-only; the shared setup is reused for creeds, so fall back.
@@ -9082,8 +9114,8 @@ const PLUS_ITEMS = [
   { key: 'sleep',     label: 'Sleep',    tier: 1, def: 'click' },
   { key: 'weight',    label: 'Weight',   tier: 1, def: 'click' },
   { key: 'macros',    label: 'Macros',   tier: 1, def: 'click' },
-  { key: 'review',    label: 'Review',   tier: 2, def: 'click' },
-  { key: 'practice',  label: 'Practice', tier: 3, def: 'long' },
+  { key: 'review',    label: 'Review timer', tier: 2, def: 'click' },
+  { key: 'practice',  label: 'Practice & Review', tier: 3, def: 'long' },
   { key: 'creed',     label: 'Creed §',  tier: 2, def: 'off' },
   { key: 'bibleplan', label: 'Bible',    tier: 2, def: 'off' },
 ];
@@ -9350,26 +9382,44 @@ function plusCreedGrid(fan, d) {
   p.querySelector('[data-done]').onclick = () => afterPlusLog('Creed updated');
 }
 
-// ===== Review time (book → whole/chapter → minutes) =====
+// ===== Review Timer (dedicated fan icon) — book → whole book / a chapter / a module → LIVE timer =====
+// reviewTimer has both the running clock AND a manual mm:ss field, so this one path covers
+// timing AND entry ("strictly for review timing and entry", Baruch). Books are ordered
+// current-project / most-recently-reviewed first; the full memorized list is still there to scroll.
+function memorizedBooksRecentFirst() {
+  const cur = new Set((state.scripture.currentItems || []).map(it => it.book));
+  return allBooks.filter(b => SC.bookStats(b).done > 0).slice().sort((a, b) => {
+    const ca = cur.has(a.name) ? 1 : 0, cb = cur.has(b.name) ? 1 : 0;
+    if (ca !== cb) return cb - ca;
+    return (SC.lastReviewTs(b.name) || 0) - (SC.lastReviewTs(a.name) || 0);
+  });
+}
 function plusReview(fan) {
-  const books = allBooks.filter(b => SC.bookStats(b).done > 0);
+  const books = memorizedBooksRecentFirst();
   if (!books.length) { toast('Nothing memorized to review yet'); return; }
-  plusChoose(fan, 'Log review time', books.map(b => ({ label: b.name, on: () => plusReviewScope(fan, b) })));
+  plusChoose(fan, 'Review timer · book', books.map(b => ({ label: b.name, sub: SC.bookStats(b).done + ' verses', on: () => plusReviewScope(fan, b) })));
 }
 function plusReviewScope(fan, b) {
-  const chips = [{ label: 'Whole book', on: () => plusReviewTime(fan, b, null) }];
-  b.verses.forEach((_, ci) => chips.push({ label: 'Ch ' + (ci + 1), on: () => plusReviewTime(fan, b, { kind: 'chapter', ch: ci + 1 }) }));
-  plusChips(fan, 'Review · ' + b.name, chips, () => plusReview(fan));
+  const rows = [
+    { label: 'Whole book', on: () => plusStartTimer(b, null, null) },
+    { label: 'A chapter', sub: 'pick one', on: () => plusReviewChapter(fan, b) },
+  ];
+  if (MOD.moduleCount(b.name)) rows.push({ label: 'A module', sub: MOD.moduleCount(b.name) + ' saved', on: () => plusReviewModule(fan, b) });
+  plusChoose(fan, 'Review · ' + b.name, rows, () => plusReview(fan));
 }
-function plusReviewTime(fan, b, scope) {
-  const p = plusEntryShell(fan, 'Review · ' + b.name + (scope ? ' ' + scope.ch : ''),
-    `<div class="row"><input data-f="min" inputmode="numeric" placeholder="Minutes" style="flex:1"><button class="pill on" data-a="add" style="padding:11px 16px">Log</button></div>
-     <div style="margin-top:10px"><button class="plus-linkback">‹ Back</button></div>`);
-  const go = () => { const m = Number(p.querySelector('[data-f=min]').value); if (!m) { toast('Enter minutes'); return; } SC.logReviewTime(b.name, Math.round(m * 60), { scope }); afterPlusLog('Logged ' + m + ' min review'); };
-  p.querySelector('[data-a=add]').onclick = go;
-  p.querySelector('[data-f=min]').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
-  p.querySelector('.plus-linkback').onclick = () => plusReviewScope(fan, b);
-  p.querySelector('[data-f=min]').focus();
+function plusReviewChapter(fan, b) {
+  plusChips(fan, 'Review · ' + b.name + ' · chapter',
+    b.verses.map((_, ci) => ({ label: 'Ch ' + (ci + 1), on: () => plusStartTimer(b, { kind: 'chapter', ch: ci + 1 }, null) })),
+    () => plusReviewScope(fan, b));
+}
+function plusReviewModule(fan, b) {
+  plusChoose(fan, 'Review · ' + b.name + ' · module',
+    MOD.modulesFor(b.name).map(mod => { const name = mod.name || MOD.moduleAutoName(mod, b); return { label: name, sub: MOD.moduleCoverage(mod, b), on: () => plusStartTimer(b, MOD.moduleReviewScope(mod), name) }; }),
+    () => plusReviewScope(fan, b));
+}
+function plusStartTimer(b, scope, name) {
+  closePlusFan();
+  render(() => reviewTimer(b, scope, name));   // live clock + manual mm:ss
 }
 
 // ===== Bible reading plan (plan → mark today's portion) =====
@@ -9403,33 +9453,56 @@ function plusBiblePlan(fan, plan, dk = todayKey()) {
 }
 
 // ===== Practice (Scripture/Creeds → item → scope → mode → launch session) =====
+// ===== Target ◎ — unified Practice + Review front door (D-AB) =====
+// tap → Practice or Review → domain → book (recent-first) → scope (incl. Modules) → mode.
+// Practice modes: Flashcards · First-Letter · Fade.  Review modes: Flashcards · First-Letter · Timer.
+// (Flashcards/typing COUNTING as review is the later coverage engine + D-O binary flashcards; today
+//  the Timer logs and flash/typer launch the session, same as Practice.)
+const plusIntentTitle = intent => (intent === 'review' ? 'Review' : 'Practice');
 function plusPractice(fan) {
-  plusChoose(fan, 'Practice', [
-    { label: 'Scripture', sub: 'Memorized books', on: () => plusPracticeScripture(fan) },
-    { label: 'Creeds, Catechisms & Confessions', on: () => plusPracticeCreeds(fan) },
+  plusChoose(fan, 'Practice or Review', [
+    { label: 'Practice', sub: 'Rehearse — flashcards · typing · fade', on: () => plusPRDomain(fan, 'practice') },
+    { label: 'Review', sub: 'Flashcards · typing · timer', on: () => plusPRDomain(fan, 'review') },
   ]);
 }
-function plusPracticeScripture(fan) {
-  const books = allBooks.filter(b => SC.bookStats(b).done > 0);
+function plusPRDomain(fan, intent) {
+  plusChoose(fan, plusIntentTitle(intent), [
+    { label: 'Scripture', sub: 'Memorized books', on: () => plusPracticeScripture(fan, intent) },
+    { label: 'Creeds, Catechisms & Confessions', on: () => plusPracticeCreeds(fan, intent) },
+  ], () => plusPractice(fan));
+}
+function plusPracticeScripture(fan, intent) {
+  const books = memorizedBooksRecentFirst();
   if (!books.length) { toast('Memorize a book first'); return; }
-  plusChoose(fan, 'Practice · book', books.map(b => ({ label: b.name, sub: SC.bookStats(b).done + ' verses', on: () => plusPracticeChapter(fan, b) })), () => plusPractice(fan));
+  plusChoose(fan, plusIntentTitle(intent) + ' · book', books.map(b => ({ label: b.name, sub: SC.bookStats(b).done + ' verses', on: () => plusPracticeChapter(fan, b, intent) })), () => plusPRDomain(fan, intent));
 }
-function plusPracticeChapter(fan, b) {
-  const chips = [];
-  if (b.chapters <= WHOLE_BOOK_CAP) chips.push({ label: 'Whole book', on: () => plusPracticeMode(fan, b, { kind: 'book' }) });
-  b.verses.forEach((_, ci) => chips.push({ label: 'Ch ' + (ci + 1), on: () => plusPracticeChapterScope(fan, b, ci) }));
-  plusChips(fan, 'Practice · ' + b.name, chips, () => plusPracticeScripture(fan));
+// Clean top-level scope choose (mirrors the dedicated Timer): Whole book / By chapter / Modules —
+// so Modules is a prominent option under both Practice and Review, not buried in a long chip row.
+function plusPracticeChapter(fan, b, intent) {
+  const rows = [];
+  if (b.chapters <= WHOLE_BOOK_CAP) rows.push({ label: 'Whole book', on: () => plusPracticeMode(fan, b, { kind: 'book' }, intent) });
+  rows.push({ label: 'By chapter', sub: 'pick one', on: () => plusPracticeChapterPick(fan, b, intent) });
+  if (MOD.moduleCount(b.name)) rows.push({ label: 'Modules', sub: MOD.moduleCount(b.name) + ' saved', on: () => plusPracticeModulePick(fan, b, intent) });
+  plusChoose(fan, plusIntentTitle(intent) + ' · ' + b.name, rows, () => plusPracticeScripture(fan, intent));
 }
-function plusPracticeChapterScope(fan, b, ci) {
+function plusPracticeChapterPick(fan, b, intent) {
+  plusChips(fan, b.name + ' · chapter', b.verses.map((_, ci) => ({ label: 'Ch ' + (ci + 1), on: () => plusPracticeChapterScope(fan, b, ci, intent) })), () => plusPracticeChapter(fan, b, intent));
+}
+function plusPracticeModulePick(fan, b, intent) {
+  plusChoose(fan, b.name + ' · module',
+    MOD.modulesFor(b.name).map(mod => { const name = mod.name || MOD.moduleAutoName(mod, b); return { label: name, sub: MOD.moduleCoverage(mod, b), on: () => plusPracticeMode(fan, b, { kind: 'module', mod }, intent) }; }),
+    () => plusPracticeChapter(fan, b, intent));
+}
+function plusPracticeChapterScope(fan, b, ci, intent) {
   plusChips(fan, b.name + ' ' + (ci + 1), [
-    { label: 'Whole chapter', on: () => plusPracticeMode(fan, b, { kind: 'chapter', ci }) },
-    { label: 'Select verses', on: () => plusPracticeVerses(fan, b, ci) },
-  ], () => plusPracticeChapter(fan, b));
+    { label: 'Whole chapter', on: () => plusPracticeMode(fan, b, { kind: 'chapter', ci }, intent) },
+    { label: 'Select verses', on: () => plusPracticeVerses(fan, b, ci, intent) },
+  ], () => plusPracticeChapterPick(fan, b, intent));
 }
-function plusPracticeVerses(fan, b, ci) {
+function plusPracticeVerses(fan, b, ci, intent) {
   const picked = {};
   const p = plusEntryShell(fan, b.name + ' ' + (ci + 1) + ' · verses',
-    `<div class="muted" style="font-size:11px;margin-bottom:6px">Tap the verses to practice.</div>
+    `<div class="muted" style="font-size:11px;margin-bottom:6px">Tap the verses.</div>
      <div class="grid" data-grid></div>
      <div class="row" style="gap:10px;margin-top:10px"><button class="plus-linkback">‹ Back</button><button class="pill on grow" data-go style="padding:10px">Choose mode ›</button></div>`);
   const grid = p.querySelector('[data-grid]');
@@ -9438,26 +9511,45 @@ function plusPracticeVerses(fan, b, ci) {
     cell.onclick = () => { picked[v] = !picked[v]; cell.classList.toggle('done'); };
     grid.append(cell);
   }
-  p.querySelector('.plus-linkback').onclick = () => plusPracticeChapterScope(fan, b, ci);
+  p.querySelector('.plus-linkback').onclick = () => plusPracticeChapterScope(fan, b, ci, intent);
   p.querySelector('[data-go]').onclick = () => {
     const vs = Object.keys(picked).filter(k => picked[k]).map(Number);
     if (!vs.length) { toast('Tap at least one verse'); return; }
-    plusPracticeMode(fan, b, { kind: 'verses', ci, verses: vs });
+    plusPracticeMode(fan, b, { kind: 'verses', ci, verses: vs }, intent);
   };
 }
-function plusPracticeMode(fan, b, scope) {
-  plusChips(fan, 'Mode', [
-    { label: 'Flashcards', on: () => plusPracticeLaunch(fan, b, scope, 'flash') },
-    { label: 'First-Letter', on: () => plusPracticeLaunch(fan, b, scope, 'typer') },
-    { label: 'Fade', on: () => plusPracticeLaunch(fan, b, scope, 'fade') },
-  ], () => scope.kind === 'verses' ? plusPracticeVerses(fan, b, scope.ci) : plusPracticeChapter(fan, b));
+function plusPracticeMode(fan, b, scope, intent) {
+  const back = () => scope.kind === 'verses' ? plusPracticeVerses(fan, b, scope.ci, intent)
+    : scope.kind === 'chapter' ? plusPracticeChapterScope(fan, b, scope.ci, intent)
+      : scope.kind === 'module' ? plusPracticeModulePick(fan, b, intent)
+        : plusPracticeChapter(fan, b, intent);
+  const shared = [
+    { label: 'Flashcards', on: () => plusPracticeLaunch(fan, b, scope, 'flash', intent) },
+    { label: 'First-Letter', on: () => plusPracticeLaunch(fan, b, scope, 'typer', intent) },
+  ];
+  const modes = intent === 'review'
+    ? [...shared, { label: 'Timer ⏱', on: () => plusPracticeLaunch(fan, b, scope, 'timer', intent) }]
+    : [...shared, { label: 'Fade', on: () => plusPracticeLaunch(fan, b, scope, 'fade', intent) }];
+  plusChips(fan, plusIntentTitle(intent) + ' · mode', modes, back);
 }
-async function plusPracticeLaunch(fan, b, scope, mode) {
+async function plusPracticeLaunch(fan, b, scope, mode, intent) {
+  // Review Timer needs no ESV fetch — straight to the live clock, scoped (verses fall to their chapter).
+  if (mode === 'timer') {
+    let sc = null, name = null;
+    if (scope.kind === 'chapter' || scope.kind === 'verses') sc = { kind: 'chapter', ch: scope.ci + 1 };
+    else if (scope.kind === 'module') { sc = MOD.moduleReviewScope(scope.mod); name = scope.mod.name || MOD.moduleAutoName(scope.mod, b); }
+    closePlusFan();
+    render(() => reviewTimer(b, sc, name));
+    return;
+  }
   const p = plusEntryShell(fan, 'Loading…', `<div class="muted" style="font-size:13px">Fetching ESV text…</div>`);
   const status = p.querySelector('.muted');
   try {
     let doc;
-    if (scope.kind === 'book') {
+    if (scope.kind === 'module') {
+      doc = await moduleFetchDoc(b, scope.mod, s => { status.textContent = s; });
+      if (!doc) { closePlusFan(); toast('Could not load verses'); return; }
+    } else if (scope.kind === 'book') {
       const parts = [];
       for (let ci = 0; ci < b.verses.length; ci++) { status.textContent = 'Fetching ' + b.name + ' ' + (ci + 1) + ' of ' + b.verses.length + '…'; const e = await esvFetchChapter(b.name, ci + 1); parts.push({ ci, verses: e.verses }); }
       doc = bibleMultiDoc(b, parts);
@@ -9469,15 +9561,17 @@ async function plusPracticeLaunch(fan, b, scope, mode) {
     plusLaunchSession(doc, mode);
   } catch (err) { closePlusFan(); esvErrToast(err); }
 }
-function plusPracticeCreeds(fan) {
-  plusChoose(fan, 'Practice · creeds', CR.docs().map(d => { const st = CR.docStats(d.id); return { label: d.name, sub: st.done + '/' + st.total, on: () => plusPracticeCreedMode(fan, d) }; }), () => plusPractice(fan));
+function plusPracticeCreeds(fan, intent) {
+  plusChoose(fan, plusIntentTitle(intent) + ' · creeds', CR.docs().map(d => { const st = CR.docStats(d.id); return { label: d.name, sub: st.done + '/' + st.total, on: () => plusPracticeCreedMode(fan, d, intent) }; }), () => plusPRDomain(fan, intent));
 }
-function plusPracticeCreedMode(fan, d) {
-  plusChips(fan, 'Mode', [
+function plusPracticeCreedMode(fan, d, intent) {
+  // Creeds have no timed-review scope (reviewTimer is Bible-only), so Review = flash/typer only.
+  const modes = [
     { label: 'Flashcards', on: () => plusLaunchSession(d, 'flash') },
     { label: 'First-Letter', on: () => plusLaunchSession(d, 'typer') },
-    { label: 'Fade', on: () => plusLaunchSession(d, 'fade') },
-  ], () => plusPracticeCreeds(fan));
+  ];
+  if (intent !== 'review') modes.push({ label: 'Fade', on: () => plusLaunchSession(d, 'fade') });
+  plusChips(fan, plusIntentTitle(intent) + ' · mode', modes, () => plusPracticeCreeds(fan, intent));
 }
 // build the queue exactly like practiceSetup and launch the chosen session (the one full screen)
 function plusLaunchSession(d, mode) {
