@@ -1647,7 +1647,12 @@ function ensure() {
   if (!C().progress) C().progress = {};
   if (!C().due) C().due = {};   // due[docId] = 'YYYY-MM-DD' (Phase 9.4)
   if (!C().dueBase) C().dueBase = {};   // dueBase[docId] = {date, rem} baseline for ahead/behind
-  if (C().current === undefined) C().current = 'heidelberg';
+  // Multiple documents can be "current" at once (like reading several books). currentList
+  // is the source of truth; migrate the legacy single `current` id once, then leave it.
+  if (!C().currentList) {
+    if (C().current !== undefined) C().currentList = C().current ? [C().current] : [];
+    else C().currentList = ['heidelberg'];
+  }
   if (!C().track.heidelberg) C().track.heidelberg = 'memorize';
 }
 
@@ -1659,8 +1664,17 @@ function getDoc(id) { ensure(); return CREEDS.find(d => d.id === id) || null; }
 function trackOf(id) { ensure(); return C().track[id] || null; }
 function setTrack(id, t) { ensure(); if (t) C().track[id] = t; else delete C().track[id]; save(); }
 
-function currentDoc() { ensure(); return C().current ? getDoc(C().current) : null; }
-function setCurrentDoc(id) { ensure(); C().current = id; save(); }
+// All docs currently being read/memorized (order = the order they were added).
+function currentDocs() { ensure(); return C().currentList.map(id => getDoc(id)).filter(Boolean); }
+function currentDoc() { ensure(); return currentDocs()[0] || null; }   // legacy: first current
+function isCurrentDoc(id) { ensure(); return C().currentList.includes(id); }
+function toggleCurrentDoc(id) {
+  ensure();
+  const i = C().currentList.indexOf(id);
+  if (i >= 0) C().currentList.splice(i, 1); else C().currentList.push(id);
+  save();
+}
+function setCurrentDoc(id) { ensure(); C().currentList = id ? [id] : []; save(); }   // legacy single-set
 
 function isDone(id, n) { ensure(); return !!(C().progress[id] && C().progress[id][n]); }
 
@@ -1783,7 +1797,7 @@ function lastPracticeTs(docId, n) {
   return arr.length ? arr[arr.length - 1].ts : 0;
 }
 
-const CR = {GROUPS,currentDoc,docDueOf,docStats,docs,dueBaseOf,getDoc,isDone,lastPracticeTs,lifetimeSectionsMarked,logPractice,mastery,practiceCountBetween,practiceHistory,sectionLabel,sectionsLeft,sectionsMarked,sectionsMarkedToday,setCurrentDoc,setDocDue,setTrack,toggleSection,trackOf};
+const CR = {GROUPS,currentDoc,currentDocs,docDueOf,docStats,docs,dueBaseOf,getDoc,isCurrentDoc,isDone,lastPracticeTs,lifetimeSectionsMarked,logPractice,mastery,practiceCountBetween,practiceHistory,sectionLabel,sectionsLeft,sectionsMarked,sectionsMarkedToday,setCurrentDoc,setDocDue,setTrack,toggleCurrentDoc,toggleSection,trackOf};
 // Strive — Fitness domain: workout database (seeded from btwb export), logbook,
 // custom workout builder, weight log. Assessment scoring arrives in a later phase.
 
@@ -3408,23 +3422,39 @@ function dashboard() {
     </div>`));
   main().append(h(`
     <div class="card" id="d-creeds" style="cursor:pointer">
-      <h3>Creeds, Catechisms &amp; Confessions <span id="d-cr-practice" title="Practice" style="cursor:pointer;color:var(--accent);font-weight:400">◎</span></h3>
+      <h3><span id="d-cr-title" style="cursor:pointer">Creeds, Catechisms &amp; Confessions</span> <span id="d-cr-practice" title="Practice" style="cursor:pointer;color:var(--accent);font-weight:400">◎</span></h3>
       ${(() => {
-        const d = CR.currentDoc();
-        if (!d) return '<div class="muted">Choose a document to read or memorize.</div>';
-        const st = CR.docStats(d.id);
-        const tr = CR.trackOf(d.id);
-        return `<div class="row">
-          <div style="width:42px;height:42px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${st.level}</div>
-          <div class="grow">
-            <div style="font-weight:700;font-size:14px">${esc(d.name)}</div>
-            <div class="muted" style="font-size:12px">${tr === 'memorize' ? 'memorizing' : tr === 'read' ? 'reading' : ''} · ${st.done}/${st.total} ${d.group === 'catechisms' ? 'Q&As' : 'sections'} · ${st.pct}%</div>
-            <div class="progressbar" style="margin-top:5px"><div style="width:${st.pct}%"></div></div>
-            <div class="muted" style="font-size:11px;margin-top:4px">${getStreak('cr')} day streak · ${weekDays('cr')} of 7 this week</div>
-            ${(() => { const pi = TG.creedPaceInfo(d.id); return pi ? `<div style="font-size:12px;font-weight:600;margin-top:4px;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? pi.remaining + ' sections due now' : pi.perDay + ' sections/day to ' + shortDate(CR.docDueOf(d.id))}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>` : ''; })()}
-          </div>
-          <span class="chev">›</span>
-        </div>`;
+        const docs = CR.currentDocs();
+        if (!docs.length) return '<div class="muted">Choose a document to read or memorize.</div>';
+        const unitOf = d => d.group === 'catechisms' ? 'Q&As' : 'sections';
+        if (docs.length === 1) {
+          const d = docs[0], st = CR.docStats(d.id), tr = CR.trackOf(d.id);
+          return `<div class="d-cr-row" data-cid="${d.id}" style="cursor:pointer"><div class="row">
+            <div style="width:42px;height:42px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${st.level}</div>
+            <div class="grow">
+              <div style="font-weight:700;font-size:14px">${esc(d.name)}</div>
+              <div class="muted" style="font-size:12px">${tr === 'memorize' ? 'memorizing' : tr === 'read' ? 'reading' : ''} · ${st.done}/${st.total} ${unitOf(d)} · ${st.pct}%</div>
+              <div class="progressbar" style="margin-top:5px"><div style="width:${st.pct}%"></div></div>
+              <div class="muted" style="font-size:11px;margin-top:4px">${getStreak('cr')} day streak · ${weekDays('cr')} of 7 this week</div>
+              ${(() => { const pi = TG.creedPaceInfo(d.id); return pi ? `<div style="font-size:12px;font-weight:600;margin-top:4px;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? pi.remaining + ' ' + unitOf(d) + ' due now' : pi.perDay + ' ' + unitOf(d) + '/day to ' + shortDate(CR.docDueOf(d.id))}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>` : ''; })()}
+            </div>
+            <span class="chev">›</span>
+          </div></div>`;
+        }
+        // 2+ current docs — compact rows, like Currently Memorizing (SM2)
+        return docs.map(d => {
+          const st = CR.docStats(d.id), tr = CR.trackOf(d.id);
+          const pi = TG.creedPaceInfo(d.id);
+          return `<div class="d-cr-row" data-cid="${d.id}" style="cursor:pointer;margin-bottom:9px">
+            <div class="row">
+              <span class="badge" style="background:${tr === 'memorize' ? 'var(--gold)' : 'var(--accent)'}">${tr === 'memorize' ? 'MEM' : tr === 'read' ? 'READ' : '—'}</span>
+              <div class="grow" style="font-size:14px;font-weight:700">${esc(d.name)}</div>
+              <div style="font-weight:700;color:var(--accent);font-size:13px">${st.pct}%</div>
+            </div>
+            ${pi ? `<div style="font-size:11px;font-weight:600;margin-top:2px;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? pi.remaining + ' ' + unitOf(d) + ' due now' : pi.perDay + ' ' + unitOf(d) + '/day to ' + shortDate(CR.docDueOf(d.id))}</div>` : ''}
+            <div class="progressbar" style="margin-top:4px"><div style="width:${st.pct}%"></div></div>
+          </div>`;
+        }).join('');
       })()}
     </div>
     <div class="card" id="d-reading" style="cursor:pointer">
@@ -3522,10 +3552,15 @@ function dashboard() {
     ftq.querySelector('[data-ql=sleep]').onclick = e => { e.stopPropagation(); openFt('sleep'); };
     ftq.querySelector('[data-ql=weight]').onclick = e => { e.stopPropagation(); openFt('weight'); };
   }
-  main().querySelector('#d-creeds').onclick = () => {
-    const d = CR.currentDoc();
-    if (d) render(() => creedDocScreen(d)); else render(creedsHome);
-  };
+  // 7B.2 / D-P — the Creeds card and its title go to the master list (home); each current
+  // document row deep-links to that document.
+  main().querySelector('#d-creeds').onclick = () => render(creedsHome);
+  const crT = main().querySelector('#d-cr-title'); if (crT) crT.onclick = e => { e.stopPropagation(); render(creedsHome); };
+  main().querySelectorAll('#d-creeds .d-cr-row').forEach(r => r.onclick = e => {
+    e.stopPropagation();
+    const d = CR.getDoc(r.dataset.cid);
+    if (d) render(() => creedDocScreen(d));
+  });
   main().querySelector('#d-reading').onclick = () => render(readingHome);
   // Phase 6 bug fix — a currently-reading row opens that book's detail, not the general tab
   main().querySelectorAll('.d-read-row').forEach(r => r.onclick = e => {
@@ -4587,52 +4622,34 @@ function bookScreen(b) {
   const last = SC.lastReviewTs(b.name);
   const chaptersDone = b.verses.filter((_, ci) => { const c = SC.chapterStats(b, ci); return c.done === c.total; }).length;
   const isCurrent = (state.scripture.currentItems || []).some(it => it.book === b.name && it.ch == null);
+  const days = SC.reviewIntervalDays(b.name);
+  const it = isCurrent ? state.scripture.currentItems.find(x => x.book === b.name && x.ch == null) : null;
 
+  // status card
   wrap.append(h(`
     <div class="card" style="${isCurrent ? 'border-color:var(--accent)' : ''}">
       <div class="row">
         <span class="badge ${b.t}">${b.t.toUpperCase()}</span>
         <div class="grow"><div class="big">${st.pct}%</div>
-        <div class="muted">${st.done}/${st.total} verses · ${chaptersDone}/${b.chapters} chapters${isCurrent ? ' · <span style="color:var(--accent);font-weight:700">current book</span>' : ''}</div></div>
+        <div class="muted">${st.done}/${st.total} verses · ${chaptersDone}/${b.chapters} chapters${isCurrent ? ' · <span style="color:var(--accent);font-weight:700">current book</span>' : ''}</div>
+        ${(() => { const pi = it ? TG.memPaceInfo(it) : null; return pi ? `<div style="font-size:12px;font-weight:600;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? 'Overdue — ' + pi.remaining + ' verses left, due now' : pi.perDay + ' verses/day to finish by ' + shortDate(it.due)}</div>` : ''; })()}</div>
         ${stale ? '<div style="text-align:right;color:var(--danger);font-weight:700;font-size:13px">⚠ Review<br>needed</div>' : ''}
       </div>
       <div class="progressbar" style="margin-top:8px;height:7px"><div style="width:${st.pct}%;${stale ? 'background:var(--danger);opacity:.6' : ''}"></div></div>
       ${last ? `<div class="muted" style="font-size:12px;margin-top:8px">Last review: ${new Date(last).toLocaleDateString()}</div>` : ''}
     </div>`));
 
-  const timerBtn = h(`<button class="btn">⏱ Start review timer</button>`);
-  timerBtn.firstChild.onclick = () => render(() => reviewTimer(b));
-  wrap.append(timerBtn);
+  // two large co-equal actions side by side — Practice + Review
+  // (Review kept as prominent as Practice; its modes expand in upcoming phases)
+  const actions = h(`<div class="row" style="margin-top:12px">
+    <button class="btn" data-a="practice" style="margin-top:0;flex:1">Practice — ESV</button>
+    <button class="btn" data-a="review" style="margin-top:0;flex:1">Review ⏱</button>
+  </div>`).firstElementChild;
+  actions.querySelector('[data-a=practice]').onclick = () => render(() => practiceScope(b));
+  actions.querySelector('[data-a=review]').onclick = () => render(() => reviewTimer(b));
+  wrap.append(actions);
 
-  // SM5 — practice at any scope: whole book / chapters / verses
-  const practiceBtn = h(`<button class="btn">Practice — ESV</button>`);
-  practiceBtn.firstChild.onclick = () => render(() => practiceScope(b));
-  wrap.append(practiceBtn);
-
-  const curBtn = h(`<button class="btn secondary" style="margin-bottom:4px">${isCurrent ? '✓ Current memorization project — tap to remove' : 'Set as current memorization project'}</button>`);
-  curBtn.firstChild.onclick = () => {
-    if (isCurrent) {
-      const it = state.scripture.currentItems.find(x => x.book === b.name && x.ch == null);
-      SC.removeCurrentItem(it.id);
-      toast(b.name + ' removed from current projects');
-    } else {
-      SC.addCurrentItem(b.name, null);   // additive — multiple projects allowed (SM2)
-      toast(b.name + ' is now a current project');
-    }
-    render(() => bookScreen(b), false);
-  };
-  wrap.append(curBtn);
-
-  // 9.4 — finish-by date drives a verses/day pace (only while it's a current project)
-  if (isCurrent) {
-    const it = state.scripture.currentItems.find(x => x.book === b.name && x.ch == null);
-    wrap.append(dueControl({
-      label: 'Finish memorizing by',
-      value: it.due, unit: 'verses', info: TG.memPaceInfo(it),
-      onSet: v => { SC.setItemDue(it.id, v); render(() => bookScreen(b), false); }
-    }));
-  }
-
+  // chapters grid — core navigation for marking verses, directly beneath the actions
   wrap.append(sectionTitle('Chapters'));
   const grid = document.createElement('div');
   grid.className = 'grid';
@@ -4646,53 +4663,111 @@ function bookScreen(b) {
   });
   wrap.append(grid);
 
-  const days = SC.reviewIntervalDays(b.name);
-  const reqCard = h(`
-    <div class="card" style="margin-top:16px"><h3>Review requirement</h3>
-      <div class="pillrow" style="margin-bottom:6px">
+  // secondary pill row → focused sheets
+  const pills = h(`<div class="pillrow" style="margin-top:16px">
+    <button class="pill" data-s="project">${isCurrent ? '✓ Project' : 'Project'}</button>
+    <button class="pill" data-s="interval">Interval${days ? ' · ' + days + 'd' : ''}</button>
+    <button class="pill" data-s="memorized">Memorized</button>
+  </div>`);
+  pills.querySelector('[data-s=project]').onclick = () => memProjectSheet(b);
+  pills.querySelector('[data-s=interval]').onclick = () => memIntervalSheet(b);
+  pills.querySelector('[data-s=memorized]').onclick = () => memMemorizedSheet(b);
+  wrap.append(pills);
+
+  main().append(wrap);
+}
+let bookUndoSnap = null;   // {book, snap} — survives within the session only
+
+// Project sheet — current-memorization-project toggle + (when current) the finish-by pace control
+function memProjectSheet(b) {
+  openSheet('Memorization project', (body, close) => {
+    const fill = () => {
+      body.innerHTML = '';
+      const isCurrent = (state.scripture.currentItems || []).some(it => it.book === b.name && it.ch == null);
+      const tog = h(`<button class="btn secondary" style="margin-top:0">${isCurrent ? '✓ Current memorization project — tap to remove' : 'Set as current memorization project'}</button>`);
+      tog.firstChild.onclick = () => {
+        if (isCurrent) {
+          const cur = state.scripture.currentItems.find(x => x.book === b.name && x.ch == null);
+          SC.removeCurrentItem(cur.id);
+          toast(b.name + ' removed from current projects');
+        } else {
+          SC.addCurrentItem(b.name, null);   // additive — multiple projects allowed (SM2)
+          toast(b.name + ' is now a current project');
+        }
+        fill(); rerender();
+      };
+      body.append(tog);
+      body.append(h(`<div class="muted" style="font-size:12px;margin:8px 4px 0">${isCurrent
+        ? 'Set a finish-by date below for a self-adjusting verses/day pace — shown here and in Today, Week & Month.'
+        : 'Make this a current project to give it a finish-by date and pace.'}</div>`));
+      // 9.4 — finish-by date drives a verses/day pace (only while it's a current project)
+      if (isCurrent) {
+        const it = state.scripture.currentItems.find(x => x.book === b.name && x.ch == null);
+        body.append(dueControl({
+          label: 'Finish memorizing by',
+          value: it.due, unit: 'verses', info: TG.memPaceInfo(it),
+          onSet: v => { SC.setItemDue(it.id, v); fill(); rerender(); }
+        }));
+      }
+    };
+    fill();
+  });
+}
+
+// Interval sheet — review requirement (how often before XP goes stale)
+function memIntervalSheet(b) {
+  openSheet('Review requirement', (body, close) => {
+    const days = SC.reviewIntervalDays(b.name);
+    const last = SC.lastReviewTs(b.name);
+    const card = h(`<div>
+      <div class="pillrow" style="margin-bottom:8px">
         ${INTERVALS.map(([d, l]) => `<button class="pill ${days === d ? 'on' : ''}" data-d="${d}">${l}</button>`).join('')}
       </div>
       <div class="muted" style="font-size:12px">${days
         ? `Must be reviewed every ${days} days or this book's XP is voided until reviewed. ${last ? 'Last review: ' + new Date(last).toLocaleDateString() : 'No timed review logged yet.'}`
         : 'No requirement — this book never goes stale.'}</div>
     </div>`).firstElementChild;
-  reqCard.querySelectorAll('[data-d]').forEach(btn => btn.onclick = () => {
-    SC.setReviewInterval(b.name, Number(btn.dataset.d));
-    render(() => bookScreen(b), false);
+    card.querySelectorAll('[data-d]').forEach(btn => btn.onclick = () => {
+      SC.setReviewInterval(b.name, Number(btn.dataset.d));
+      close(); rerender();
+    });
+    body.append(card);
   });
-  wrap.append(reqCard);
-
-  // SM3 — mark whole book memorized (undoable) + reset
-  const mk = h(`<div class="card" style="margin-top:12px"><h3>Marks &amp; resets</h3>
-    <button class="btn secondary" data-a="markall">${st.pct === 100 ? '✓ Whole book memorized' : 'Mark whole book memorized'}</button>
-    ${bookUndoSnap && bookUndoSnap.book === b.name ? '<button class="btn secondary" data-a="undo" style="color:var(--gold)">Undo mark</button>' : ''}
-    <button class="btn secondary" data-a="reset" style="color:var(--danger)">Reset this book</button>
-  </div>`).firstElementChild;
-  mk.querySelector('[data-a=markall]').onclick = () => {
-    if (st.pct === 100) { toast('Already fully memorized'); return; }
-    bookUndoSnap = { book: b.name, snap: SC.markBookMemorized(b) };
-    toast(b.name + ' marked memorized — Undo available below');
-    render(() => bookScreen(b), false);
-  };
-  const undoBtn = mk.querySelector('[data-a=undo]');
-  if (undoBtn) undoBtn.onclick = () => {
-    SC.restoreBookProgress(b, bookUndoSnap.snap);
-    bookUndoSnap = null;
-    toast('Restored previous progress');
-    render(() => bookScreen(b), false);
-  };
-  mk.querySelector('[data-a=reset]').onclick = () => {
-    if (!confirm('Erase all memorization progress for ' + b.name + '? Review history is kept.')) return;
-    SC.resetBook(b);
-    bookUndoSnap = null;
-    toast(b.name + ' reset');
-    render(() => bookScreen(b), false);
-  };
-  wrap.append(mk);
-
-  main().append(wrap);
 }
-let bookUndoSnap = null;   // {book, snap} — survives within the session only
+
+// Memorized sheet — SM3 mark whole book memorized (undoable) + reset
+function memMemorizedSheet(b) {
+  openSheet('Memorized', (body, close) => {
+    const st = SC.bookStats(b);
+    const markBtn = h(`<button class="btn secondary" style="margin-top:0">${st.pct === 100 ? '✓ Whole book memorized' : 'Mark whole book memorized'}</button>`);
+    markBtn.firstChild.onclick = () => {
+      if (st.pct === 100) { toast('Already fully memorized'); return; }
+      bookUndoSnap = { book: b.name, snap: SC.markBookMemorized(b) };
+      toast(b.name + ' marked memorized — Undo available here');
+      close(); rerender(); memMemorizedSheet(b);
+    };
+    body.append(markBtn);
+    if (bookUndoSnap && bookUndoSnap.book === b.name) {
+      const undo = h(`<button class="btn secondary" style="color:var(--gold)">Undo mark</button>`);
+      undo.firstChild.onclick = () => {
+        SC.restoreBookProgress(b, bookUndoSnap.snap);
+        bookUndoSnap = null;
+        toast('Restored previous progress');
+        close(); rerender();
+      };
+      body.append(undo);
+    }
+    const reset = h(`<button class="btn secondary" style="color:var(--danger)">Reset this book</button>`);
+    reset.firstChild.onclick = () => {
+      if (!confirm('Erase all memorization progress for ' + b.name + '? Review history is kept.')) return;
+      SC.resetBook(b);
+      bookUndoSnap = null;
+      toast(b.name + ' reset');
+      close(); rerender();
+    };
+    body.append(reset);
+  });
+}
 
 // SM5 — practice scope: whole book (≤28 chapters) / selected chapters / selected verses
 const WHOLE_BOOK_CAP = 28;
@@ -6042,24 +6117,26 @@ function creedsHome() {
   setHeader('Creeds, Catechisms & Confessions', { back: true });
   const wrap = document.createElement('div');
 
-  const cur = CR.currentDoc();
-  if (cur) {
-    const st = CR.docStats(cur.id);
-    const tr = CR.trackOf(cur.id);
-    const hero = h(`
-      <div class="card" style="border-color:var(--accent);cursor:pointer">
-        <h3>In progress</h3>
-        <div class="row">
-          <div class="grow">
-            <div style="font-size:17px;font-weight:700;">${esc(cur.name)}</div>
-            <div class="muted" style="font-size:12px">${tr === 'memorize' ? 'memorizing' : 'reading'} · ${st.done}/${st.total} · level ${st.level}</div>
+  const currents = CR.currentDocs();
+  if (currents.length) {
+    wrap.append(sectionTitle('In progress'));
+    currents.forEach(cur => {
+      const st = CR.docStats(cur.id);
+      const tr = CR.trackOf(cur.id);
+      const hero = h(`
+        <div class="card" style="border-color:var(--accent);cursor:pointer;margin-bottom:8px">
+          <div class="row">
+            <div class="grow">
+              <div style="font-size:17px;font-weight:700;">${esc(cur.name)}</div>
+              <div class="muted" style="font-size:12px">${tr === 'memorize' ? 'memorizing' : tr === 'read' ? 'reading' : 'not tracked'} · ${st.done}/${st.total} · level ${st.level}</div>
+            </div>
+            <div class="big" style="color:var(--accent)">${st.pct}%</div>
           </div>
-          <div class="big" style="color:var(--accent)">${st.pct}%</div>
-        </div>
-        <div class="progressbar" style="margin-top:8px;height:7px"><div style="width:${st.pct}%"></div></div>
-      </div>`).firstElementChild;
-    hero.onclick = () => render(() => creedDocScreen(cur));
-    wrap.append(hero);
+          <div class="progressbar" style="margin-top:8px;height:7px"><div style="width:${st.pct}%"></div></div>
+        </div>`).firstElementChild;
+      hero.onclick = () => render(() => creedDocScreen(cur));
+      wrap.append(hero);
+    });
   }
 
   CR.GROUPS.forEach(([g, label]) => {
@@ -6091,79 +6168,163 @@ function creedDocScreen(d) {
   const wrap = document.createElement('div');
   const st = CR.docStats(d.id);
   const tr = CR.trackOf(d.id);
-  const isCurrent = state.creeds.current === d.id;
+  const isCurrent = CR.isCurrentDoc(d.id);
+  const unit = d.group === 'catechisms' ? 'Q&As' : 'sections';
 
+  // status card (+ 🎯 pace line when a finish-by date is set)
   wrap.append(h(`
     <div class="card" style="${isCurrent ? 'border-color:var(--accent)' : ''}">
       <div class="row">
         <div class="grow"><div class="big">${st.pct}%</div>
-        <div class="muted">${st.done}/${st.total} ${d.group === 'catechisms' ? 'Q&As' : 'sections'} ${tr ? '· ' + (tr === 'memorize' ? 'memorizing' : 'reading') : ''}${isCurrent ? ' · <span style="color:var(--accent);font-weight:700">current</span>' : ''}</div></div>
+        <div class="muted">${st.done}/${st.total} ${unit} ${tr ? '· ' + (tr === 'memorize' ? 'memorizing' : 'reading') : ''}${isCurrent ? ' · <span style="color:var(--accent);font-weight:700">current</span>' : ''}</div>
+        ${(() => { const pi = TG.creedPaceInfo(d.id); return pi ? `<div style="font-size:12px;font-weight:600;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? 'Overdue — ' + pi.remaining + ' ' + unit + ' left, due now' : pi.perDay + ' ' + unit + '/day to finish by ' + shortDate(CR.docDueOf(d.id))}</div>` : ''; })()}</div>
         <div style="text-align:right"><div class="big" style="color:var(--gold)">${st.level}</div><div class="muted">level</div></div>
       </div>
       <div class="progressbar" style="margin-top:8px;height:7px"><div style="width:${st.pct}%"></div></div>
     </div>`));
 
-  const trackCard = h(`
-    <div class="card"><h3>Track</h3>
-      <div class="pillrow" style="margin-bottom:0">
-        <button class="pill ${tr === 'read' ? 'on' : ''}" data-t="read">Read</button>
-        <button class="pill ${tr === 'memorize' ? 'on' : ''}" data-t="memorize">Memorize</button>
-        <button class="pill ${isCurrent ? 'on' : ''}" data-t="current">★ Current</button>
-      </div>
-    </div>`).firstElementChild;
-  trackCard.querySelectorAll('[data-t]').forEach(b => b.onclick = () => {
-    if (b.dataset.t === 'current') {
-      CR.setCurrentDoc(isCurrent ? null : d.id);
-      toast(isCurrent ? 'Cleared' : d.name + ' set as current');
-    } else {
-      CR.setTrack(d.id, tr === b.dataset.t ? null : b.dataset.t);
-    }
-    rerender();
-  });
-  wrap.append(trackCard);
-
-  // 9.4 — finish-by date drives a sections/day pace across Today, Week & Month
-  wrap.append(dueControl({
-    label: 'Finish by',
-    value: CR.docDueOf(d.id), unit: (d.group === 'catechisms' ? 'Q&As' : 'sections'), info: TG.creedPaceInfo(d.id),
-    onSet: v => { CR.setDocDue(d.id, v); rerender(); }
-  }));
-
+  // primary action — Practice (catechisms only, as before)
   if (d.group === 'catechisms') {
-    const prBtn = h(`<button class="btn" style="margin-bottom:4px">🎯 Practice</button>`);
+    const prBtn = h(`<button class="btn">🎯 Practice</button>`);
     prBtn.firstChild.onclick = () => render(() => practiceSetup(d));
     wrap.append(prBtn);
   }
 
-  let lastLd = 0;
-  d.sections.forEach(s => {
-    if (s.ld && s.ld !== lastLd) {
-      lastLd = s.ld;
-      wrap.append(sectionTitle("Lord's Day " + s.ld));
+  // sections as numbered squares, grouped like Scripture chapters.
+  // Heidelberg carries Lord's Days (clickable header → whole group written out);
+  // other docs are a single flat grid. Each square opens that section.
+  // Each group gets a clickable subtitle → the whole group written out. For the Heidelberg
+  // that's per Lord's Day; for a flat doc (creeds/confessions) it's the whole document.
+  const groups = creedGroups(d);
+  groups.forEach(g => {
+    const flat = g.ld == null;
+    if (!flat || g.sections.length > 1) {
+      const gd = g.sections.filter(s => CR.isDone(d.id, s.n)).length;
+      const title = flat ? (d.group === 'catechisms' ? 'Questions' : 'Sections') : "Lord's Day " + g.ld;
+      const head = h(`<h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-2);margin:16px 4px 8px;cursor:pointer;display:flex;align-items:center;gap:8px">
+        <span>${title}</span>
+        <span style="color:var(--text-3);font-weight:600;text-transform:none;letter-spacing:0">${gd}/${g.sections.length}</span></h3>`).firstElementChild;
+      head.onclick = () => render(() => creedGroupScreen(d, g.ld));
+      wrap.append(head);
     }
+    wrap.append(creedGrid(d, g.sections));
+  });
+
+  // secondary pills — Finish by, then Track (Baruch's order), like Scripture
+  const pills = h(`<div class="pillrow" style="margin-top:16px">
+    <button class="pill" data-s="due">Finish by</button>
+    <button class="pill" data-s="track">Track${tr ? ' · ' + (tr === 'memorize' ? 'Memorize' : 'Read') : ''}${isCurrent ? ' ★' : ''}</button>
+  </div>`);
+  pills.querySelector('[data-s=due]').onclick = () => creedDueSheet(d);
+  pills.querySelector('[data-s=track]').onclick = () => creedTrackSheet(d);
+  wrap.append(pills);
+
+  main().append(wrap);
+}
+
+// Order-preserving grouping: Lord's Days if the doc carries them, else one flat group.
+function creedGroups(d) {
+  const secs = d.sections;
+  if (!secs.some(s => s.ld != null)) return [{ ld: null, sections: secs }];
+  const groups = [], byLd = new Map();
+  secs.forEach(s => {
+    if (!byLd.has(s.ld)) { const g = { ld: s.ld, sections: [] }; byLd.set(s.ld, g); groups.push(g); }
+    byLd.get(s.ld).sections.push(s);
+  });
+  return groups;
+}
+
+// A grid of numbered squares (done = filled), each opening that section's text.
+function creedGrid(d, sections) {
+  const grid = document.createElement('div');
+  grid.className = 'grid';
+  sections.forEach(s => {
+    const cell = document.createElement('div');
+    cell.className = 'cell' + (CR.isDone(d.id, s.n) ? ' done' : '');
+    cell.textContent = s.n;
+    cell.onclick = () => creedSectionSheet(d, s);
+    grid.append(cell);
+  });
+  return grid;
+}
+
+// Single section — the question (catechism) or article shown in a sheet, with a done toggle.
+function creedSectionSheet(d, s) {
+  const isCat = d.group === 'catechisms';
+  openSheet(isCat ? 'Q' + s.n : CR.sectionLabel(d, s), (body, close) => {
+    const fill = () => {
+      body.innerHTML = '';
+      if (isCat && s.label) body.append(h(`<div style="font-size:15px;font-weight:700;line-height:1.5;margin-bottom:10px">${esc(s.label)}</div>`));
+      body.append(h(`<div style="font-size:15px;line-height:1.65;white-space:pre-line">${esc(s.text)}</div>`));
+      if (s.refs) body.append(h(`<div class="muted" style="font-size:12px;line-height:1.5;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">${esc(s.refs)}</div>`));
+      const done = CR.isDone(d.id, s.n);
+      const tog = h(`<button class="btn ${done ? 'secondary' : ''}" style="margin-top:16px">${done ? '✓ Done — tap to unmark' : 'Mark done'}</button>`);
+      tog.firstChild.onclick = () => { CR.toggleSection(d.id, s.n); fill(); rerender(); };
+      body.append(tog);
+    };
+    fill();
+  });
+}
+
+// A group written out in full — every section/Q&A, each markable. ld null = the whole doc.
+function creedGroupScreen(d, ld) {
+  setHeader(d.name.replace(/^The /, '') + (ld != null ? " · Lord's Day " + ld : ''), { back: true });
+  const wrap = document.createElement('div');
+  d.sections.filter(s => ld == null || s.ld === ld).forEach(s => {
     const done = CR.isDone(d.id, s.n);
-    const open = crOpenSection === d.id + '_' + s.n;
-    const label = CR.sectionLabel(d, s);
     const el = h(`
       <div class="card" style="padding:12px 14px;margin-bottom:8px;${done ? 'opacity:.65;' : ''}">
         <div class="row">
           <div class="check ${done ? 'on' : ''}">✓</div>
-          <div class="grow" data-a="head" style="cursor:pointer">
-            <div style="font-size:14px;font-weight:700;${done ? 'text-decoration:line-through' : ''}">${d.group === 'catechisms' ? 'Q' + s.n + '. ' : ''}${esc(label)}</div>
-          </div>
-          <span class="chev" data-a="chev" style="cursor:pointer">${open ? '▾' : '▸'}</span>
+          <div class="grow"><div style="font-size:14px;font-weight:700">${d.group === 'catechisms' ? 'Q' + s.n + '. ' : ''}${esc(s.label || CR.sectionLabel(d, s))}</div></div>
         </div>
-        ${open ? `<div style="font-size:14px;line-height:1.6;margin-top:10px;white-space:pre-line">${esc(s.text)}</div>` : ''}
-        ${open && s.refs ? `<div class="muted" style="font-size:11.5px;line-height:1.5;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">${esc(s.refs)}</div>` : ''}
+        <div style="font-size:14px;line-height:1.65;margin-top:10px;white-space:pre-line">${esc(s.text)}</div>
+        ${s.refs ? `<div class="muted" style="font-size:11.5px;line-height:1.5;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">${esc(s.refs)}</div>` : ''}
       </div>`).firstElementChild;
-    el.querySelector('.check').onclick = () => { CR.toggleSection(d.id, s.n); rerender(); };
-    const toggleOpen = () => { crOpenSection = open ? null : d.id + '_' + s.n; rerender(); };
-    el.querySelector('[data-a=head]').onclick = toggleOpen;
-    el.querySelector('[data-a=chev]').onclick = toggleOpen;
+    el.querySelector('.check').onclick = () => { CR.toggleSection(d.id, s.n); render(() => creedGroupScreen(d, ld), false); };
     wrap.append(el);
   });
-
   main().append(wrap);
+}
+
+// Finish-by (due date) sheet — reuses the shared dueControl
+function creedDueSheet(d) {
+  openSheet('Finish by', (body, close) => {
+    body.append(dueControl({
+      label: 'Finish by',
+      hint: 'Set a date for a self-adjusting daily pace — shows here and in Today, Week & Month.',
+      value: CR.docDueOf(d.id), unit: (d.group === 'catechisms' ? 'Q&As' : 'sections'), info: TG.creedPaceInfo(d.id),
+      onSet: v => { CR.setDocDue(d.id, v); toast(v ? 'Target set' : 'Target cleared'); close(); rerender(); }
+    }));
+  });
+}
+
+// Track sheet — Read / Memorize / ★ Current
+function creedTrackSheet(d) {
+  openSheet('Track', (body, close) => {
+    const fill = () => {
+      body.innerHTML = '';
+      const tr = CR.trackOf(d.id);
+      const isCurrent = CR.isCurrentDoc(d.id);
+      const row = h(`<div class="pillrow" style="margin-bottom:0">
+        <button class="pill ${tr === 'read' ? 'on' : ''}" data-t="read">Read</button>
+        <button class="pill ${tr === 'memorize' ? 'on' : ''}" data-t="memorize">Memorize</button>
+        <button class="pill ${isCurrent ? 'on' : ''}" data-t="current">★ Current</button>
+      </div>`).firstElementChild;
+      row.querySelectorAll('[data-t]').forEach(b => b.onclick = () => {
+        if (b.dataset.t === 'current') {
+          CR.toggleCurrentDoc(d.id);
+          toast(isCurrent ? d.name + ' removed from current' : d.name + ' set as current');
+        } else {
+          CR.setTrack(d.id, tr === b.dataset.t ? null : b.dataset.t);
+        }
+        fill(); rerender();
+      });
+      body.append(row);
+      body.append(h(`<div class="muted" style="font-size:12px;margin-top:10px">Read or Memorize sets how this document is tracked. ★ Current pins it to the dashboard — you can have several current at once.</div>`));
+    };
+    fill();
+  });
 }
 
 // ---------- Practice (Fade · First-Letter · Flashcards) ----------
@@ -7408,26 +7569,41 @@ function workoutDetail(w) {
         <div class="stat"><div class="v" style="color:var(--gold)">${pr ? esc(pr.result) : '—'}</div><div class="l">Personal record</div></div>
       </div>
     </div>`));
+  // primary action — log a result
   const logBtn = h(`<button class="btn">＋ Log a result</button>`);
   logBtn.firstChild.onclick = () => render(() => logForm(w));
   wrap.append(logBtn);
-  const addBtn = h(`<button class="btn secondary">＋ Add to a workout card</button>`);
-  addBtn.firstChild.onclick = () => { if (!cardDraft) cardDraft = { name: '', ts: Date.now(), parts: [] }; cardDraft.parts.push(w.id); toast('Added — build the card'); render(workoutCardBuilder); };
-  wrap.append(addBtn);
-  const timerBtn = h(`<button class="btn secondary">⏱ Start a timer</button>`);
-  timerBtn.firstChild.onclick = () => render(() => ftTimersScreen(w));
-  wrap.append(timerBtn);
+
+  // secondary actions collapse into a pill row
+  const pills = h(`<div class="pillrow" style="margin-top:12px">
+    <button class="pill" data-s="timer">⏱ Timer</button>
+    <button class="pill" data-s="addcard">Add to card</button>
+    ${w.custom ? '<button class="pill" data-s="delete" style="color:var(--danger)">Delete</button>' : ''}
+  </div>`);
+  pills.querySelector('[data-s=timer]').onclick = () => render(() => ftTimersScreen(w));
+  pills.querySelector('[data-s=addcard]').onclick = () => { if (!cardDraft) cardDraft = { name: '', ts: Date.now(), parts: [] }; cardDraft.parts.push(w.id); toast('Added — build the card'); render(workoutCardBuilder); };
+  const delPill = pills.querySelector('[data-s=delete]');
+  if (delPill) delPill.onclick = () => workoutRemoveSheet(w);
+  wrap.append(pills);
 
   if (logs.length) {
     wrap.append(sectionTitle('History'));
     logs.forEach(l => wrap.append(logRow(l, { showName: false })));
   }
-  if (w.custom) {
-    const del = h(`<button class="btn danger" style="margin-top:14px">Delete this workout</button>`);
-    del.firstChild.onclick = () => { FT.removeCustomWorkout(w.id); toast('Workout deleted'); goBack(); };
-    wrap.append(del);
-  }
   main().append(wrap);
+}
+
+// Delete-workout confirm sheet (custom workouts only)
+function workoutRemoveSheet(w) {
+  openSheet('Delete workout', (body, close) => {
+    body.append(h(`<div class="muted" style="margin-bottom:14px">Delete “${esc(w.name)}” and its log history? This can't be undone.</div>`));
+    const del = h(`<button class="btn danger">Delete this workout</button>`);
+    del.firstChild.onclick = () => { FT.removeCustomWorkout(w.id); toast('Workout deleted'); close(); goBack(); };
+    body.append(del);
+    const cancel = h(`<button class="btn secondary">Cancel</button>`);
+    cancel.firstChild.onclick = close;
+    body.append(cancel);
+  });
 }
 
 function workoutBuilder() {
@@ -7537,25 +7713,13 @@ function ftWeight(body) {
   };
   body.append(entry);
 
-  // goal (§6): target weight + date → needed change per week
-  const g = FT.weightGoal(), pace = FT.weightGoalPace();
-  const goalCard = h(`<div class="card"><h3>Goal</h3>
-      <div class="row" style="gap:6px">
-        <input data-a="glbs" placeholder="Target lbs" inputmode="decimal" value="${g && g.lbs ? g.lbs : ''}" style="flex:1;${FIN};text-align:center">
-        <input data-a="gdate" type="date" value="${g && g.byTs ? todayKey(new Date(g.byTs)) : ''}" style="flex:1;${FIN}">
-        <button class="pill on" data-a="gsave" style="padding:11px 14px">Set</button>
-      </div>
-      ${pace ? `<div class="muted" style="font-size:12px;margin-top:8px">${pace.delta >= 0 ? 'Gain' : 'Lose'} ${Math.abs(pace.delta).toFixed(1)} lb in ${pace.days} day${pace.days === 1 ? '' : 's'} — about <span style="font-weight:700;color:var(--text)">${Math.abs(pace.perWeek).toFixed(1)} lb/week</span> (${Math.abs(pace.perDay).toFixed(2)}/day).</div>`
-        : (g && g.lbs ? '<div class="muted" style="font-size:12px;margin-top:8px">Log a weight to see your needed pace.</div>' : '')}
-    </div>`).firstElementChild;
-  goalCard.querySelector('[data-a=gsave]').onclick = () => {
-    const lbs = Number(goalCard.querySelector('[data-a=glbs]').value);
-    const ds = goalCard.querySelector('[data-a=gdate]').value;
-    FT.setWeightGoal(lbs, ds ? new Date(ds + 'T12:00:00').getTime() : 0);
-    toast(lbs ? 'Goal set' : 'Goal cleared');
-    rerender();
-  };
-  body.append(goalCard);
+  // goal config (§6) collapses into a pill → sheet
+  const g = FT.weightGoal();
+  const pills = h(`<div class="pillrow" style="margin-top:2px">
+    <button class="pill" data-s="goal">Goal${g && g.lbs ? ' · ' + g.lbs + ' lb' : ''}</button>
+  </div>`);
+  pills.querySelector('[data-s=goal]').onclick = () => weightGoalSheet();
+  body.append(pills);
 
   const ws = FT.weights();
   if (ws.length >= 2) {
@@ -7581,6 +7745,30 @@ function ftWeight(body) {
   } else {
     body.append(h(`<div class="empty">One number a day. The trend chart appears after two entries.</div>`));
   }
+}
+
+// Weight goal (§6): target weight + date → needed change per week
+function weightGoalSheet() {
+  openSheet('Weight goal', (body, close) => {
+    const g = FT.weightGoal(), pace = FT.weightGoalPace();
+    const card = h(`<div>
+      <div class="row" style="gap:6px">
+        <input data-a="glbs" placeholder="Target lbs" inputmode="decimal" value="${g && g.lbs ? g.lbs : ''}" style="flex:1;${FIN};text-align:center">
+        <input data-a="gdate" type="date" value="${g && g.byTs ? todayKey(new Date(g.byTs)) : ''}" style="flex:1;${FIN}">
+      </div>
+      ${pace ? `<div class="muted" style="font-size:12px;margin-top:8px">${pace.delta >= 0 ? 'Gain' : 'Lose'} ${Math.abs(pace.delta).toFixed(1)} lb in ${pace.days} day${pace.days === 1 ? '' : 's'} — about <span style="font-weight:700;color:var(--text)">${Math.abs(pace.perWeek).toFixed(1)} lb/week</span> (${Math.abs(pace.perDay).toFixed(2)}/day).</div>`
+        : (g && g.lbs ? '<div class="muted" style="font-size:12px;margin-top:8px">Log a weight to see your needed pace.</div>' : '')}
+      <button class="btn" data-a="gsave" style="margin-top:14px">${g && g.lbs ? 'Update goal' : 'Set goal'}</button>
+    </div>`).firstElementChild;
+    card.querySelector('[data-a=gsave]').onclick = () => {
+      const lbs = Number(card.querySelector('[data-a=glbs]').value);
+      const ds = card.querySelector('[data-a=gdate]').value;
+      FT.setWeightGoal(lbs, ds ? new Date(ds + 'T12:00:00').getTime() : 0);
+      toast(lbs ? 'Goal set' : 'Goal cleared');
+      close(); rerender();
+    };
+    body.append(card);
+  });
 }
 
 // progress ring for trackers (fraction of a goal, not a 0–99 level)
@@ -7609,9 +7797,10 @@ function ftWater(body) {
   add.querySelector('[data-a=add]').onclick = () => addOz(Number(ozI.value));
   add.querySelectorAll('[data-q]').forEach(b => b.onclick = () => addOz(Number(b.dataset.q)));
   body.append(add);
-  const gc = h(`<div class="card"><h3>Daily goal</h3><div class="row" style="gap:6px"><input data-a="g" placeholder="oz/day" inputmode="numeric" value="${goal || ''}" style="flex:1;${FIN};text-align:center"><button class="pill on" data-a="save" style="padding:11px 14px">Set</button></div></div>`).firstElementChild;
-  gc.querySelector('[data-a=save]').onclick = () => { FT.setWaterGoal(Number(gc.querySelector('[data-a=g]').value)); toast('Goal set'); rerender(); };
-  body.append(gc);
+  // daily-goal config collapses into a pill → sheet
+  const gpills = h(`<div class="pillrow" style="margin-top:2px"><button class="pill" data-s="goal">Daily goal${goal ? ' · ' + goal + ' oz' : ''}</button></div>`);
+  gpills.querySelector('[data-s=goal]').onclick = () => waterGoalSheet();
+  body.append(gpills);
   const te = FT.waterEntriesForDay();
   if (te.length) {
     body.append(sectionTitle("Today's log"));
@@ -7621,11 +7810,28 @@ function ftWater(body) {
   if (days.length) { body.append(sectionTitle('History')); days.forEach(([k, oz]) => body.append(h(`<div class="list-item" style="cursor:default"><div class="grow">${new Date(k + 'T12:00').toLocaleDateString()}</div><span style="font-weight:700">${oz} oz</span></div>`))); }
 }
 
+// Water daily-goal sheet
+function waterGoalSheet() {
+  openSheet('Daily water goal', (body, close) => {
+    const goal = FT.waterGoal();
+    const card = h(`<div>
+      <div class="row" style="gap:6px"><input data-a="g" placeholder="oz/day" inputmode="numeric" value="${goal || ''}" style="flex:1;${FIN};text-align:center"></div>
+      <button class="btn" data-a="save" style="margin-top:14px">${goal ? 'Update goal' : 'Set goal'}</button>
+    </div>`).firstElementChild;
+    card.querySelector('[data-a=save]').onclick = () => { FT.setWaterGoal(Number(card.querySelector('[data-a=g]').value)); toast('Goal set'); close(); rerender(); };
+    body.append(card);
+  });
+}
+
 // ---- diet / macros (§9) ----
 function ftDiet(body) {
   const t = FT.macroTotals(), tg = FT.dietTargets();
   const bar = (lab, val, goal, unit) => `<div style="margin-bottom:8px"><div class="row" style="justify-content:space-between"><span style="font-size:13px;font-weight:700">${lab}</span><span class="muted" style="font-size:12px">${val}${goal ? ' / ' + goal : ''} ${unit}</span></div><div class="progressbar" style="margin-top:4px"><div style="width:${goal ? Math.min(100, val / goal * 100) : 0}%;background:var(--gold)"></div></div></div>`;
   body.append(h(`<div class="card"><h3>Today</h3>${bar('Protein', t.p, tg.p, 'g')}${bar('Carbs', t.c, tg.c, 'g')}${bar('Fat', t.f, tg.f, 'g')}${bar('Calories', t.cal, tg.cal, 'kcal')}</div>`));
+  // daily-targets config collapses into a pill → sheet
+  const tgpills = h(`<div class="pillrow" style="margin-top:2px"><button class="pill" data-s="targets">Targets${tg.cal ? ' · ' + tg.cal + ' kcal' : tg.p || tg.c || tg.f ? ' · set' : ''}</button></div>`);
+  tgpills.querySelector('[data-s=targets]').onclick = () => dietTargetsSheet();
+  body.append(tgpills);
   const add = h(`<div class="card"><h3>Add a meal</h3>
       <input data-a="name" placeholder="Meal name (optional)" style="width:100%;${FIN};margin-bottom:8px">
       <div class="row" style="gap:6px;margin-bottom:6px">
@@ -7651,15 +7857,23 @@ function ftDiet(body) {
     body.append(sectionTitle("Today's meals"));
     meals.forEach(m => { const row = h(`<div class="list-item" style="cursor:default"><div class="grow"><div class="title" style="font-size:14px">${esc(m.name || 'Meal')}</div><div class="sub">${m.p}p · ${m.c}c · ${m.f}f · ${FT.kcal(m.p, m.f, m.c)} kcal</div></div><button style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button></div>`); row.querySelector('button').onclick = () => { FT.removeMeal(m.id); rerender(); }; body.append(row); });
   }
-  const tc = h(`<div class="card"><h3>Daily targets</h3>
+}
+
+// Macro daily-targets sheet
+function dietTargetsSheet() {
+  openSheet('Daily targets', (body, close) => {
+    const tg = FT.dietTargets();
+    const tc = h(`<div>
       <div class="row" style="gap:6px;margin-bottom:6px">
         <input data-a="p" placeholder="P g" inputmode="numeric" value="${tg.p || ''}" style="flex:1;${FIN};text-align:center">
         <input data-a="c" placeholder="C g" inputmode="numeric" value="${tg.c || ''}" style="flex:1;${FIN};text-align:center">
         <input data-a="f" placeholder="F g" inputmode="numeric" value="${tg.f || ''}" style="flex:1;${FIN};text-align:center">
         <input data-a="cal" placeholder="kcal" inputmode="numeric" value="${tg.cal || ''}" style="flex:1.3;${FIN};text-align:center"></div>
-      <button class="pill on" data-a="save" style="padding:10px 14px">Set targets</button></div>`).firstElementChild;
-  tc.querySelector('[data-a=save]').onclick = () => { const q = k => tc.querySelector(`[data-a=${k}]`).value; FT.setDietTargets({ p: q('p'), c: q('c'), f: q('f'), cal: q('cal') }); toast('Targets set'); rerender(); };
-  body.append(tc);
+      <div class="muted" style="font-size:12px;margin-top:2px">Leave calories blank to auto-track against P/C/F only.</div>
+      <button class="btn" data-a="save" style="margin-top:14px">Set targets</button></div>`).firstElementChild;
+    tc.querySelector('[data-a=save]').onclick = () => { const q = k => tc.querySelector(`[data-a=${k}]`).value; FT.setDietTargets({ p: q('p'), c: q('c'), f: q('f'), cal: q('cal') }); toast('Targets set'); close(); rerender(); };
+    body.append(tc);
+  });
 }
 
 // ---- sleep (§8) ----
