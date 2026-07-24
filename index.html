@@ -86,6 +86,69 @@ nav.tabbar button.active { color: var(--text); }
 nav.tabbar button.active::after { content: ''; width: 3px; height: 3px; border-radius: 50%; background: var(--gold); margin-top: 2px; }
 nav.tabbar .ico { font-size: 17px; line-height: 1; }
 
+/* raised, slightly larger center ＋ (D-S) */
+nav.tabbar button.tab-plus {
+  flex: 0 0 auto; align-self: center; position: relative; top: -14px;
+  width: 52px; height: 52px; border-radius: 50%;
+  background: var(--accent); color: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,.18); border: 2px solid var(--card);
+}
+nav.tabbar button.tab-plus .ico { font-size: 26px; color: #fff; }
+nav.tabbar button.tab-plus.active::after { display: none; }
+
+/* header avatar → You/Profile (D-S) */
+header.topbar .avatar {
+  flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid var(--gold); background: var(--card); color: var(--gold);
+  font-family: var(--serif-display); font-size: 13px; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+
+/* ＋ quick-add fan (D-Y) */
+.plus-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(20,16,8,.28);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.plus-fan {
+  position: relative; width: 100%; max-width: 480px;
+  height: 320px; margin-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+}
+.plus-item {
+  position: absolute; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  width: 60px; text-align: center; cursor: pointer;
+  animation: plus-pop .18s ease-out both;
+}
+.plus-item .g {
+  width: 46px; height: 46px; border-radius: 50%;
+  background: var(--card); border: 1px solid var(--gold); color: var(--accent);
+  display: flex; align-items: center; justify-content: center; font-size: 20px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.1);
+}
+.plus-item .l { font-family: var(--serif-display); font-size: 8px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); }
+@keyframes plus-pop { from { opacity: 0; transform: translate(-50%, -30%) scale(.7); } to { opacity: 1; } }
+.plus-entry {
+  position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+  width: min(92%, 420px); background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 14px 16px; box-shadow: 0 4px 18px rgba(0,0,0,.18);
+  max-height: 66vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+}
+.plus-entry .list-item { margin-bottom: 6px; }
+.plus-linkback { border: none; background: none; color: var(--gold); font-size: 13px; cursor: pointer; padding: 4px 0; }
+.plus-entry h4 { font-family: var(--serif-display); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .18em; margin-bottom: 10px; }
+.plus-entry input { padding: 11px; border-radius: 3px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 15px; min-width: 0; }
+.plus-chip { padding: 6px 11px; border-radius: 14px; border: 1px solid var(--line); background: var(--bg); color: var(--text-2); font-size: 12px; cursor: pointer; }
+.plus-chip.on { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+
+/* Quick-add customizer: one tidy row per loggable, ≡ handle to reorder */
+.plus-cfg-row { display: flex; align-items: center; gap: 9px; padding: 9px 0; border-bottom: 1px solid var(--line); background: var(--card); }
+.plus-cfg-row:last-child { border-bottom: none; }
+.plus-cfg-glyph { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--gold); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 14px; flex: 0 0 auto; }
+.plus-cfg-row .grow { flex: 1; min-width: 0; }   /* label fills the gap so every pill segment starts at the same column */
+.plus-cfg-row [data-seg] { flex: 0 0 auto; }
+.plus-cfg-row .plus-chip { padding: 5px 9px; }
+
 .card {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 15px 16px; margin-bottom: 13px;
@@ -238,15 +301,14 @@ nav.tabbar .ico { font-size: 17px; line-height: 1; }
     <button class="back" id="h-back">‹ Back</button>
     <h1 id="h-title">Strive</h1>
     <button class="h-action" id="h-action" style="display:none"></button>
+    <button class="avatar" id="h-avatar" title="You" aria-label="You / Profile">B</button>
   </header>
   <main id="main"></main>
 </div>
 <nav class="tabbar">
   <button data-tab="home"><span class="ico">◈</span>Home</button>
-  <button data-tab="today"><span class="ico">☀</span>Today</button>
+  <button class="tab-plus" data-tab="plus" aria-label="Quick add"><span class="ico">＋</span></button>
   <button data-tab="plan"><span class="ico">▤</span>Plan</button>
-  <button data-tab="areas"><span class="ico">▦</span>Areas</button>
-  <button data-tab="settings"><span class="ico">⚙</span>Settings</button>
 </nav>
 <div id="toast"></div>
 <script>
@@ -3590,6 +3652,9 @@ function dashboard() {
         <div class="stat"><div class="v">${g.chaptersComplete}</div><div class="l">Chapters complete</div></div>
       </div>
       ${currentBookSection()}
+      <div class="row" id="d-sc-review" style="cursor:pointer;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
+        <div class="grow muted" style="font-size:12px">⏱ Scripture Review — times, trends &amp; logs</div><span class="chev">›</span>
+      </div>
     </div>
     <div class="card" id="d-plans" style="cursor:pointer">
       <h3>Scripture Reading</h3>
@@ -3724,6 +3789,7 @@ function dashboard() {
     main().querySelectorAll('[data-corpus]').forEach(r => r.onclick = () => { const k = r.dataset.corpus; render(() => corpusBooks(k === 'all' ? null : k)); });
     const scB = main().querySelector('#d-sc-books'); if (scB) scB.onclick = () => render(booksCompleteScreen);
     const scP = main().querySelector('#d-sc-practice'); if (scP) scP.onclick = e => { e.stopPropagation(); render(practiceScriptureLauncher); };
+    const scR = main().querySelector('#d-sc-review'); if (scR) scR.onclick = e => { e.stopPropagation(); render(reviewArea); };   // Scripture Review reachable from the hub (Areas tab removed)
     const crP = main().querySelector('#d-cr-practice'); if (crP) crP.onclick = e => { e.stopPropagation(); render(practiceCreedsLauncher); };
     main().querySelectorAll('#d-fitness [data-dom]').forEach(r => r.onclick = e => { e.stopPropagation(); ftDomainView = 'lib'; render(() => ftDomainScreen(r.dataset.dom)); });
   }
@@ -3835,7 +3901,7 @@ function trendsScreen() {
 }
 // ---------- Today ----------
 function today() {
-  setHeader('Today · ' + PL.fmtDate(todayKey()), { action: { label: 'Planner', fn: () => switchTab('plan') } });
+  setHeader('Today · ' + PL.fmtDate(todayKey()), { action: { label: 'Planner', fn: () => render(plan) } });
   renderDayChecklist(main(), todayKey(), { showPathways: true });
 }
 
@@ -4001,14 +4067,20 @@ let planMode = 'day';
 let planCursor = todayKey();   // date key anchoring all views
 
 function plan() {
-  setHeader('Planner');
+  setHeader('Planner', { back: true });
   const wrap = document.createElement('div');
-  const pills = h(`<div class="pillrow">
-    ${['day', 'week', 'month', 'year', 'targets', 'rules'].map(m =>
-      `<button class="pill ${planMode === m ? 'on' : ''}" data-m="${m}">${m[0].toUpperCase() + m.slice(1)}</button>`).join('')}
-  </div>`);
-  pills.querySelectorAll('.pill').forEach(b => b.onclick = () => { planMode = b.dataset.m; rerender(); });
-  wrap.append(pills);
+  // time-window views on one line; Targets & Rules are a different kind of thing,
+  // so they sit on their own line under a hairline (keeps the pill row clean — D-X spirit).
+  const mkPills = modes => {
+    const row = h(`<div class="pillrow">${modes.map(m =>
+      `<button class="pill ${planMode === m ? 'on' : ''}" data-m="${m}">${m[0].toUpperCase() + m.slice(1)}</button>`).join('')}</div>`).firstElementChild;
+    row.querySelectorAll('.pill').forEach(b => b.onclick = () => { planMode = b.dataset.m; rerender(); });
+    return row;
+  };
+  wrap.append(mkPills(['day', 'week', 'month', 'year']));
+  const mgmt = mkPills(['targets', 'rules']);
+  mgmt.style.cssText = 'margin-top:-2px;padding-top:9px;border-top:1px solid var(--line)';
+  wrap.append(mgmt);
 
   const body = document.createElement('div');
   wrap.append(body);
@@ -8463,10 +8535,17 @@ function areas() {
   main().append(wrap);
 }
 
-// ---------- Settings ----------
-function settings() {
-  setHeader('Settings');
+// ---------- You / Profile (D-S: Settings folded into a profile screen, reached from the header avatar) ----------
+function youProfile() {
+  setHeader('You', { back: true });
   const wrap = document.createElement('div');
+
+  wrap.append(h(`<div class="card"><div class="row">
+    <div class="avatar" style="width:40px;height:40px;font-size:16px;border:1px solid var(--gold);border-radius:50%;background:var(--card);color:var(--gold);display:flex;align-items:center;justify-content:center;font-family:var(--serif-display);font-weight:700">B</div>
+    <div class="grow"><div class="title">Baruch</div><div class="muted" style="font-size:12px">Account · sync · preferences</div></div>
+  </div></div>`));
+
+  wrap.append(plusFanSettingsCard());
 
   const exp = h(`<div class="card"><h3>Backup</h3>
     <button class="btn secondary" id="s-export">Export all data</button>
@@ -8638,11 +8717,513 @@ function syncCard() {
   return c;
 }
 
+// ---------- ＋ quick-add fan (D-Y) ----------
+// Placeholder glyphs + small labels for now; the folio icon set replaces them later (icons-only then).
+const PLUS_ITEMS = [
+  { key: 'pages',     label: 'Pages',    glyph: '▤', tier: 2, def: 'click' },
+  { key: 'verses',    label: 'Verses',   glyph: '✝', tier: 2, def: 'click' },
+  { key: 'workout',   label: 'Workout',  glyph: '❖', tier: 2, def: 'click' },
+  { key: 'water',     label: 'Water',    glyph: '◍', tier: 1, def: 'click' },
+  { key: 'sleep',     label: 'Sleep',    glyph: '☾', tier: 1, def: 'click' },
+  { key: 'weight',    label: 'Weight',   glyph: '⚖', tier: 1, def: 'click' },
+  { key: 'macros',    label: 'Macros',   glyph: '◇', tier: 1, def: 'click' },
+  { key: 'review',    label: 'Review',   glyph: '⏱', tier: 2, def: 'click' },
+  { key: 'practice',  label: 'Practice', glyph: '◎', tier: 3, def: 'long' },
+  { key: 'creed',     label: 'Creed §',  glyph: '§', tier: 2, def: 'off' },
+  { key: 'bibleplan', label: 'Bible',    glyph: '▦', tier: 2, def: 'off' },
+];
+
+// per-loggable fan assignment: 'click' | 'long' | 'off'. Additive + sync-safe on state.settings.
+function plusFanCfg() {
+  const s = state.settings;
+  if (!s.plusFan || typeof s.plusFan !== 'object') {
+    s.plusFan = {};
+    PLUS_ITEMS.forEach(it => { s.plusFan[it.key] = it.def; });
+    save();
+  } else {
+    let changed = false;
+    PLUS_ITEMS.forEach(it => { if (!s.plusFan[it.key]) { s.plusFan[it.key] = it.def; changed = true; } });
+    if (changed) save();
+  }
+  return s.plusFan;
+}
+
+// saved left→right order of the fan (customizable in You/Profile); additive + sync-safe.
+function plusFanOrder() {
+  const s = state.settings;
+  const keys = PLUS_ITEMS.map(it => it.key);
+  if (!Array.isArray(s.plusOrder)) { s.plusOrder = keys.slice(); save(); return s.plusOrder; }
+  const merged = s.plusOrder.filter(k => keys.includes(k));
+  keys.forEach(k => { if (!merged.includes(k)) merged.push(k); });   // append any new loggables
+  if (merged.length !== s.plusOrder.length || merged.some((k, i) => k !== s.plusOrder[i])) { s.plusOrder = merged; save(); }
+  return s.plusOrder;
+}
+function orderedPlusItems() {
+  return plusFanOrder().map(k => PLUS_ITEMS.find(it => it.key === k)).filter(Boolean);
+}
+
+function wirePlusFan() {
+  const btn = document.querySelector('nav.tabbar .tab-plus');
+  if (!btn) return;
+  let lpTimer = null, lpFired = false;
+  const cancel = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
+  btn.addEventListener('pointerdown', () => { lpFired = false; cancel(); lpTimer = setTimeout(() => { lpFired = true; openPlusFan('long'); }, 480); });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => btn.addEventListener(ev, cancel));
+  btn.onclick = () => { if (lpFired) { lpFired = false; return; } openPlusFan('click'); };
+}
+
+function closePlusFan() { const o = document.getElementById('plus-overlay'); if (o) o.remove(); }
+
+function openPlusFan(which) {
+  closePlusFan();
+  const cfg = plusFanCfg();
+  const want = which === 'long' ? 'long' : 'click';
+  const items = orderedPlusItems().filter(it => cfg[it.key] === want);
+  const ov = h(`<div class="plus-overlay" id="plus-overlay"><div class="plus-fan" id="plus-fan"></div></div>`).firstElementChild;
+  ov.onclick = e => { if (e.target === ov || e.target.id === 'plus-fan') closePlusFan(); };
+  document.body.append(ov);
+  const fan = ov.querySelector('#plus-fan');
+  if (!items.length) {
+    plusEntryShell(fan, which === 'long' ? 'Long-press fan' : 'Quick add',
+      `<div class="muted" style="font-size:13px">No actions on this fan yet — assign some in You → Quick-add.</div>`);
+    return;
+  }
+  const W = fan.clientWidth || 360, H = fan.clientHeight || 320;
+  const cx = W / 2, base = H - 40;
+  const R = Math.min(150, W / 2 - 46);
+  const n = items.length;
+  items.forEach((it, i) => {
+    const ang = n === 1 ? Math.PI / 2 : Math.PI - (i / (n - 1)) * Math.PI; // 180°→0°
+    const x = cx + R * Math.cos(ang), y = base - R * Math.sin(ang);
+    const el = h(`<div class="plus-item" style="left:${x}px;top:${y}px;animation-delay:${i * 20}ms" title="${esc(it.label)}">
+      <div class="g">${it.glyph}</div><div class="l">${esc(it.label)}</div></div>`).firstElementChild;
+    el.onclick = ev => { ev.stopPropagation(); plusRoute(it, fan); };
+    fan.append(el);
+  });
+}
+
+function plusEntryShell(fan, title, innerHTML) {
+  fan.innerHTML = '';
+  const panel = h(`<div class="plus-entry"><h4>${esc(title)}</h4>${innerHTML}</div>`).firstElementChild;
+  fan.append(panel);
+  return panel;
+}
+
+function afterPlusLog(msg) { closePlusFan(); toast(msg); rerender(); }
+
+function plusRoute(it, fan) {
+  if (it.tier === 1) return plusScalarEntry(it, fan);
+  if (it.key === 'pages') return plusPagesEntry(fan);
+  if (it.key === 'verses') return plusVerses(fan);
+  if (it.key === 'review') return plusReview(fan);
+  if (it.key === 'practice') return plusPractice(fan);
+  if (it.key === 'bibleplan') return plusBible(fan);
+  if (it.key === 'workout') return plusWorkout(fan);
+  if (it.key === 'creed') return plusCreedLog(fan);
+}
+
+// ---- in-popup phase helpers: everything drills down inside the panel, never a page hop ----
+// options: [{label, sub?, on}] rendered as tappable rows; optional in-panel Back.
+function plusChoose(fan, title, options, back) {
+  const p = plusEntryShell(fan, title,
+    `<div>${options.map((o, i) => `<div class="list-item" data-i="${i}" style="cursor:pointer"><div class="grow"><div class="title" style="font-size:14px">${esc(o.label)}</div>${o.sub ? `<div class="sub">${esc(o.sub)}</div>` : ''}</div><span class="chev">›</span></div>`).join('')}</div>
+     ${back ? `<button class="plus-linkback">‹ Back</button>` : ''}`);
+  options.forEach((o, i) => p.querySelector(`.list-item[data-i="${i}"]`).onclick = o.on);
+  if (back) p.querySelector('.plus-linkback').onclick = back;
+  return p;
+}
+// chips: [{label, on}] as a pill row; optional in-panel Back.
+function plusChips(fan, title, chips, back) {
+  const p = plusEntryShell(fan, title,
+    `<div class="pillrow" style="margin:0">${chips.map((c, i) => `<button class="plus-chip" data-i="${i}">${esc(c.label)}</button>`).join('')}</div>
+     ${back ? `<div style="margin-top:10px"><button class="plus-linkback">‹ Back</button></div>` : ''}`);
+  chips.forEach((c, i) => p.querySelector(`.plus-chip[data-i="${i}"]`).onclick = c.on);
+  if (back) p.querySelector('.plus-linkback').onclick = back;
+  return p;
+}
+
+// T1 — scalar inline mini-forms (never leave the dashboard)
+function plusScalarEntry(it, fan) {
+  if (it.key === 'water') {
+    const p = plusEntryShell(fan, 'Log water',
+      `<div class="row"><input data-f="oz" inputmode="numeric" placeholder="Ounces" style="flex:1"><button class="pill on" data-a="add" style="padding:11px 16px">Add</button></div>`);
+    const go = () => { const oz = Number(p.querySelector('[data-f=oz]').value); if (!oz) { toast('Enter ounces'); return; } FT.addWater(Date.now(), oz); afterPlusLog('Water +' + oz + ' oz'); };
+    p.querySelector('[data-a=add]').onclick = go;
+    p.querySelector('[data-f=oz]').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    p.querySelector('[data-f=oz]').focus();
+  } else if (it.key === 'weight') {
+    const p = plusEntryShell(fan, 'Log weight',
+      `<div class="row"><input data-f="lb" inputmode="decimal" placeholder="Weight (lb)" style="flex:1"><button class="pill on" data-a="add" style="padding:11px 16px">Add</button></div>`);
+    const go = () => { const lb = Number(p.querySelector('[data-f=lb]').value); if (!lb) { toast('Enter weight'); return; } FT.addWeight(Date.now(), lb); afterPlusLog('Weight ' + lb + ' lb'); };
+    p.querySelector('[data-a=add]').onclick = go;
+    p.querySelector('[data-f=lb]').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    p.querySelector('[data-f=lb]').focus();
+  } else if (it.key === 'sleep') {
+    const p = plusEntryShell(fan, 'Log sleep', `
+      <div class="row" style="gap:8px;align-items:center">
+        <span style="font-size:13px;color:var(--text-2);font-weight:700">B</span><input data-f="bed" type="time" style="flex:1">
+        <span style="font-size:13px;color:var(--text-2);font-weight:700">W</span><input data-f="wake" type="time" style="flex:1">
+        <button class="pill on" data-a="add" style="padding:11px 14px">Add</button>
+      </div>
+      <div class="muted" style="font-size:11px;margin-top:6px">B = bed time · W = wake time</div>`);
+    p.querySelector('[data-a=add]').onclick = () => {
+      const bv = p.querySelector('[data-f=bed]').value, wv = p.querySelector('[data-f=wake]').value;
+      if (!bv || !wv) { toast('Enter bed and wake times'); return; }
+      const mk = hhmm => { const [H, M] = hhmm.split(':').map(Number); const d = new Date(); d.setHours(H, M, 0, 0); return d.getTime(); };
+      let bedTs = mk(bv); const wakeTs = mk(wv);
+      if (wakeTs <= bedTs) bedTs -= 86400000;   // bed was the night before
+      FT.addSleep({ bedTs, wakeTs });
+      const mins = Math.round((wakeTs - bedTs) / 60000);
+      afterPlusLog('Sleep ' + Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm');
+    };
+  } else if (it.key === 'macros') {
+    const p = plusEntryShell(fan, 'Log macros', `
+      <div class="row" style="gap:8px">
+        <input data-f="p" inputmode="numeric" placeholder="P" style="width:60px">
+        <input data-f="c" inputmode="numeric" placeholder="C" style="width:60px">
+        <input data-f="f" inputmode="numeric" placeholder="F" style="width:60px">
+        <button class="pill on" data-a="add" style="padding:11px 14px">Add</button>
+      </div>
+      <div class="muted" id="pm-kcal" style="font-size:11px;margin-top:6px">P protein · C carb · F fat</div>`);
+    const vals = () => ['p', 'c', 'f'].map(k => Number(p.querySelector('[data-f=' + k + ']').value) || 0);
+    p.querySelectorAll('input').forEach(i => i.oninput = () => { const [pv, cv, fv] = vals(); p.querySelector('#pm-kcal').textContent = FT.kcal(pv, fv, cv) + ' kcal'; });
+    p.querySelector('[data-a=add]').onclick = () => {
+      const [pv, cv, fv] = vals();
+      if (!pv && !cv && !fv) { toast('Enter at least one macro'); return; }
+      FT.addMeal({ name: 'Quick add', p: pv, c: cv, f: fv });
+      afterPlusLog('Logged ' + FT.kcal(pv, fv, cv) + ' kcal');
+    };
+  }
+}
+
+// T2 — target-first: pages logs inline against your current reading book (switcher chips)
+function plusPagesEntry(fan) {
+  const reading = RD.byStatus('reading');
+  if (!reading.length) { closePlusFan(); toast('No book marked Reading — open one first'); render(readingHome); return; }
+  let sel = reading[0];
+  const p = plusEntryShell(fan, 'Log pages', `
+    <div class="row" style="margin-bottom:${reading.length > 1 ? '8px' : '0'}"><input data-f="pg" inputmode="numeric" placeholder="Page you're on" style="flex:1"><button class="pill on" data-a="add" style="padding:11px 16px">Log</button></div>
+    ${reading.length > 1 ? `<div class="pillrow" data-chips style="margin:0">${reading.map(b => `<button class="plus-chip ${b.id === sel.id ? 'on' : ''}" data-id="${b.id}">${esc(b.title)}</button>`).join('')}</div>` : ''}`);
+  if (reading.length > 1) p.querySelectorAll('[data-chips] .plus-chip').forEach(c => c.onclick = () => { sel = reading.find(b => b.id === c.dataset.id); p.querySelectorAll('.plus-chip').forEach(x => x.classList.toggle('on', x === c)); });
+  const go = () => { const pg = Number(p.querySelector('[data-f=pg]').value); if (!pg && pg !== 0) { toast('Enter the page'); return; } RD.logPage(sel, pg); afterPlusLog(sel.title + ' — ' + RD.pct(sel) + '%'); };
+  p.querySelector('[data-a=add]').onclick = go;
+  p.querySelector('[data-f=pg]').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  p.querySelector('[data-f=pg]').focus();
+}
+
+// ===== Verses (book → chapter → tap verse grid) =====
+function plusVerses(fan) {
+  const items = SC.currentItems();
+  const books = items.length
+    ? [...new Map(items.map(it => [it.book, allBooks.find(b => b.name === it.book)])).values()].filter(Boolean)
+    : allBooks;
+  plusChoose(fan, 'Log verses', books.map(b => ({ label: b.name, sub: SC.bookStats(b).done + '/' + SC.bookStats(b).total + ' verses', on: () => plusVersesChapter(fan, b) })));
+}
+function plusVersesChapter(fan, b) {
+  plusChips(fan, 'Verses · ' + b.name, b.verses.map((_, ci) => ({ label: 'Ch ' + (ci + 1), on: () => plusVersesGrid(fan, b, ci) })), () => plusVerses(fan));
+}
+function plusVersesGrid(fan, b, ci) {
+  const p = plusEntryShell(fan, b.name + ' ' + (ci + 1),
+    `<div class="muted" style="font-size:11px;margin-bottom:6px">Tap verses to mark memorized.</div>
+     <div class="grid" data-grid></div>
+     <div class="row" style="gap:10px;margin-top:10px"><button class="plus-linkback">‹ Back</button><button class="pill on" data-done style="padding:9px 16px">Done</button></div>`);
+  const grid = p.querySelector('[data-grid]');
+  for (let v = 1; v <= b.verses[ci]; v++) {
+    const cell = h(`<div class="cell ${SC.verseDone(b, ci, v) ? 'done' : ''}">${v}</div>`).firstElementChild;
+    cell.onclick = () => { SC.toggleVerse(b, ci, v); cell.classList.toggle('done'); };
+    grid.append(cell);
+  }
+  p.querySelector('.plus-linkback').onclick = () => plusVersesChapter(fan, b);
+  p.querySelector('[data-done]').onclick = () => afterPlusLog('Verses updated');
+}
+
+// ===== Creed sections (doc → tap section grid) =====
+function plusCreedLog(fan) {
+  plusChoose(fan, 'Log creed sections', CR.docs().map(d => { const st = CR.docStats(d.id); return { label: d.name, sub: st.done + '/' + st.total, on: () => plusCreedGrid(fan, d) }; }));
+}
+function plusCreedGrid(fan, d) {
+  const p = plusEntryShell(fan, d.name,
+    `<div class="muted" style="font-size:11px;margin-bottom:6px">Tap sections to mark memorized.</div>
+     <div class="grid" data-grid></div>
+     <div class="row" style="gap:10px;margin-top:10px"><button class="plus-linkback">‹ Back</button><button class="pill on" data-done style="padding:9px 16px">Done</button></div>`);
+  const grid = p.querySelector('[data-grid]');
+  d.sections.forEach(sec => {
+    const cell = h(`<div class="cell ${CR.isDone(d.id, sec.n) ? 'done' : ''}">${sec.n}</div>`).firstElementChild;
+    cell.onclick = () => { CR.toggleSection(d.id, sec.n); cell.classList.toggle('done'); };
+    grid.append(cell);
+  });
+  p.querySelector('.plus-linkback').onclick = () => plusCreedLog(fan);
+  p.querySelector('[data-done]').onclick = () => afterPlusLog('Creed updated');
+}
+
+// ===== Review time (book → whole/chapter → minutes) =====
+function plusReview(fan) {
+  const books = allBooks.filter(b => SC.bookStats(b).done > 0);
+  if (!books.length) { toast('Nothing memorized to review yet'); return; }
+  plusChoose(fan, 'Log review time', books.map(b => ({ label: b.name, on: () => plusReviewScope(fan, b) })));
+}
+function plusReviewScope(fan, b) {
+  const chips = [{ label: 'Whole book', on: () => plusReviewTime(fan, b, null) }];
+  b.verses.forEach((_, ci) => chips.push({ label: 'Ch ' + (ci + 1), on: () => plusReviewTime(fan, b, { kind: 'chapter', ch: ci + 1 }) }));
+  plusChips(fan, 'Review · ' + b.name, chips, () => plusReview(fan));
+}
+function plusReviewTime(fan, b, scope) {
+  const p = plusEntryShell(fan, 'Review · ' + b.name + (scope ? ' ' + scope.ch : ''),
+    `<div class="row"><input data-f="min" inputmode="numeric" placeholder="Minutes" style="flex:1"><button class="pill on" data-a="add" style="padding:11px 16px">Log</button></div>
+     <div style="margin-top:10px"><button class="plus-linkback">‹ Back</button></div>`);
+  const go = () => { const m = Number(p.querySelector('[data-f=min]').value); if (!m) { toast('Enter minutes'); return; } SC.logReviewTime(b.name, Math.round(m * 60), { scope }); afterPlusLog('Logged ' + m + ' min review'); };
+  p.querySelector('[data-a=add]').onclick = go;
+  p.querySelector('[data-f=min]').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  p.querySelector('.plus-linkback').onclick = () => plusReviewScope(fan, b);
+  p.querySelector('[data-f=min]').focus();
+}
+
+// ===== Bible reading plan (plan → mark today's portion) =====
+function plusBible(fan) {
+  const plans = RP.plans();
+  if (!plans.length) { closePlusFan(); toast('No Bible reading plan yet'); render(plansScreen); return; }
+  if (plans.length === 1) return plusBiblePlan(fan, plans[0]);
+  plusChoose(fan, 'Bible reading', plans.map(p => ({ label: p.name, on: () => plusBiblePlan(fan, p) })));
+}
+function plusBiblePlan(fan, plan, dk = todayKey()) {
+  const done = RP.isDoneToday(plan, dk);
+  const ref = RP.portionRef(plan, dk) || 'Portion';
+  const dateLbl = (dk === todayKey() ? 'Today · ' : '') + PL.fmtDate(dk);
+  const p = plusEntryShell(fan, plan.name,
+    `<div class="row" style="margin-bottom:8px">
+       <button class="plus-linkback" data-prev style="font-size:16px">‹</button>
+       <div class="grow" style="text-align:center;font-weight:700;font-size:13px">${esc(dateLbl)}</div>
+       <button class="plus-linkback" data-next style="font-size:16px">›</button>
+     </div>
+     <div class="muted" style="font-size:13px;margin-bottom:12px;text-align:center">${esc(ref)}</div>
+     <button class="pill ${done ? '' : 'on'}" data-a="mark" style="padding:12px;width:100%">${done ? '✓ Read — tap to undo' : 'Mark read'}</button>
+     <div style="margin-top:10px;text-align:center"><button class="plus-linkback" data-close>Done</button></div>`);
+  p.querySelector('[data-prev]').onclick = () => plusBiblePlan(fan, plan, addDaysKey(dk, -1));
+  p.querySelector('[data-next]').onclick = () => plusBiblePlan(fan, plan, addDaysKey(dk, 1));
+  p.querySelector('[data-close]').onclick = () => afterPlusLog('Bible reading updated');
+  p.querySelector('[data-a=mark]').onclick = () => {
+    if (done) { RP.uncompleteToday(plan, dk); toast('Marked not read'); plusBiblePlan(fan, plan, dk); }
+    // logging a day advances to the next so you can quickly read ahead
+    else { RP.completeToday(plan, dk); toast('Read ✓ ' + PL.fmtDate(dk)); plusBiblePlan(fan, plan, addDaysKey(dk, 1)); }
+  };
+}
+
+// ===== Practice (Scripture/Creeds → item → scope → mode → launch session) =====
+function plusPractice(fan) {
+  plusChoose(fan, 'Practice', [
+    { label: 'Scripture', sub: 'Memorized books', on: () => plusPracticeScripture(fan) },
+    { label: 'Creeds, Catechisms & Confessions', on: () => plusPracticeCreeds(fan) },
+  ]);
+}
+function plusPracticeScripture(fan) {
+  const books = allBooks.filter(b => SC.bookStats(b).done > 0);
+  if (!books.length) { toast('Memorize a book first'); return; }
+  plusChoose(fan, 'Practice · book', books.map(b => ({ label: b.name, sub: SC.bookStats(b).done + ' verses', on: () => plusPracticeChapter(fan, b) })), () => plusPractice(fan));
+}
+function plusPracticeChapter(fan, b) {
+  const chips = [];
+  if (b.chapters <= WHOLE_BOOK_CAP) chips.push({ label: 'Whole book', on: () => plusPracticeMode(fan, b, { kind: 'book' }) });
+  b.verses.forEach((_, ci) => chips.push({ label: 'Ch ' + (ci + 1), on: () => plusPracticeChapterScope(fan, b, ci) }));
+  plusChips(fan, 'Practice · ' + b.name, chips, () => plusPracticeScripture(fan));
+}
+function plusPracticeChapterScope(fan, b, ci) {
+  plusChips(fan, b.name + ' ' + (ci + 1), [
+    { label: 'Whole chapter', on: () => plusPracticeMode(fan, b, { kind: 'chapter', ci }) },
+    { label: 'Select verses', on: () => plusPracticeVerses(fan, b, ci) },
+  ], () => plusPracticeChapter(fan, b));
+}
+function plusPracticeVerses(fan, b, ci) {
+  const picked = {};
+  const p = plusEntryShell(fan, b.name + ' ' + (ci + 1) + ' · verses',
+    `<div class="muted" style="font-size:11px;margin-bottom:6px">Tap the verses to practice.</div>
+     <div class="grid" data-grid></div>
+     <div class="row" style="gap:10px;margin-top:10px"><button class="plus-linkback">‹ Back</button><button class="pill on grow" data-go style="padding:10px">Choose mode ›</button></div>`);
+  const grid = p.querySelector('[data-grid]');
+  for (let v = 1; v <= b.verses[ci]; v++) {
+    const cell = h(`<div class="cell">${v}</div>`).firstElementChild;
+    cell.onclick = () => { picked[v] = !picked[v]; cell.classList.toggle('done'); };
+    grid.append(cell);
+  }
+  p.querySelector('.plus-linkback').onclick = () => plusPracticeChapterScope(fan, b, ci);
+  p.querySelector('[data-go]').onclick = () => {
+    const vs = Object.keys(picked).filter(k => picked[k]).map(Number);
+    if (!vs.length) { toast('Tap at least one verse'); return; }
+    plusPracticeMode(fan, b, { kind: 'verses', ci, verses: vs });
+  };
+}
+function plusPracticeMode(fan, b, scope) {
+  plusChips(fan, 'Mode', [
+    { label: 'Flashcards', on: () => plusPracticeLaunch(fan, b, scope, 'flash') },
+    { label: 'First-Letter', on: () => plusPracticeLaunch(fan, b, scope, 'typer') },
+    { label: 'Fade', on: () => plusPracticeLaunch(fan, b, scope, 'fade') },
+  ], () => scope.kind === 'verses' ? plusPracticeVerses(fan, b, scope.ci) : plusPracticeChapter(fan, b));
+}
+async function plusPracticeLaunch(fan, b, scope, mode) {
+  const p = plusEntryShell(fan, 'Loading…', `<div class="muted" style="font-size:13px">Fetching ESV text…</div>`);
+  const status = p.querySelector('.muted');
+  try {
+    let doc;
+    if (scope.kind === 'book') {
+      const parts = [];
+      for (let ci = 0; ci < b.verses.length; ci++) { status.textContent = 'Fetching ' + b.name + ' ' + (ci + 1) + ' of ' + b.verses.length + '…'; const e = await esvFetchChapter(b.name, ci + 1); parts.push({ ci, verses: e.verses }); }
+      doc = bibleMultiDoc(b, parts);
+    } else {
+      const e = await esvFetchChapter(b.name, scope.ci + 1);
+      doc = bibleDoc(b, scope.ci, e.verses);
+      if (scope.kind === 'verses') doc.sections = doc.sections.filter(x => scope.verses.includes(x.n));
+    }
+    plusLaunchSession(doc, mode);
+  } catch (err) { closePlusFan(); esvErrToast(err); }
+}
+function plusPracticeCreeds(fan) {
+  plusChoose(fan, 'Practice · creeds', CR.docs().map(d => { const st = CR.docStats(d.id); return { label: d.name, sub: st.done + '/' + st.total, on: () => plusPracticeCreedMode(fan, d) }; }), () => plusPractice(fan));
+}
+function plusPracticeCreedMode(fan, d) {
+  plusChips(fan, 'Mode', [
+    { label: 'Flashcards', on: () => plusLaunchSession(d, 'flash') },
+    { label: 'First-Letter', on: () => plusLaunchSession(d, 'typer') },
+    { label: 'Fade', on: () => plusLaunchSession(d, 'fade') },
+  ], () => plusPracticeCreeds(fan));
+}
+// build the queue exactly like practiceSetup and launch the chosen session (the one full screen)
+function plusLaunchSession(d, mode) {
+  const queue = d.sections.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn }));
+  if (!queue.length) { toast('No verses in that selection'); return; }
+  closePlusFan();
+  if (mode === 'fade') render(() => fadeScreen(d, queue, 0, 0, []));
+  else if (mode === 'typer') render(() => typerScreen(d, queue, 0, []));
+  else render(() => flashSession(d, queue, 20, 'adaptive'));
+}
+
+// ===== Workout (search existing → format-aware result | New → builder) =====
+function plusWorkout(fan) {
+  const all = FT.allWorkouts();
+  const p = plusEntryShell(fan, 'Log workout',
+    `<div class="row" style="margin-bottom:8px"><input data-f="q" placeholder="Find a workout" style="flex:1"><button class="pill" data-a="new" style="padding:11px 14px">New</button></div>
+     <div data-list></div>`);
+  const list = p.querySelector('[data-list]');
+  const draw = q => {
+    list.innerHTML = '';
+    const ql = q.trim().toLowerCase();
+    const matches = (ql ? all.filter(w => w.name.toLowerCase().includes(ql)) : all).slice(0, 14);
+    if (!matches.length) { list.append(h(`<div class="muted" style="font-size:12px;padding:4px">No match — tap New to build it.</div>`)); return; }
+    matches.forEach(w => {
+      const row = h(`<div class="list-item" style="cursor:pointer"><div class="grow"><div class="title" style="font-size:14px">${esc(w.name)}</div><div class="sub">${esc((FT.FORMATS.find(f => f[0] === FT.formatOf(w)) || ['', ''])[1])}</div></div><span class="chev">›</span></div>`).firstElementChild;
+      row.onclick = () => plusWorkoutResult(fan, w);
+      list.append(row);
+    });
+  };
+  draw('');
+  p.querySelector('[data-f=q]').oninput = e => draw(e.target.value);
+  p.querySelector('[data-a=new]').onclick = () => { closePlusFan(); render(workoutPicker); };
+}
+function plusWorkoutResult(fan, w) {
+  const fmt = FT.formatOf(w);
+  const p = plusEntryShell(fan, w.name,
+    `<div data-zone style="margin-bottom:8px">${ftResultZone(fmt, w, '')}</div>
+     <div class="row" style="gap:10px"><button class="plus-linkback">‹ Back</button><button class="pill on grow" data-a="log" style="padding:11px">Log result</button></div>`);
+  const addSetBtn = p.querySelector('[data-r=addset]');
+  if (addSetBtn) addSetBtn.onclick = () => { const box = p.querySelector('[data-r=sets]'); box.append(h(ftSetRow())); box.lastElementChild.querySelector('[data-s=reps]').focus(); };
+  p.querySelector('.plus-linkback').onclick = () => plusWorkout(fan);
+  p.querySelector('[data-a=log]').onclick = () => {
+    const built = ftReadResult(p, fmt, w);
+    const result = built.result || (w.resultType === 'completed' ? 'Completed' : '');
+    if (!result) { toast('Enter your result'); return; }
+    const wasPr = FT.isPR(w.id, result);
+    FT.addLog({ wid: w.id, result, resultType: w.resultType, score: built.score });
+    if (wasPr) celebrate('New PR! ★');
+    afterPlusLog(wasPr ? 'PR logged — ' + result : 'Logged ' + result);
+  };
+}
+
+// customization card (lives in You/Profile): assign each loggable to click / long-press / off
+function plusFanSettingsCard() {
+  const cfg = plusFanCfg();
+  const card = h(`<div class="card"><h3>Quick-add (＋)</h3>
+    <div class="muted" style="font-size:12px;margin-bottom:10px"><b>Click</b> = tap-＋ fan · <b>Long</b> = long-press-＋ fan · <b>Off</b> = hidden. Drag ≡ to reorder — top→bottom is left→right in the semicircle.</div>
+    <div id="plus-order"></div>
+  </div>`).firstElementChild;
+  const list = card.querySelector('#plus-order');
+  orderedPlusItems().forEach(it => {
+    const row = h(`<div class="plus-cfg-row" data-key="${it.key}">
+      <div class="pw-handle" title="Drag to reorder">≡</div>
+      <div class="plus-cfg-glyph">${it.glyph}</div>
+      <div class="grow"><div class="title" style="font-size:14px">${esc(it.label)}</div></div>
+      <div class="pillrow" data-seg style="margin:0;gap:5px;flex-wrap:nowrap"></div>
+    </div>`).firstElementChild;
+    const seg = row.querySelector('[data-seg]');
+    [['click', 'Click'], ['long', 'Long'], ['off', 'Off']].forEach(([v, lbl]) => {
+      const b = h(`<button class="plus-chip ${cfg[it.key] === v ? 'on' : ''}" style="white-space:nowrap">${lbl}</button>`).firstElementChild;
+      b.onclick = () => { cfg[it.key] = v; save(); seg.querySelectorAll('.plus-chip').forEach(x => x.classList.remove('on')); b.classList.add('on'); };
+      seg.append(b);
+    });
+    list.append(row);
+  });
+  enablePlusReorder(list);
+  return card;
+}
+
+// flat pointer-drag reorder (mirrors the pathway editor — works in the installed iOS PWA)
+function enablePlusReorder(list) {
+  let drag = null;
+  const onMove = e => {
+    if (!drag) return;
+    e.preventDefault();
+    drag.row.style.top = (e.clientY - drag.grabY) + 'px';
+    const others = [...list.querySelectorAll('.plus-cfg-row')].filter(el => el !== drag.row);
+    let after = null;
+    for (const el of others) { const r = el.getBoundingClientRect(); if (e.clientY < r.top + r.height / 2) { after = el; break; } }
+    if (after) list.insertBefore(drag.ph, after); else list.append(drag.ph);
+  };
+  const end = () => {
+    if (!drag) return;
+    const { row, ph } = drag;
+    row.classList.remove('pw-dragging');
+    row.style.cssText = '';
+    list.insertBefore(row, ph);
+    ph.remove();
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', end);
+    window.removeEventListener('pointercancel', end);
+    drag = null;
+    state.settings.plusOrder = [...list.querySelectorAll('.plus-cfg-row')].map(el => el.dataset.key);
+    save();
+  };
+  list.querySelectorAll('.pw-handle').forEach(handle => {
+    handle.addEventListener('pointerdown', e => {
+      if (e.button != null && e.button > 0) return;
+      const row = handle.closest('.plus-cfg-row');
+      if (!row) return;
+      e.preventDefault();
+      const rect = row.getBoundingClientRect();
+      const ph = document.createElement('div');
+      ph.className = 'pw-ph';
+      ph.style.height = rect.height + 'px';
+      row.parentNode.insertBefore(ph, row.nextSibling);
+      drag = { row, ph, grabY: e.clientY - rect.top };
+      row.classList.add('pw-dragging');
+      row.style.position = 'fixed';
+      row.style.width = rect.width + 'px';
+      row.style.left = rect.left + 'px';
+      row.style.top = rect.top + 'px';
+      row.style.zIndex = '999';
+      window.addEventListener('pointermove', onMove, { passive: false });
+      window.addEventListener('pointerup', end);
+      window.addEventListener('pointercancel', end);
+    });
+  });
+}
+
 // ---------- boot ----------
-const TABS = { home: dashboard, today, plan, areas, settings };
+// 3-item shell (D-S): Home · ＋ · Plan. Plan lands on Today; the Planner page is pushed from there.
+// Areas + Settings tabs removed — the dashboard is the hub, Settings lives in You/Profile (avatar).
+const TABS = { home: dashboard, plan: today };
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('h-back').onclick = goBack;
-  document.querySelectorAll('nav.tabbar button').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+  const av = document.getElementById('h-avatar');
+  if (av) av.onclick = () => render(youProfile);
+  document.querySelectorAll('nav.tabbar button:not(.tab-plus)').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+  wirePlusFan();
   switchTab('home');
   SY.onPulled(() => { SC.ensureKeys(); toast('Synced from cloud ☁️'); rerender(); });
   SY.init();
