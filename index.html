@@ -1301,6 +1301,35 @@ function moduleAutoName(mod, book) {
   return book.name + ' ' + joinRanges(cis.map(ci => ci + 1)) + ' (partial)';
 }
 
+// chapters covered by a module, as sorted 0-based ci.
+function moduleChapters(mod) {
+  return Object.keys(mod.verses || {}).map(Number).filter(ci => (mod.verses[ci] || []).length).sort((a, b) => a - b);
+}
+// Best-fit scope for the existing chapter/range review-times model (SC.logReviewTime):
+// one chapter → {kind:'chapter',ch}; contiguous chapters → {kind:'range',from,to}; else null (= whole book).
+// Verse-level review coverage is a Phase 11 concern; timed review files at chapter granularity like the rest of the app.
+function moduleReviewScope(mod) {
+  const chs = moduleChapters(mod).map(ci => ci + 1);
+  if (!chs.length) return null;
+  if (chs.length === 1) return { kind: 'chapter', ch: chs[0] };
+  const contiguous = chs.every((c, i) => i === 0 || c === chs[i - 1] + 1);
+  return contiguous ? { kind: 'range', from: chs[0], to: chs[chs.length - 1] } : null;
+}
+
+// Build bibleMultiDoc parts from fetched chapter text. textByCi[ci] = {v:text} (full chapter);
+// returns [{ci, verses:{v:text}}] limited to the module's selected, existing verses, ci-sorted.
+// Keeps ESV/doc-shape concerns in the app layer; this stays pure + testable.
+function moduleParts(mod, textByCi) {
+  const parts = [];
+  Object.keys(mod.verses || {}).map(Number).sort((a, b) => a - b).forEach(ci => {
+    const txt = (textByCi || {})[ci] || {};
+    const sub = {};
+    (mod.verses[ci] || []).forEach(v => { if (txt[v] != null) sub[v] = txt[v]; });
+    if (Object.keys(sub).length) parts.push({ ci, verses: sub });
+  });
+  return parts;
+}
+
 // ---- private ----
 function normVerses(v) {
   const out = {};
@@ -1323,7 +1352,7 @@ function joinRanges(nums) {
   return runs.map(([a, b]) => a === b ? String(a) : a + '–' + b).join(', ');
 }
 
-const MOD = {blankModule,commitModule,copyModule,deleteModule,ensureModules,getModule,moduleAutoName,moduleChapterState,moduleCount,moduleCoverage,moduleHasVerse,moduleIsEmpty,moduleVerseCount,moduleVerseKeys,modulesFor,setModuleChapter,toggleModuleChapter,toggleModuleVerse};
+const MOD = {blankModule,commitModule,copyModule,deleteModule,ensureModules,getModule,moduleAutoName,moduleChapterState,moduleChapters,moduleCount,moduleCoverage,moduleHasVerse,moduleIsEmpty,moduleParts,moduleReviewScope,moduleVerseCount,moduleVerseKeys,modulesFor,setModuleChapter,toggleModuleChapter,toggleModuleVerse};
 // Strive — planner: day/week/month/year items, recurring rules
 
 
@@ -5379,8 +5408,7 @@ function modulesScreen(b) {
       </div>`).firstElementChild;
       row.onclick = e => {
         if (e.target.classList.contains('del')) return;
-        modDraft = { book: b.name, mod: MOD.copyModule(mod), isNew: false, nameTouched: true };
-        render(() => moduleEditScreen(b));
+        render(() => moduleScreen(b, mod));
       };
       row.querySelector('.del').onclick = () => {
         if (!confirm('Delete module "' + (mod.name || MOD.moduleAutoName(mod, b)) + '"? This does not affect your memorization progress.')) return;
@@ -5483,6 +5511,76 @@ function moduleVerseScreen(b, ci) {
   wrap.append(h(`<button class="btn" style="margin-top:14px" data-a="done">Done</button>`));
   wrap.querySelector('[data-a=done]').onclick = () => goBack();
   main().append(wrap);
+}
+
+// Module detail — practice the module now (Flashcards / First-Letter / Fade), plus Edit + Delete.
+// (The ◎ unified Practice/Review front door and timed-Review coverage arrive with the review engine.)
+function moduleScreen(b, mod) {
+  const title = mod.name || MOD.moduleAutoName(mod, b);
+  setHeader(title, { back: true });
+  const wrap = document.createElement('div');
+  wrap.append(h(`<div class="card">
+    <div class="big" style="font-size:20px">${esc(title)}</div>
+    <div class="muted" style="margin-top:4px">${esc(MOD.moduleCoverage(mod, b))} · ${MOD.moduleVerseCount(mod)} verses</div>
+  </div>`));
+
+  wrap.append(sectionTitle('Practice'));
+  wrap.append(h(`<div class="muted" style="font-size:12px;margin:-4px 4px 8px">Rehearse this module. Marking it reviewed (coverage) arrives with the review engine.</div>`));
+  const modes = h(`<div>
+    <div class="row" style="gap:8px">
+      <button class="btn" data-m="flash" style="margin-top:0;flex:1">Flashcards</button>
+      <button class="btn secondary" data-m="typer" style="margin-top:0;flex:1">First-Letter</button>
+    </div>
+    <div class="row" style="gap:8px;margin-top:8px">
+      <button class="btn secondary" data-m="fade" style="margin-top:0;flex:1">Fade</button>
+      <button class="btn secondary" data-m="recite" style="margin-top:0;flex:1">Recite ⏱</button>
+    </div>
+  </div>`).firstElementChild;
+  modes.querySelectorAll('[data-m]').forEach(btn => btn.onclick = () => {
+    if (btn.dataset.m === 'recite') render(() => reviewTimer(b, MOD.moduleReviewScope(mod)));   // speak it aloud, log the time
+    else moduleLaunch(b, mod, btn.dataset.m, btn);
+  });
+  wrap.append(modes);
+
+  const edit = h(`<button class="btn secondary" style="margin-top:16px">Edit module</button>`);
+  edit.firstChild.onclick = () => { modDraft = { book: b.name, mod: MOD.copyModule(mod), isNew: false, nameTouched: true }; render(() => moduleEditScreen(b)); };
+  wrap.append(edit);
+  const del = h(`<button class="btn secondary" style="margin-top:8px;color:var(--danger)">Delete module</button>`);
+  del.firstChild.onclick = () => {
+    if (!confirm('Delete module "' + title + '"? This does not affect your memorization progress.')) return;
+    MOD.deleteModule(b.name, mod.id);
+    toast('Module deleted');
+    goBack();
+  };
+  wrap.append(del);
+  main().append(wrap);
+}
+
+// Fetch the module's chapters from ESV, build a practice doc scoped to its verses, launch the session.
+async function moduleLaunch(b, mod, mode, btn) {
+  if (btn && btn.dataset.busy) return;
+  const cis = Object.keys(mod.verses || {}).map(Number).filter(ci => (mod.verses[ci] || []).length).sort((x, y) => x - y);
+  if (!cis.length) { toast('This module has no verses'); return; }
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.dataset.busy = '1'; }
+  try {
+    const textByCi = {};
+    for (const ci of cis) {
+      if (btn) btn.textContent = 'Loading ' + SC.abbr(b.name) + ' ' + (ci + 1) + '…';
+      const e = await esvFetchChapter(b.name, ci + 1);
+      textByCi[ci] = e.verses;
+    }
+    const parts = MOD.moduleParts(mod, textByCi);
+    if (!parts.length) { if (btn) { delete btn.dataset.busy; btn.textContent = orig; } toast('Could not load verses'); return; }
+    const doc = bibleMultiDoc(b, parts);
+    const queue = doc.sections.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn }));
+    if (mode === 'fade') render(() => fadeScreen(doc, queue, 0, 0, []));
+    else if (mode === 'typer') render(() => typerScreen(doc, queue, 0, []));
+    else render(() => flashSession(doc, queue, 20, 'adaptive'));
+  } catch (err) {
+    if (btn) { delete btn.dataset.busy; btn.textContent = orig; }
+    esvErrToast(err);
+  }
 }
 
 // SM5 — practice scope: whole book (≤28 chapters) / selected chapters / selected verses
