@@ -473,7 +473,8 @@ function defaultState() {
       dayItems: {},        // dayItems['YYYY-MM-DD'] = [{id, label, domain, done}]
       completions: {},     // completions['YYYY-MM-DD'][ruleId] = true
       monthGoals: {},      // monthGoals['YYYY-MM'] = [{id, label, done}]
-      yearGoals: {}        // yearGoals['YYYY'] = [{id, label, done}]
+      yearGoals: {},       // yearGoals['YYYY'] = [{id, label, done}]
+      targets: []          // (Phase 9.5) standing quotas: {id, domain, unit, amount, period:'day'|'week'|'month', dows:[0-6], scope:null|{...}}
     },
     pathways: [],          // {id, name, domain, milestones:[{id, name, steps:[{id, label, done, doneTs, secs}]}]}
     settings: { migratedOldApp: false, esvKey: '', visionKey: '' }
@@ -663,6 +664,8 @@ function ensureShapes() {
   if (!Array.isArray(state.reading.categories)) state.reading.categories = [];
   if (!Array.isArray(state.reading.tags)) state.reading.tags = [];
   if (!Array.isArray(state.sermons)) state.sermons = [];
+  if (!state.planner) state.planner = def.planner;
+  if (!Array.isArray(state.planner.targets)) state.planner.targets = [];   // Phase 9.5 (additive)
   if (!state.settings) state.settings = def.settings;
 }
 
@@ -1178,6 +1181,59 @@ function itemsForDate(dk) {
   });
   // due-date pace nudges (Phase 9.4) — readonly, so dayStats ignores them
   out.push(...TG.paceNudges(dk));
+  // standing daily/weekly/monthly targets (Phase 9.5) — also readonly (auto-complete from activity)
+  out.push(...targetItems(dk));
+  return out;
+}
+
+// ---- standing targets (Phase 9.5) ----
+function targets() { if (!Array.isArray(P().targets)) P().targets = []; return P().targets; }
+function addTarget({ domain, amount, period = 'day', dows = [0, 1, 2, 3, 4, 5, 6], scope = null }) {
+  const t = { id: uid(), domain, unit: TG.unitForDomain(domain), amount: Math.max(1, Math.round(Number(amount) || 0)), period, dows, scope };
+  targets().push(t);
+  save();
+  return t;
+}
+function updateTarget(id, patch) {
+  const t = targets().find(x => x.id === id);
+  if (!t) return;
+  Object.assign(t, patch);
+  if (patch.domain) t.unit = TG.unitForDomain(patch.domain);
+  if (t.amount != null) t.amount = Math.max(1, Math.round(Number(t.amount) || 0));
+  save();
+}
+function removeTarget(id) { P().targets = targets().filter(t => t.id !== id); save(); }
+
+// where a target row navigates when tapped (mirrors the 9.4 pace goto shapes; area homes added)
+function targetGoto(t) {
+  const s = t.scope;
+  switch (t.domain) {
+    case 'reading': return s && s.id ? { t: 'book', id: s.id } : { t: 'readingHome' };
+    case 'memorize': return s && s.book ? { t: 'mem', book: s.book, ch: s.ch != null ? s.ch : null } : { t: 'memHome' };
+    case 'creeds': return s && s.id ? { t: 'creed', id: s.id } : { t: 'creedsHome' };
+    case 'bibleplan': return { t: 'plans' };
+    case 'fitness': return { t: 'fitness' };
+    case 'flashcards': case 'typing':
+      return (s && (s.corpus === 'creeds' || s.docId)) ? { t: 'creedsHome' } : { t: 'memHome' };
+  }
+  return null;
+}
+
+// readonly rows for the targets that apply on dk (daily by day-of-week; week/month always).
+function targetItems(dk) {
+  const out = [];
+  targets().forEach(t => {
+    if (!TG.targetAppliesOn(t, dk)) return;
+    const pr = TG.targetProgress(t, dk);
+    out.push({
+      kind: 'target', id: 'tgt-' + t.id, tid: t.id,
+      domain: t.domain, domainLabel: TG.domainLabelOf(t.domain),
+      unit: t.unit || TG.unitForDomain(t.domain), period: t.period,
+      amount: pr.amount, target: pr.target, done: pr.done, left: pr.left,
+      scopeLabel: t.scope && t.scope.label ? t.scope.label : '',
+      readonly: true, goto: targetGoto(t)
+    });
+  });
   return out;
 }
 
@@ -1236,7 +1292,7 @@ function dayStats(dk) {
   return { total: items.length, done: items.filter(i => i.done).length };
 }
 
-const PL = {DOW,MONTHS,addDays,addGoal,addItem,addRule,dayStats,fmtDate,goals,itemsForDate,key,monthKey,parseKey,removeGoal,removeItem,removeRule,toggle,toggleGoal,weekStart,yearKey};
+const PL = {DOW,MONTHS,addDays,addGoal,addItem,addRule,addTarget,dayStats,fmtDate,goals,itemsForDate,key,monthKey,parseKey,removeGoal,removeItem,removeRule,removeTarget,targetItems,targets,toggle,toggleGoal,updateTarget,weekStart,yearKey};
 // Strive — pathways: ordered stepping stones grouped into milestones (Duolingo-style modules)
 
 
@@ -1775,12 +1831,25 @@ function logPractice(docId, n, mode, score) {
 
 function practiceHistory(docId, n) { return (PRC()[docId] && PRC()[docId][n]) || []; }
 
-// Practice attempts between two instants (Phase 5 · Trends)
-function practiceCountBetween(fromTs, toTs = Date.now()) {
+// Practice attempts between two instants (Phase 5 · Trends). The practice store is shared:
+// Scripture verses AND creed sections both log here (via app.js prDocId/prN), each entry
+// carrying its mode ('flash'|'typer'|'scramble'|'fade'). Options (Phase 9.5 targets):
+//   mode   — count only that practice mode (e.g. 'flash' flashcards, 'typer' typing)
+//   docId  — restrict to one exact document id (a specific creed)
+//   book   — restrict to one Bible book (Scripture ids look like 'bible:Hebrews:1')
+//   corpus — 'scripture' (ids prefixed 'bible:') | 'creeds' (everything else)
+function practiceCountBetween(fromTs, toTs = Date.now(), { mode = null, docId = null, corpus = null, book = null } = {}) {
+  const isBible = id => id.startsWith('bible:');
   let n = 0;
-  Object.values(PRC()).forEach(doc => Object.values(doc || {}).forEach(arr => (arr || []).forEach(e => {
-    if (e.ts >= fromTs && e.ts <= toTs) n++;
-  })));
+  Object.entries(PRC()).forEach(([id, doc]) => {
+    if (docId && id !== docId) return;
+    if (book && !id.startsWith('bible:' + book + ':')) return;
+    if (corpus === 'creeds' && isBible(id)) return;
+    if (corpus === 'scripture' && !isBible(id)) return;
+    Object.values(doc || {}).forEach(arr => (arr || []).forEach(e => {
+      if (e.ts >= fromTs && e.ts <= toTs && (!mode || e.mode === mode)) n++;
+    }));
+  });
   return n;
 }
 
@@ -1992,6 +2061,25 @@ function removeLog(id) {
   ftEnsure();
   F().logs = F().logs.filter(l => l.id !== id);
   save();
+}
+
+// Workouts logged between two day-keys inclusive (Phase 9.5 targets). Counts user logs
+// only (seed logs are old historical imports); a grouped composite session counts once.
+// Optional `domain` restricts to workouts that build that assessment sub-domain.
+function workoutsBetween(fromKey, toKey, domain = null) {
+  ftEnsure();
+  const seen = new Set();
+  let n = 0;
+  F().logs.forEach(l => {
+    const dk = dayKeyOf(l.ts);
+    if (dk < fromKey || dk > toKey) return;
+    if (domain) { const w = getWorkout(l.wid); if (!w || (w.domain || 'light') !== domain) return; }
+    const key = l.groupId || l.id;
+    if (seen.has(key)) return;
+    seen.add(key);
+    n++;
+  });
+  return n;
 }
 
 // ---- workout cards (Phase 8): tie separately-logged components into one "workout" ----
@@ -2273,7 +2361,7 @@ function ftStats() {
   };
 }
 
-const FT = {ASSESS_DOMAINS,BENCHMARKS,FORMATS,RESULT_TYPES,RX_STATES,UNLOCK_MIN,WORKOUT_TEMPLATES,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,assessment,benchmarkFor,buildResult,byDomain,cardAddPart,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,dietTargets,formatOf,ftStats,getCard,getWorkout,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,prFor,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,rxLabel,rxStatusOf,setDietTargets,setWaterGoal,setWeightGoal,sleepForDate,sleepList,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights};
+const FT = {ASSESS_DOMAINS,BENCHMARKS,FORMATS,RESULT_TYPES,RX_STATES,UNLOCK_MIN,WORKOUT_TEMPLATES,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,assessment,benchmarkFor,buildResult,byDomain,cardAddPart,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,dietTargets,formatOf,ftStats,getCard,getWorkout,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,prFor,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,rxLabel,rxStatusOf,setDietTargets,setWaterGoal,setWeightGoal,sleepForDate,sleepList,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights,workoutsBetween};
 // Strive — Bible reading plans: any scope, canonical order, pace by chapters/day
 // or target date. Missed days roll forward. Multiple plans can run at once.
 
@@ -2331,6 +2419,15 @@ function chaptersRead(fromKey, toKey) {
   RPs().forEach(p => {
     for (const dk of Object.keys(p.log || {})) if (dk >= fromKey && dk <= toKey) n += p.log[dk] || 0;
   });
+  return n;
+}
+
+// Chapters read for ONE plan between two day-keys inclusive (Phase 9.5 scoped targets).
+function chaptersReadForPlan(id, fromKey, toKey) {
+  const p = getPlan(id);
+  if (!p) return 0;
+  let n = 0;
+  for (const dk of Object.keys(p.log || {})) if (dk >= fromKey && dk <= toKey) n += p.log[dk] || 0;
   return n;
 }
 
@@ -2508,7 +2605,7 @@ function upNext(plan) {
   return c ? c.book + ' ' + c.ch : null;
 }
 
-const RP = {PLAN_PRESETS,PREFABS,booksForPreset,chaptersOf,chaptersRead,completeToday,createPlan,createPrefab,estFinish,getPlan,isDoneToday,isReadingDay,mcheyneRef,planItemsForDate,planStats,planTotal,plans,portionRef,projectedPortion,refFor,refForRange,removePlan,todaysPortion,togglePlanDay,uncompleteToday,upNext};
+const RP = {PLAN_PRESETS,PREFABS,booksForPreset,chaptersOf,chaptersRead,chaptersReadForPlan,completeToday,createPlan,createPrefab,estFinish,getPlan,isDoneToday,isReadingDay,mcheyneRef,planItemsForDate,planStats,planTotal,plans,portionRef,projectedPortion,refFor,refForRange,removePlan,todaysPortion,togglePlanDay,uncompleteToday,upNext};
 // Strive — targets engine (Phase 9.4): due dates + self-adjusting daily pace.
 //
 // Locked rule D-F: needed/day = remaining ÷ days-remaining (today inclusive),
@@ -2526,6 +2623,8 @@ const RP = {PLAN_PRESETS,PREFABS,booksForPreset,chaptersOf,chaptersRead,complete
 // this module unifies the other three domains — book reading, memorization, and
 // creeds. The core (dayPlan) is domain-agnostic; each domain just supplies its
 // remaining count and today's progress.
+
+
 
 
 
@@ -2582,28 +2681,28 @@ function scheduleDelta(baseline, dueKey, currentRemaining, today = todayKey()) {
 // ---- book reading ----
 // info for a specific day (defaults to today for the header/dashboard readouts).
 // Reading is the one domain with timestamped progress, so its nudge can read "done today".
-function readPaceInfo(b, dk = todayKey()) {
+function readPaceInfo(b, dk = todayKey(), today = todayKey()) {
   if (!b || !b.due) return null;
-  const info = dayPlan(RD.pagesLeft(b), b.due, dk, { progress: RD.pagesOn(b, dk) });
-  if (info) info.delta = scheduleDelta(b.dueBase, b.due, RD.pagesLeft(b));
+  const info = dayPlan(RD.pagesLeft(b), b.due, dk, { progress: RD.pagesOn(b, dk), today });
+  if (info) info.delta = scheduleDelta(b.dueBase, b.due, RD.pagesLeft(b), today);
   return info;
 }
 
 // ---- memorization (a current project: whole book or one chapter) ----
 // Per-project day-marks (Phase 9.4) give today's verses, so the nudge reads "done today".
-function memPaceInfo(item, dk = todayKey()) {
+function memPaceInfo(item, dk = todayKey(), today = todayKey()) {
   if (!item || !item.due) return null;
-  const info = dayPlan(SC.versesLeft(item), item.due, dk, { progress: SC.versesMarkedToday(item, dk) });
-  if (info) info.delta = scheduleDelta(item.dueBase, item.due, SC.versesLeft(item));
+  const info = dayPlan(SC.versesLeft(item), item.due, dk, { progress: SC.versesMarkedToday(item, dk), today });
+  if (info) info.delta = scheduleDelta(item.dueBase, item.due, SC.versesLeft(item), today);
   return info;
 }
 
 // ---- creeds / catechisms / confessions (a document) ----
-function creedPaceInfo(id, dk = todayKey()) {
+function creedPaceInfo(id, dk = todayKey(), today = todayKey()) {
   const due = CR.docDueOf(id);
   if (!due) return null;
-  const info = dayPlan(CR.sectionsLeft(id), due, dk, { progress: CR.sectionsMarkedToday(id, dk) });
-  if (info) info.delta = scheduleDelta(CR.dueBaseOf(id), due, CR.sectionsLeft(id));
+  const info = dayPlan(CR.sectionsLeft(id), due, dk, { progress: CR.sectionsMarkedToday(id, dk), today });
+  if (info) info.delta = scheduleDelta(CR.dueBaseOf(id), due, CR.sectionsLeft(id), today);
   return info;
 }
 
@@ -2612,27 +2711,113 @@ function creedPaceInfo(id, dk = todayKey()) {
 // lands on today only). Rows are readonly — progress is made in the domain, not by
 // checking the nudge — so dayStats, which counts only non-readonly items, ignores them.
 // `goto` tells the planner UI which screen to open when the row is tapped.
-function paceNudges(dk) {
+function paceNudges(dk, today = todayKey()) {
   const out = [];
   RD.books().filter(b => b.status === 'reading' && b.due).forEach(b => {
-    const info = readPaceInfo(b, dk);
+    const info = readPaceInfo(b, dk, today);
     if (info) out.push({ kind: 'pace', id: 'pace-rd-' + b.id, domain: 'Reading', title: b.title, unit: 'pages', info, readonly: true, goto: { t: 'book', id: b.id } });
   });
   SC.currentItems().filter(it => it.due).forEach(it => {
-    const info = memPaceInfo(it, dk);
+    const info = memPaceInfo(it, dk, today);
     if (info) out.push({ kind: 'pace', id: 'pace-sc-' + it.id, domain: 'Memorize', title: it.ch == null ? it.book : it.book + ' ' + it.ch, unit: 'verses', info, readonly: true, goto: { t: 'mem', book: it.book, ch: it.ch } });
   });
   CR.docs().forEach(d => {
-    const info = creedPaceInfo(d.id, dk);
+    const info = creedPaceInfo(d.id, dk, today);
     if (info) out.push({ kind: 'pace', id: 'pace-cr-' + d.id, domain: 'Creeds', title: d.name, unit: 'sections', info, readonly: true, goto: { t: 'creed', id: d.id } });
   });
   return out;
 }
 
 // Does any target want work on `dk`? Cheap check for the month grid's marker dot.
-function hasNudges(dk) { return paceNudges(dk).length > 0; }
+function hasNudges(dk, today = todayKey()) { return paceNudges(dk, today).length > 0; }
 
-const TG = {creedPaceInfo,dayPlan,daysUntil,hasNudges,memPaceInfo,paceNudges,readPaceInfo,scheduleDelta};
+// ==== Phase 9.5 — standing daily/weekly/monthly targets ====
+// A target is a per-domain quota with no end date (distinct from the 9.4 finish-by pace).
+// It measures REAL activity in its domain over a period, generic (whole domain) or scoped
+// to one item, and auto-completes — never checked by hand. Storage: a plain object
+//   { id, domain, unit, amount, period:'day'|'week'|'month', dows:[0-6], scope:null|{...} }
+// The engine here is pure compute; the list + CRUD + rows live in planner.js.
+
+// domain → unit; also the canonical domain list for the editor UI.
+const TARGET_DOMAINS = [
+  ['reading', 'pages'], ['memorize', 'verses'], ['creeds', 'sections'],
+  ['bibleplan', 'chapters'], ['fitness', 'workouts'],
+  ['flashcards', 'cards'], ['typing', 'verses']
+];
+const DOMAIN_LABEL = { reading: 'Reading', memorize: 'Memorize', creeds: 'Creeds', bibleplan: 'Bible plan', fitness: 'Fitness', flashcards: 'Flashcards', typing: 'Typing' };
+function unitForDomain(d) { const e = TARGET_DOMAINS.find(x => x[0] === d); return e ? e[1] : ''; }
+function domainLabelOf(d) { return DOMAIN_LABEL[d] || d; }
+
+// 1970-01-01 (epoch day 0) was a Thursday → Sun-based day-of-week.
+function tgDowOf(k) { return ((keyToDays(k) % 7) + 4) % 7; }
+
+// The [fromKey, toKey] window (inclusive) of the period that CONTAINS dk.
+function periodWindow(period, dk) {
+  if (period === 'week') { const s = weekStartKey(dk); return [s, addDaysKey(s, 6)]; }
+  if (period === 'month') {
+    const mk = dk.slice(0, 7); const [y, m] = mk.split('-').map(Number);
+    const last = new Date(y, m, 0).getDate();
+    return [mk + '-01', mk + '-' + String(last).padStart(2, '0')];
+  }
+  return [dk, dk];
+}
+
+// Does a target apply on day dk? Daily targets honor their day-of-week pattern (empty = all
+// days); week/month targets apply throughout their window (dk is always inside it here).
+function targetAppliesOn(t, dk) {
+  if (t.period !== 'day') return true;
+  const dows = (t.dows && t.dows.length) ? t.dows : [0, 1, 2, 3, 4, 5, 6];
+  return dows.includes(tgDowOf(dk));
+}
+
+// day-key window → [startMs, endMs] spanning local midnight..last-ms, for the ts-based accessors.
+function windowMs(fromKey, toKey) {
+  const [fy, fm, fd] = fromKey.split('-').map(Number); const start = new Date(fy, fm - 1, fd).getTime();
+  const [ty, tm, td] = toKey.split('-').map(Number); const end = new Date(ty, tm - 1, td).getTime() + 86400000 - 1;
+  return [start, end];
+}
+function dayKeysBetween(fromKey, toKey) { const out = []; let k = fromKey; while (k <= toKey) { out.push(k); k = addDaysKey(k, 1); } return out; }
+
+// Real activity in a domain over [fromKey,toKey], generic (scope null) or scoped to one item.
+// Book-agnostic when generic: sums total domain activity across all items in the window.
+function domainAmount(domain, scope, fromKey, toKey) {
+  switch (domain) {
+    case 'reading':
+      if (scope && scope.id) { const b = RD.get(scope.id); if (!b) return 0; return dayKeysBetween(fromKey, toKey).reduce((n, d) => n + RD.pagesOn(b, d), 0); }
+      { const [s, e] = windowMs(fromKey, toKey); return RD.pagesBetween(s, e); }
+    case 'memorize':
+      if (scope && scope.book) { const it = { book: scope.book, ch: scope.ch != null ? scope.ch : null }; return dayKeysBetween(fromKey, toKey).reduce((n, d) => n + SC.versesMarkedToday(it, d), 0); }
+      return SC.versesMarked(fromKey, toKey);
+    case 'creeds':
+      if (scope && scope.id) return dayKeysBetween(fromKey, toKey).reduce((n, d) => n + CR.sectionsMarkedToday(scope.id, d), 0);
+      return CR.sectionsMarked(fromKey, toKey);
+    case 'bibleplan':
+      if (scope && scope.id) return RP.chaptersReadForPlan(scope.id, fromKey, toKey);
+      return RP.chaptersRead(fromKey, toKey);
+    case 'fitness':
+      return FT.workoutsBetween(fromKey, toKey, scope && scope.domain ? scope.domain : null);
+    case 'flashcards': case 'typing': {
+      // Both Scripture and creeds/catechisms/confessions log into the shared practice store,
+      // so these counts span everything memorized. mode: flashcards → 'flash', typing → 'typer'.
+      const [s, e] = windowMs(fromKey, toKey);
+      const opts = { mode: domain === 'flashcards' ? 'flash' : 'typer' };
+      if (scope && scope.docId) opts.docId = scope.docId;
+      else if (scope && scope.book) opts.book = scope.book;
+      else if (scope && scope.corpus) opts.corpus = scope.corpus;
+      return CR.practiceCountBetween(s, e, opts);
+    }
+  }
+  return 0;
+}
+
+// Progress of a target for the period containing dk. amount = work done, done at ≥ target.
+function targetProgress(t, dk = todayKey()) {
+  const [from, to] = periodWindow(t.period, dk);
+  const amount = domainAmount(t.domain, t.scope, from, to);
+  return { amount, target: t.amount, done: amount >= t.amount, from, to, left: Math.max(0, t.amount - amount) };
+}
+
+const TG = {TARGET_DOMAINS,creedPaceInfo,dayPlan,daysUntil,domainAmount,domainLabelOf,hasNudges,memPaceInfo,paceNudges,periodWindow,readPaceInfo,scheduleDelta,targetAppliesOn,targetProgress,unitForDomain};
 // Strive — cross-device sync (Phase 2). Whole-state blob → Supabase, last-write-wins
 // with a conflict guard. Dependency-free: raw fetch against Supabase Auth + REST.
 // Because the entire state object syncs as one blob, later schema additions never
@@ -3654,12 +3839,17 @@ function today() {
   renderDayChecklist(main(), todayKey(), { showPathways: true });
 }
 
-// open the screen behind a due-date pace nudge (9.4)
+// open the screen behind a due-date pace nudge (9.4) or a standing target row (9.5)
 function navPace(g) {
   if (!g) return;
   if (g.t === 'book') { const bk = RD.get(g.id); if (bk) render(() => bookDetail(bk)); }
   else if (g.t === 'creed') { const d = CR.getDoc(g.id); if (d) render(() => creedDocScreen(d)); }
   else if (g.t === 'mem') { const b = allBooks.find(x => x.name === g.book); if (b) render(() => g.ch == null ? bookScreen(b) : chapterScreen(b, g.ch - 1)); }
+  else if (g.t === 'readingHome') render(readingHome);
+  else if (g.t === 'memHome') render(scriptureHome);
+  else if (g.t === 'creedsHome') render(creedsHome);
+  else if (g.t === 'plans') render(plansScreen);
+  else if (g.t === 'fitness') { ftMode = 'level'; render(fitnessHome); }
 }
 
 // green/red schedule-position dot (9.4). null → nothing; 0 → on pace; ± → days ahead/behind.
@@ -3724,6 +3914,21 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
           <div class="grow">
             <div class="title">${esc(entry.title)}</div>
             <div class="sub">🎯 ${esc(entry.domain)} · ${txt}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>
+          </div>
+        </div>`);
+      el.querySelector('.list-item').onclick = () => navPace(entry.goto);
+      wrap.append(el);
+      return;
+    }
+    // standing target (9.5): readonly, auto-completes from real activity; opens the domain/item.
+    if (entry.kind === 'target') {
+      const periodLbl = entry.period === 'week' ? 'Weekly' : entry.period === 'month' ? 'Monthly' : 'Daily';
+      const el = h(`
+        <div class="list-item" style="cursor:pointer">
+          <div class="check"${entry.done ? ' style="background:var(--accent);border-color:var(--accent);color:#fff"' : ''}>✓</div>
+          <div class="grow">
+            <div class="title">${esc(entry.scopeLabel || entry.domainLabel + ' · any')}</div>
+            <div class="sub">🎯 ${periodLbl} target · ${entry.amount}/${entry.target} ${esc(entry.unit)}${entry.done ? ' · done ✓' : entry.period !== 'day' ? ' this ' + entry.period : ''}</div>
           </div>
         </div>`);
       el.querySelector('.list-item').onclick = () => navPace(entry.goto);
@@ -3799,7 +4004,7 @@ function plan() {
   setHeader('Planner');
   const wrap = document.createElement('div');
   const pills = h(`<div class="pillrow">
-    ${['day', 'week', 'month', 'year', 'rules'].map(m =>
+    ${['day', 'week', 'month', 'year', 'targets', 'rules'].map(m =>
       `<button class="pill ${planMode === m ? 'on' : ''}" data-m="${m}">${m[0].toUpperCase() + m.slice(1)}</button>`).join('')}
   </div>`);
   pills.querySelectorAll('.pill').forEach(b => b.onclick = () => { planMode = b.dataset.m; rerender(); });
@@ -3807,7 +4012,7 @@ function plan() {
 
   const body = document.createElement('div');
   wrap.append(body);
-  ({ day: planDay, week: planWeek, month: planMonth, year: planYear, rules: planRules })[planMode](body);
+  ({ day: planDay, week: planWeek, month: planMonth, year: planYear, targets: planTargets, rules: planRules })[planMode](body);
   main().append(wrap);
 }
 
@@ -3839,6 +4044,10 @@ function planWeek(body) {
     () => { planCursor = PL.addDays(planCursor, -7); rerender(); },
     () => { planCursor = PL.addDays(planCursor, 7); rerender(); },
     () => { planCursor = todayKey(); rerender(); }));
+
+  // weekly-period targets → their own progress block for the shown week (9.5)
+  targetProgressBlock(body, 'week', start, 'Weekly targets');
+
   for (let i = 0; i < 7; i++) {
     const dk = PL.addDays(start, i);
     const st = PL.dayStats(dk);
@@ -3850,12 +4059,20 @@ function planWeek(body) {
         : pi.perDay + ' ' + nd.unit + (pi.done ? ' ✓' : '');
       return `<div class="sub" style="${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${esc(nd.title)} · ${amt}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>`;
     }).join('');
+    // one dotted line per DAILY target that applies this day (9.5)
+    const dayTgts = PL.targets().filter(t => t.period === 'day' && TG.targetAppliesOn(t, dk));
+    const tgtLines = dayTgts.map(t => {
+      const pr = TG.targetProgress(t, dk);
+      const c = pr.done ? 'var(--forest)' : 'var(--accent)';
+      return `<div class="sub" style="color:${c}">● ${esc(t.scope && t.scope.label ? t.scope.label : TG.domainLabelOf(t.domain))} · ${pr.amount}/${pr.target} ${esc(t.unit)}${pr.done ? ' ✓' : ''}</div>`;
+    }).join('');
+    const anyExtra = nudges.length || dayTgts.length;
     const el = h(`
       <div class="list-item" style="${isToday ? 'border-color:var(--accent)' : ''}">
         <div class="grow">
           <div class="title">${PL.fmtDate(dk)}${isToday ? ' · today' : ''}</div>
-          <div class="sub">${st.total ? st.done + '/' + st.total + ' done' : (nudges.length ? 'targets below' : 'nothing planned')}</div>
-          ${paceLines}
+          <div class="sub">${st.total ? st.done + '/' + st.total + ' done' : (anyExtra ? 'targets below' : 'nothing planned')}</div>
+          ${paceLines}${tgtLines}
           ${st.total ? `<div class="progressbar" style="margin-top:6px"><div style="width:${st.done / st.total * 100}%"></div></div>` : ''}
         </div>
         <span class="chev">›</span>
@@ -3863,6 +4080,28 @@ function planWeek(body) {
     el.querySelector('.list-item').onclick = () => { planCursor = dk; planMode = 'day'; rerender(); };
     body.append(el);
   }
+}
+
+// A progress block for all targets of a given period, anchored at dk (9.5). Used by the
+// Week view (weekly targets) and Month view (monthly targets).
+function targetProgressBlock(body, period, dk, title) {
+  const tgts = PL.targets().filter(t => t.period === period);
+  if (!tgts.length) return;
+  body.append(sectionTitle(title));
+  tgts.forEach(t => {
+    const pr = TG.targetProgress(t, dk);
+    const pctW = Math.min(100, Math.round(pr.amount / pr.target * 100));
+    const el = h(`
+      <div class="list-item" style="cursor:default">
+        <div class="check"${pr.done ? ' style="background:var(--accent);border-color:var(--accent);color:#fff"' : ''}>✓</div>
+        <div class="grow">
+          <div class="title">${esc(t.scope && t.scope.label ? t.scope.label : TG.domainLabelOf(t.domain) + ' · any')}</div>
+          <div class="sub" style="color:${pr.done ? 'var(--forest)' : 'var(--accent)'};font-weight:600">🎯 ${pr.amount}/${pr.target} ${esc(t.unit)}${pr.done ? ' ✓' : ''}</div>
+          <div class="progressbar" style="margin-top:6px"><div style="width:${pctW}%"></div></div>
+        </div>
+      </div>`);
+    body.append(el);
+  });
 }
 
 function planMonth(body) {
@@ -3891,11 +4130,19 @@ function planMonth(body) {
     const dots = [];
     if (st.total) dots.push(`<span style="width:5px;height:5px;border-radius:50%;background:${st.done === st.total ? 'var(--accent)' : 'var(--gold)'}"></span>`);
     if (hasTarget) dots.push(`<span title="reading/pace target" style="width:5px;height:5px;border-radius:50%;border:1.5px solid var(--accent);background:transparent"></span>`);
-    cell.innerHTML = `<span>${day}</span>` + (dots.length ? `<span style="display:flex;gap:2px">${dots.join('')}</span>` : '');
+    // one dot per DAILY target applying this day: filled (forest) if met, hollow (gold) if not (9.5)
+    PL.targets().filter(t => t.period === 'day' && TG.targetAppliesOn(t, dk)).slice(0, 4).forEach(t => {
+      const done = TG.targetProgress(t, dk).done;
+      dots.push(`<span title="${esc((t.scope && t.scope.label) || TG.domainLabelOf(t.domain))} target" style="width:5px;height:5px;border-radius:50%;${done ? 'background:var(--forest)' : 'border:1.5px solid var(--gold);background:transparent'}"></span>`);
+    });
+    cell.innerHTML = `<span>${day}</span>` + (dots.length ? `<span style="display:flex;gap:2px;flex-wrap:wrap;justify-content:center;max-width:100%">${dots.join('')}</span>` : '');
     cell.onclick = () => { planCursor = dk; planMode = 'day'; rerender(); };
     grid.append(cell);
   }
   body.append(grid);
+
+  // monthly-period targets → their own progress block for the shown month (9.5)
+  targetProgressBlock(body, 'month', mk + '-01', 'Monthly targets');
 
   body.append(sectionTitle('Goals for ' + PL.MONTHS[m]));
   PL.goals('monthGoals', mk).forEach(g => {
@@ -3933,6 +4180,146 @@ function planYear(body) {
       { onDelete: () => { PL.removeGoal('yearGoals', yk, g.id); rerender(); } }));
   });
   body.append(addRow('Add a goal for this year', v => { PL.addGoal('yearGoals', yk, v); rerender(); }));
+}
+
+// scope choices + reconstruction for the target builder (Phase 9.5)
+// scope choices → grouped [{label, options:[{value,label}]}]; label null = ungrouped (9.5)
+function tgScopeOptions(domain) {
+  const flat = opts => [{ label: null, options: opts }];
+  const any = { value: '', label: 'Any — whole domain' };
+  if (domain === 'reading') return flat([any, ...RD.books().map(b => ({ value: b.id, label: b.title }))]);
+  if (domain === 'creeds') return flat([any, ...CR.docs().map(d => ({ value: d.id, label: d.name }))]);
+  if (domain === 'bibleplan') return flat([any, ...RP.plans().map(p => ({ value: p.id, label: p.name }))]);
+  if (domain === 'fitness') return flat([any, ...FT.ASSESS_DOMAINS.map(([k, l]) => ({ value: k, label: l }))]);
+  if (domain === 'memorize') return flat([any, ...allBooks.map(b => ({ value: b.name, label: b.name }))]);
+  if (domain === 'flashcards' || domain === 'typing') return [
+    { label: 'Scripture', options: [{ value: 'corpus:scripture', label: 'All Scripture' }, ...allBooks.map(b => ({ value: 'book:' + b.name, label: b.name }))] },
+    { label: 'Creeds, Catechisms & Confessions', options: [{ value: 'corpus:creeds', label: 'All creeds, catechisms & confessions' }, ...CR.docs().map(d => ({ value: 'doc:' + d.id, label: d.name }))] }
+  ];
+  return flat([any]);
+}
+function tgBuildScope(domain, val, chap) {
+  if (domain === 'flashcards' || domain === 'typing') {
+    if (val.startsWith('corpus:')) { const c = val.slice(7); return { corpus: c, label: c === 'scripture' ? 'All Scripture' : 'All creeds, catechisms & confessions' }; }
+    if (val.startsWith('book:')) { const name = val.slice(5); return { book: name, label: name }; }
+    if (val.startsWith('doc:')) { const d = CR.getDoc(val.slice(4)); return d ? { docId: d.id, label: d.name } : null; }
+    return null;
+  }
+  if (!val) return null;
+  if (domain === 'reading') { const b = RD.get(val); return b ? { id: b.id, label: b.title } : null; }
+  if (domain === 'creeds') { const d = CR.getDoc(val); return d ? { id: d.id, label: d.name } : null; }
+  if (domain === 'bibleplan') { const p = RP.getPlan(val); return p ? { id: p.id, label: p.name } : null; }
+  if (domain === 'fitness') { const dd = FT.ASSESS_DOMAINS.find(([k]) => k === val); return dd ? { domain: val, label: dd[1] } : null; }
+  if (domain === 'memorize') { const ch = chap ? Number(chap) : null; return { book: val, ch, label: ch ? val + ' ' + ch : val }; }
+  return null;
+}
+
+function planTargets(body) {
+  body.append(h(`<div class="muted" style="margin:2px 4px 12px">Standing quotas that fill automatically from your activity — nothing to check off. Any work in the domain counts (or scope one to a single book/item). They show in Today, Week & Month, alongside any finish-by pace.</div>`));
+
+  const list = PL.targets();
+  if (!list.length) body.append(h(`<div class="empty">No targets yet — add one below.</div>`));
+  list.forEach(t => {
+    const pr = TG.targetProgress(t, todayKey());
+    const periodLbl = t.period === 'week' ? 'Weekly' : t.period === 'month' ? 'Monthly' : 'Daily';
+    const dowLbl = t.period === 'day'
+      ? ' · ' + (t.dows && t.dows.length && t.dows.length < 7 ? t.dows.map(d => PL.DOW[d]).join(' ') : 'every day')
+      : '';
+    const el = h(`
+      <div class="list-item" style="cursor:default">
+        <div class="grow">
+          <div class="title">${esc(t.scope && t.scope.label ? t.scope.label : TG.domainLabelOf(t.domain) + ' · any')}</div>
+          <div class="sub">${periodLbl} · ${t.amount} ${esc(t.unit)}${dowLbl}</div>
+          <div class="sub" style="color:${pr.done ? 'var(--forest)' : 'var(--accent)'};font-weight:600">🎯 ${pr.amount}/${pr.target} ${esc(t.unit)} this ${t.period}${pr.done ? ' ✓' : ''}</div>
+        </div>
+        <button class="del" style="border:none;background:none;color:var(--danger);font-size:17px;cursor:pointer">✕</button>
+      </div>`);
+    el.querySelector('.del').onclick = () => { PL.removeTarget(t.id); toast('Target removed'); rerender(); };
+    body.append(el);
+  });
+
+  body.append(sectionTitle('New target'));
+  const FIN = 'width:100%;padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px;margin:4px 0 12px';
+  const card = h(`<div class="card">
+    <label class="muted" style="font-size:12px">Domain</label>
+    <select id="tg-domain" style="${FIN}">
+      ${TG.TARGET_DOMAINS.map(([d, u]) => `<option value="${d}">${TG.domainLabelOf(d)} (${u})</option>`).join('')}
+    </select>
+    <label class="muted" style="font-size:12px">Amount per period</label>
+    <input id="tg-amount" type="number" min="1" inputmode="numeric" placeholder="e.g. 40" style="${FIN}">
+    <label class="muted" style="font-size:12px">Period</label>
+    <div class="pillrow" id="tg-period" style="margin:4px 0 12px">
+      ${['day', 'week', 'month'].map(p => `<button class="pill ${p === 'day' ? 'on' : ''}" data-p="${p}">${p[0].toUpperCase() + p.slice(1)}</button>`).join('')}
+    </div>
+    <div id="tg-dows-wrap">
+      <label class="muted" style="font-size:12px">Days</label>
+      <div class="pillrow" id="tg-dows" style="margin:4px 0 12px">
+        ${PL.DOW.map((d, i) => `<button class="pill on" data-d="${i}">${d}</button>`).join('')}
+        <button class="pill on" data-d="all">Every day</button>
+      </div>
+    </div>
+    <label class="muted" style="font-size:12px">Scope</label>
+    <select id="tg-scope" style="${FIN}"></select>
+    <div id="tg-chap-wrap" style="display:none">
+      <label class="muted" style="font-size:12px">Chapter (optional — blank = whole book)</label>
+      <input id="tg-chap" type="number" min="1" inputmode="numeric" placeholder="whole book" style="${FIN}">
+    </div>
+    <button class="btn" id="tg-add">Add target</button>
+  </div>`).firstElementChild;
+
+  const domainSel = card.querySelector('#tg-domain');
+  const scopeSel = card.querySelector('#tg-scope');
+  const chapWrap = card.querySelector('#tg-chap-wrap');
+  const dowsWrap = card.querySelector('#tg-dows-wrap');
+  const draft = { period: 'day', dows: new Set([0, 1, 2, 3, 4, 5, 6]) };
+
+  const fillScope = () => {
+    scopeSel.innerHTML = tgScopeOptions(domainSel.value).map(g => {
+      const opts = g.options.map(o => `<option value="${esc(String(o.value))}">${esc(o.label)}</option>`).join('');
+      return g.label ? `<optgroup label="${esc(g.label)}">${opts}</optgroup>` : opts;
+    }).join('');
+    syncChap();
+  };
+  const syncChap = () => { chapWrap.style.display = (domainSel.value === 'memorize' && scopeSel.value) ? '' : 'none'; };
+  domainSel.onchange = fillScope;
+  scopeSel.onchange = syncChap;
+  fillScope();
+
+  card.querySelectorAll('#tg-period .pill').forEach(b => b.onclick = () => {
+    draft.period = b.dataset.p;
+    card.querySelectorAll('#tg-period .pill').forEach(p => p.classList.toggle('on', p.dataset.p === draft.period));
+    dowsWrap.style.display = draft.period === 'day' ? '' : 'none';
+  });
+
+  card.querySelectorAll('#tg-dows .pill').forEach(b => b.onclick = () => {
+    if (b.dataset.d === 'all') {
+      const allOn = draft.dows.size === 7;
+      draft.dows.clear();
+      if (!allOn) for (let i = 0; i < 7; i++) draft.dows.add(i);
+    } else {
+      const i = Number(b.dataset.d);
+      draft.dows.has(i) ? draft.dows.delete(i) : draft.dows.add(i);
+    }
+    card.querySelectorAll('#tg-dows .pill').forEach(p => {
+      if (p.dataset.d === 'all') p.classList.toggle('on', draft.dows.size === 7);
+      else p.classList.toggle('on', draft.dows.has(Number(p.dataset.d)));
+    });
+  });
+
+  card.querySelector('#tg-add').onclick = () => {
+    const amount = Number(card.querySelector('#tg-amount').value);
+    if (!amount || amount < 1) { toast('Enter an amount of 1 or more'); return; }
+    if (draft.period === 'day' && !draft.dows.size) { toast('Pick at least one day'); return; }
+    const scope = tgBuildScope(domainSel.value, scopeSel.value, card.querySelector('#tg-chap').value);
+    PL.addTarget({
+      domain: domainSel.value, amount, period: draft.period,
+      dows: draft.period === 'day' ? [...draft.dows].sort() : [0, 1, 2, 3, 4, 5, 6],
+      scope
+    });
+    toast('Target added');
+    rerender();
+  };
+  body.append(card);
 }
 
 function planRules(body) {
