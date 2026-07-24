@@ -3258,10 +3258,10 @@ function checkinStrip() {
 }
 
 // small brass-ring level radial (Phase 5 · D4) — plain numbers, arc only, never a fill
-function ftRadial(label, level) {
+function ftRadial(label, level, domKey = null) {
   const r = 13, c = 2 * Math.PI * r;
   const pct = level === null ? 0 : Math.min(1, level / 99);
-  return `<div style="text-align:center;flex:1;min-width:0">
+  return `<div${domKey ? ` data-dom="${domKey}"` : ''} style="text-align:center;flex:1;min-width:0${domKey ? ';cursor:pointer' : ''}">
     <svg width="34" height="34" viewBox="0 0 34 34" style="display:block;margin:0 auto">
       <circle cx="17" cy="17" r="${r}" fill="none" stroke="var(--track)" stroke-width="2.5"/>
       ${level === null ? '' : `<circle cx="17" cy="17" r="${r}" fill="none" stroke="var(--gold)" stroke-width="2.5"
@@ -3272,11 +3272,12 @@ function ftRadial(label, level) {
   </div>`;
 }
 
-function levelRow(label, cx, color, cs = null) {
+function levelRow(label, cx, color, cs = null, corpusKey = null) {
   // cs = plain corpus % memorized (review-status-independent) shown at right (Phase 4B)
+  // corpusKey ('all'|'ot'|'nt') makes the row a clickable dashboard hub link to that corpus's books (7B.2)
   const pctTxt = cs ? (cs.pct > 0 && cs.pct < 10 ? cs.pct.toFixed(1) : Math.round(cs.pct)) + '%' : '';
   return `
-    <div class="row" style="margin-bottom:10px">
+    <div class="row" style="margin-bottom:10px${corpusKey ? ';cursor:pointer' : ''}"${corpusKey ? ` data-corpus="${corpusKey}"` : ''}>
       <div style="width:42px;height:42px;border-radius:50%;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${cx.level}</div>
       <div class="grow">
         <div style="font-weight:700;font-size:14px">${label}</div>
@@ -3370,7 +3371,7 @@ function dashboard() {
       : '<div class="row"><div class="grow muted">No active pathways — create one to always know your next stone.</div><span class="chev">›</span></div>'}
     </div>
     <div class="card">
-      <h3>Scripture</h3>
+      <h3><span id="d-sc-title" style="cursor:pointer">Scripture</span> <span id="d-sc-practice" title="Practice" style="cursor:pointer;color:var(--accent);font-weight:400">◎</span></h3>
       <div class="row" style="margin-bottom:12px">
         <div class="grow">
           <div class="big">${g.done.toLocaleString()}</div>
@@ -3382,11 +3383,11 @@ function dashboard() {
           <div class="muted" style="font-size:11px">${weekDays('sm')} of 7 this week</div>
         </div>
       </div>
-      ${levelRow('Old Testament', xot, 'var(--ot)', SC.corpusStats('ot'))}
-      ${levelRow('New Testament', xnt, 'var(--nt)', SC.corpusStats('nt'))}
-      ${levelRow('Whole Bible', xall, 'var(--gold)', SC.corpusStats(null))}
+      ${levelRow('Whole Bible', xall, 'var(--gold)', SC.corpusStats(null), 'all')}
+      ${levelRow('Old Testament', xot, 'var(--ot)', SC.corpusStats('ot'), 'ot')}
+      ${levelRow('New Testament', xnt, 'var(--nt)', SC.corpusStats('nt'), 'nt')}
       <div class="statgrid" style="margin-top:8px">
-        <div class="stat"><div class="v">${g.booksComplete}</div><div class="l">Books complete</div></div>
+        <div class="stat" id="d-sc-books" style="cursor:pointer"><div class="v">${g.booksComplete}</div><div class="l">Books complete</div></div>
         <div class="stat"><div class="v">${g.chaptersComplete}</div><div class="l">Chapters complete</div></div>
       </div>
       ${currentBookSection()}
@@ -3407,7 +3408,7 @@ function dashboard() {
     </div>`));
   main().append(h(`
     <div class="card" id="d-creeds" style="cursor:pointer">
-      <h3>Creeds, Catechisms &amp; Confessions</h3>
+      <h3>Creeds, Catechisms &amp; Confessions <span id="d-cr-practice" title="Practice" style="cursor:pointer;color:var(--accent);font-weight:400">◎</span></h3>
       ${(() => {
         const d = CR.currentDoc();
         if (!d) return '<div class="muted">Choose a document to read or memorize.</div>';
@@ -3420,6 +3421,7 @@ function dashboard() {
             <div class="muted" style="font-size:12px">${tr === 'memorize' ? 'memorizing' : tr === 'read' ? 'reading' : ''} · ${st.done}/${st.total} ${d.group === 'catechisms' ? 'Q&As' : 'sections'} · ${st.pct}%</div>
             <div class="progressbar" style="margin-top:5px"><div style="width:${st.pct}%"></div></div>
             <div class="muted" style="font-size:11px;margin-top:4px">${getStreak('cr')} day streak · ${weekDays('cr')} of 7 this week</div>
+            ${(() => { const pi = TG.creedPaceInfo(d.id); return pi ? `<div style="font-size:12px;font-weight:600;margin-top:4px;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? pi.remaining + ' sections due now' : pi.perDay + ' sections/day to ' + shortDate(CR.docDueOf(d.id))}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>` : ''; })()}
           </div>
           <span class="chev">›</span>
         </div>`;
@@ -3477,7 +3479,7 @@ function dashboard() {
         </div>
         <div style="display:flex;gap:2px;margin-top:10px">${FT.ASSESS_DOMAINS.map(([dk2, dl]) => {
           const dom = asm.domains[dk2];
-          return ftRadial(dl, dom && dom.unlocked ? dom.level : null);
+          return ftRadial(dl, dom && dom.unlocked ? dom.level : null, dk2);
         }).join('')}</div>
         ${(() => {
           const oz = FT.waterForDay(), sl = FT.lastNightSleep(), mt = FT.macroTotals();
@@ -3501,7 +3503,15 @@ function dashboard() {
     </div>
   `));
   main().querySelector('#d-trends').onclick = () => render(trendsScreen);
-  main().querySelector('#d-fitness').onclick = () => render(fitnessHome);
+  main().querySelector('#d-fitness').onclick = () => { ftMode = 'level'; render(fitnessHome); };   // 7B.1 title→home resets to Level
+  { // 7B.2 dashboard-as-hub — Scripture card clickable targets
+    const scT = main().querySelector('#d-sc-title'); if (scT) scT.onclick = () => render(scriptureHome);
+    main().querySelectorAll('[data-corpus]').forEach(r => r.onclick = () => { const k = r.dataset.corpus; render(() => corpusBooks(k === 'all' ? null : k)); });
+    const scB = main().querySelector('#d-sc-books'); if (scB) scB.onclick = () => render(booksCompleteScreen);
+    const scP = main().querySelector('#d-sc-practice'); if (scP) scP.onclick = e => { e.stopPropagation(); render(practiceScriptureLauncher); };
+    const crP = main().querySelector('#d-cr-practice'); if (crP) crP.onclick = e => { e.stopPropagation(); render(practiceCreedsLauncher); };
+    main().querySelectorAll('#d-fitness [data-dom]').forEach(r => r.onclick = e => { e.stopPropagation(); ftDomainView = 'lib'; render(() => ftDomainScreen(r.dataset.dom)); });
+  }
   const ftq = main().querySelector('#d-ft-quick');
   if (ftq) {
     ftq.onclick = e => e.stopPropagation();
@@ -4490,6 +4500,81 @@ function scriptureHome() {
     rerender();
   });
   body.append(rst);
+}
+
+// 7B.2 — dashboard hub: a browsable list of a corpus's books (t = 'ot' | 'nt' | null for whole Bible)
+function corpusBooks(t) {
+  const title = t === 'ot' ? 'Old Testament' : t === 'nt' ? 'New Testament' : 'Whole Bible';
+  setHeader(title, { back: true });
+  const wrap = document.createElement('div');
+  const books = SC.allBooks.filter(b => t == null || b.t === t);
+  let done = 0, total = 0;
+  books.forEach(b => { const s = SC.bookStats(b); done += s.done; total += s.total; });
+  const pct = total ? done / total * 100 : 0;
+  wrap.append(h(`<div class="card"><div class="row">
+    <div class="grow"><div class="big">${pct > 0 && pct < 10 ? pct.toFixed(1) : Math.round(pct)}%</div>
+    <div class="muted">${done.toLocaleString()}/${total.toLocaleString()} verses memorized · ${books.length} books</div></div>
+  </div></div>`));
+  books.forEach(b => {
+    const st = SC.bookStats(b);
+    const stale = SC.isStale(b);
+    const el = h(`<div class="list-item" style="cursor:pointer">
+      <span class="badge ${b.t}">${b.t.toUpperCase()}</span>
+      <div class="grow"><div class="title">${esc(b.name)}${stale ? ' <span style="color:var(--danger);font-size:12px;font-weight:700">⚠</span>' : ''}</div>
+        <div class="sub">${st.done}/${st.total} verses · ${st.pct}%</div>
+        <div class="progressbar" style="margin-top:5px"><div style="width:${st.pct}%;${stale ? 'background:var(--danger);opacity:.5' : ''}"></div></div></div>
+      <span class="chev">›</span></div>`).firstElementChild;
+    el.onclick = () => render(() => bookScreen(b));
+    wrap.append(el);
+  });
+  main().append(wrap);
+}
+
+// 7B.2 — dashboard hub: books fully memorized
+function booksCompleteScreen() {
+  setHeader('Books complete', { back: true });
+  const wrap = document.createElement('div');
+  const done = SC.allBooks.filter(b => { const s = SC.bookStats(b); return s.total > 0 && s.done === s.total; });
+  if (!done.length) wrap.append(h(`<div class="muted" style="padding:8px 4px">No books fully memorized yet. Finish every verse in a book and it lands here.</div>`));
+  done.forEach(b => {
+    const st = SC.bookStats(b);
+    const el = h(`<div class="list-item" style="cursor:pointer">
+      <span class="badge ${b.t}">${b.t.toUpperCase()}</span>
+      <div class="grow"><div class="title">${esc(b.name)}</div><div class="sub">${st.total} verses · 100%</div></div>
+      <span class="chev">›</span></div>`).firstElementChild;
+    el.onclick = () => render(() => bookScreen(b));
+    wrap.append(el);
+  });
+  main().append(wrap);
+}
+
+function practiceScriptureLauncher() {
+  setHeader('Practice Scripture', { back: true });
+  const wrap = document.createElement('div');
+  const books = SC.allBooks.filter(b => SC.bookStats(b).done > 0);
+  if (!books.length) wrap.append(h(`<div class="muted" style="padding:8px 4px">Nothing to practice yet — start memorizing a book first.</div>`));
+  else wrap.append(h(`<div class="muted" style="font-size:12px;padding:0 4px 8px">Pick a book, then choose whole-book, chapters, or specific verses.</div>`));
+  books.forEach(b => {
+    const st = SC.bookStats(b);
+    const el = h(`<div class="list-item" style="cursor:pointer"><span class="badge ${b.t}">${b.t.toUpperCase()}</span>
+      <div class="grow"><div class="title">${esc(b.name)}</div><div class="sub">${st.done}/${st.total} verses · ${st.pct}%</div></div><span class="chev">›</span></div>`).firstElementChild;
+    el.onclick = () => render(() => practiceScope(b));
+    wrap.append(el);
+  });
+  main().append(wrap);
+}
+
+function practiceCreedsLauncher() {
+  setHeader('Practice Creeds', { back: true });
+  const wrap = document.createElement('div');
+  CR.docs().forEach(d => {
+    const st = CR.docStats(d.id);
+    const el = h(`<div class="list-item" style="cursor:pointer">
+      <div class="grow"><div class="title">${esc(d.name)}</div><div class="sub">${st.done}/${st.total} ${d.group === 'catechisms' ? 'Q&As' : 'sections'} · ${st.pct}%</div></div><span class="chev">›</span></div>`).firstElementChild;
+    el.onclick = () => render(() => practiceSetup(d));
+    wrap.append(el);
+  });
+  main().append(wrap);
 }
 
 const INTERVALS = [[0, 'None'], [7, 'Weekly'], [14, '2 weeks'], [30, 'Monthly'], [90, '3 months']];
@@ -7701,7 +7786,7 @@ function areas() {
     ['Scripture Reading', 'Bible reading plans · daily portions', () => render(plansScreen)],
     ['Creeds, Catechisms & Confessions', `All ${CR.docs().length} documents · read or memorize`, () => render(creedsHome)],
     ['Reading', 'Library · Up Next (5) · notes', () => render(readingHome)],
-    ['Fitness', 'Workouts · logbook · timers · weight', () => render(fitnessHome)],
+    ['Fitness', 'Workouts · logbook · timers · weight', () => { ftMode = 'level'; render(fitnessHome); }],
   ];
   const wrap = document.createElement('div');
   items.forEach(([t, sub, fn]) => {
