@@ -540,6 +540,7 @@ function defaultState() {
       targets: []          // (Phase 9.5) standing quotas: {id, domain, unit, amount, period:'day'|'week'|'month', dows:[0-6], scope:null|{...}}
     },
     pathways: [],          // {id, name, domain, milestones:[{id, name, steps:[{id, label, done, doneTs, secs}]}]}
+    modules: {},           // (D-AB) modules[bookName] = [{id, name, verses:{ci:[v,...]}, created}] — review chunks, verse-level
     settings: { migratedOldApp: false, esvKey: '', visionKey: '' }
   };
 }
@@ -729,6 +730,7 @@ function ensureShapes() {
   if (!Array.isArray(state.sermons)) state.sermons = [];
   if (!state.planner) state.planner = def.planner;
   if (!Array.isArray(state.planner.targets)) state.planner.targets = [];   // Phase 9.5 (additive)
+  if (!state.modules || typeof state.modules !== 'object' || Array.isArray(state.modules)) state.modules = {};   // D-AB Modules (additive)
   if (!state.settings) state.settings = def.settings;
 }
 
@@ -1201,6 +1203,127 @@ function abbr(name) { return ABBR[name] || name.slice(0, 3); }
 
 
 const SC = {BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookStats,bookXP,chapterStats,corpusStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,lifetimeVersesMarked,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,parseDuration,parseScopeInput,removeCurrentItem,removeReviewTime,resetBook,resetCorpus,restoreBookProgress,reviewHistory,reviewIntervalDays,reviewSecsBetween,scopeLabel,setChapter,setCurrentBook,setItemDue,setReviewInterval,toggleVerse,totalVerses,verseDone,versesLeft,versesMarked,versesMarkedToday};
+// Strive — Modules (Phase 11 foundation, D-AB). A "Module" = one named chunk of ONE book,
+// stored at the VERSE level so coverage carries even if the book is later re-sliced.
+// Single-scheme-first: a book holds a flat list of modules; multiple concurrent named
+// schemes (D-V) are a later generalization. Additive + sync-safe (whole-state blob).
+//
+// Storage: state.modules[bookName] = [{ id, name, verses:{ [ci]:[v,...] }, created }]
+//   ci = 0-based chapter index (matches scripture progress keys 'ci_v'); v = 1-based.
+// Naming avoids collisions with the flattened build (SC already exports toggleVerse/setChapter).
+
+
+function MB() {
+  if (!state.modules || typeof state.modules !== 'object' || Array.isArray(state.modules)) state.modules = {};
+  return state.modules;
+}
+function ensureModules() { MB(); }
+
+// ---- store ops ----
+function modulesFor(bookName) { const m = MB(); return Array.isArray(m[bookName]) ? m[bookName] : []; }
+function getModule(bookName, id) { return modulesFor(bookName).find(x => x.id === id) || null; }
+function moduleCount(bookName) { return modulesFor(bookName).length; }
+
+// Upsert a working module into a book's list (create if id unseen). Strips transient fields.
+function commitModule(bookName, mod) {
+  const m = MB();
+  if (!Array.isArray(m[bookName])) m[bookName] = [];
+  const clean = { id: mod.id || uid(), name: (mod.name || '').trim(), verses: normVerses(mod.verses), created: mod.created || Date.now() };
+  const i = m[bookName].findIndex(x => x.id === clean.id);
+  if (i >= 0) m[bookName][i] = clean; else m[bookName].push(clean);
+  save();
+  return clean;
+}
+function deleteModule(bookName, id) {
+  const m = MB();
+  if (!Array.isArray(m[bookName])) return;
+  m[bookName] = m[bookName].filter(x => x.id !== id);
+  if (!m[bookName].length) delete m[bookName];
+  save();
+}
+
+// ---- working-object helpers (pure; operate on a draft not yet in state) ----
+function blankModule() { return { id: uid(), name: '', verses: {}, created: Date.now() }; }
+function copyModule(mod) { return { id: mod.id, name: mod.name, verses: normVerses(mod.verses), created: mod.created }; }
+
+// book.verses is the canon array (verses-per-chapter); book passed in so this module needs no bible import.
+function moduleChapterState(mod, book, ci) {
+  const arr = (mod.verses || {})[ci] || [];
+  if (!arr.length) return 'none';
+  return arr.length >= book.verses[ci] ? 'full' : 'partial';
+}
+function setModuleChapter(mod, book, ci, on) {
+  if (!mod.verses) mod.verses = {};
+  if (on) { const all = []; for (let v = 1; v <= book.verses[ci]; v++) all.push(v); mod.verses[ci] = all; }
+  else delete mod.verses[ci];
+}
+function toggleModuleChapter(mod, book, ci) {
+  setModuleChapter(mod, book, ci, moduleChapterState(mod, book, ci) !== 'full');
+}
+function moduleHasVerse(mod, ci, v) { return ((mod.verses || {})[ci] || []).includes(v); }
+function toggleModuleVerse(mod, ci, v) {
+  if (!mod.verses) mod.verses = {};
+  const arr = mod.verses[ci] || [];
+  const i = arr.indexOf(v);
+  if (i >= 0) arr.splice(i, 1); else arr.push(v);
+  if (arr.length) mod.verses[ci] = arr.sort((a, b) => a - b); else delete mod.verses[ci];
+}
+function moduleVerseCount(mod) {
+  let n = 0; for (const ci in (mod.verses || {})) n += mod.verses[ci].length; return n;
+}
+function moduleIsEmpty(mod) { return moduleVerseCount(mod) === 0; }
+// verse keys ('ci_v') — the verse-level truth Phase 11 coverage will consume.
+function moduleVerseKeys(mod) {
+  const out = [];
+  for (const ci in (mod.verses || {})) for (const v of mod.verses[ci]) out.push(ci + '_' + v);
+  return out;
+}
+
+// ---- labels ----
+// Detailed coverage, e.g. "Ch 1–4", "Ch 1, 3", "Ch 2 (vv 3–9)", "Ch 1–3 · Ch 5 (vv 1–4)".
+function moduleCoverage(mod, book) {
+  const cis = Object.keys(mod.verses || {}).map(Number).filter(ci => mod.verses[ci] && mod.verses[ci].length).sort((a, b) => a - b);
+  if (!cis.length) return 'Empty';
+  const full = cis.filter(ci => (mod.verses[ci].length >= book.verses[ci]));
+  const partial = cis.filter(ci => !(mod.verses[ci].length >= book.verses[ci]));
+  const parts = [];
+  if (full.length) parts.push('Ch ' + joinRanges(full.map(ci => ci + 1)));
+  partial.forEach(ci => parts.push('Ch ' + (ci + 1) + ' (vv ' + joinRanges(mod.verses[ci]) + ')'));
+  return parts.join(' · ');
+}
+// Short auto-name from whole chapters, e.g. "Hebrews 1–4"; a '+' marks partial-chapter content.
+function moduleAutoName(mod, book) {
+  const cis = Object.keys(mod.verses || {}).map(Number).filter(ci => mod.verses[ci] && mod.verses[ci].length).sort((a, b) => a - b);
+  if (!cis.length) return book.name;
+  const full = cis.filter(ci => (mod.verses[ci].length >= book.verses[ci]));
+  const hasPartial = cis.length > full.length;
+  if (full.length) return book.name + ' ' + joinRanges(full.map(ci => ci + 1)) + (hasPartial ? ' +' : '');
+  return book.name + ' ' + joinRanges(cis.map(ci => ci + 1)) + ' (partial)';
+}
+
+// ---- private ----
+function normVerses(v) {
+  const out = {};
+  for (const ci in (v || {})) {
+    const arr = [...new Set((v[ci] || []).filter(x => Number.isInteger(x) && x >= 1))].sort((a, b) => a - b);
+    if (arr.length) out[ci] = arr;
+  }
+  return out;
+}
+// contiguous integer runs → "1–4, 6, 8–9"
+function joinRanges(nums) {
+  const s = [...new Set(nums)].sort((a, b) => a - b);
+  const runs = [];
+  let start = s[0], prev = s[0];
+  for (let i = 1; i < s.length; i++) {
+    if (s[i] === prev + 1) { prev = s[i]; continue; }
+    runs.push([start, prev]); start = prev = s[i];
+  }
+  runs.push([start, prev]);
+  return runs.map(([a, b]) => a === b ? String(a) : a + '–' + b).join(', ');
+}
+
+const MOD = {blankModule,commitModule,copyModule,deleteModule,ensureModules,getModule,moduleAutoName,moduleChapterState,moduleCount,moduleCoverage,moduleHasVerse,moduleIsEmpty,moduleVerseCount,moduleVerseKeys,modulesFor,setModuleChapter,toggleModuleChapter,toggleModuleVerse};
 // Strive — planner: day/week/month/year items, recurring rules
 
 
@@ -5124,12 +5247,15 @@ function bookScreen(b) {
   wrap.append(grid);
 
   // secondary pill row → focused sheets
+  const modCount = MOD.moduleCount(b.name);
   const pills = h(`<div class="pillrow" style="margin-top:16px">
     <button class="pill" data-s="project">${isCurrent ? '✓ Project' : 'Project'}</button>
+    <button class="pill" data-s="modules">Modules${modCount ? ' · ' + modCount : ''}</button>
     <button class="pill" data-s="interval">Interval${days ? ' · ' + days + 'd' : ''}</button>
     <button class="pill" data-s="memorized">Memorized</button>
   </div>`);
   pills.querySelector('[data-s=project]').onclick = () => memProjectSheet(b);
+  pills.querySelector('[data-s=modules]').onclick = () => render(() => modulesScreen(b));
   pills.querySelector('[data-s=interval]').onclick = () => memIntervalSheet(b);
   pills.querySelector('[data-s=memorized]').onclick = () => memMemorizedSheet(b);
   wrap.append(pills);
@@ -5227,6 +5353,136 @@ function memMemorizedSheet(b) {
     };
     body.append(reset);
   });
+}
+
+// ---- Modules (D-AB, Phase 11 foundation) — named verse-level chunks of one book ----
+// A book screen "Modules" pill opens this list; modules are the units you review.
+// Draft lives in modDraft while editing (create = blank, edit = a copy), committed on Save.
+let modDraft = null;   // { book, mod, isNew, nameTouched }
+
+function modulesScreen(b) {
+  setHeader(b.name + ' — Modules', { back: true });
+  const wrap = document.createElement('div');
+  wrap.append(h(`<div class="muted" style="font-size:12px;margin:2px 4px 12px">Split ${esc(b.name)} into named chunks to practice or review one at a time. Tap a module to edit it.</div>`));
+
+  const list = MOD.modulesFor(b.name);
+  if (!list.length) {
+    wrap.append(h(`<div class="card"><div class="muted">No modules yet. Create one to review part of ${esc(b.name)} on its own.</div></div>`));
+  } else {
+    list.forEach(mod => {
+      const row = h(`<div class="list-item" style="cursor:pointer">
+        <div class="grow">
+          <div class="title">${esc(mod.name || MOD.moduleAutoName(mod, b))}</div>
+          <div class="sub">${esc(MOD.moduleCoverage(mod, b))} · ${MOD.moduleVerseCount(mod)} verses</div>
+        </div>
+        <button class="del" style="border:none;background:none;color:var(--danger);font-size:17px;cursor:pointer">✕</button>
+      </div>`).firstElementChild;
+      row.onclick = e => {
+        if (e.target.classList.contains('del')) return;
+        modDraft = { book: b.name, mod: MOD.copyModule(mod), isNew: false, nameTouched: true };
+        render(() => moduleEditScreen(b));
+      };
+      row.querySelector('.del').onclick = () => {
+        if (!confirm('Delete module "' + (mod.name || MOD.moduleAutoName(mod, b)) + '"? This does not affect your memorization progress.')) return;
+        MOD.deleteModule(b.name, mod.id);
+        toast('Module deleted');
+        rerender();
+      };
+      wrap.append(row);
+    });
+  }
+
+  const add = h(`<button class="btn" style="margin-top:14px">＋ New module</button>`);
+  add.firstChild.onclick = () => {
+    modDraft = { book: b.name, mod: MOD.blankModule(), isNew: true, nameTouched: false };
+    render(() => moduleEditScreen(b));
+  };
+  wrap.append(add);
+  main().append(wrap);
+}
+
+function moduleEditScreen(b) {
+  if (!modDraft || modDraft.book !== b.name) { render(() => modulesScreen(b), false); return; }
+  const mod = modDraft.mod;
+  if (!modDraft.nameTouched) mod.name = MOD.moduleAutoName(mod, b);   // keep name synced to selection until edited
+  setHeader(modDraft.isNew ? 'New module' : 'Edit module', { back: true });
+  const wrap = document.createElement('div');
+
+  // name
+  const nameRow = h(`<div style="margin-bottom:12px">
+    <div class="muted" style="font-size:12px;margin:0 2px 5px">Name</div>
+    <input class="mod-name" value="${esc(mod.name)}" placeholder="e.g. ${esc(b.name)} 1–4" style="width:100%;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:15px;box-sizing:border-box">
+  </div>`).firstElementChild;
+  const nameInp = nameRow.querySelector('.mod-name');
+  nameInp.oninput = () => { modDraft.nameTouched = true; mod.name = nameInp.value; };
+  wrap.append(nameRow);
+
+  // chapters — tap toggles the whole chapter in/out
+  wrap.append(sectionTitle('Chapters — tap to add whole'));
+  const grid = document.createElement('div');
+  grid.className = 'grid';
+  b.verses.forEach((_, ci) => {
+    const stt = MOD.moduleChapterState(mod, b, ci);
+    const cell = document.createElement('div');
+    cell.className = 'cell' + (stt === 'full' ? ' done' : stt === 'partial' ? ' partial' : '');
+    cell.textContent = ci + 1;
+    cell.onclick = () => { MOD.toggleModuleChapter(mod, b, ci); render(() => moduleEditScreen(b), false); };
+    grid.append(cell);
+  });
+  wrap.append(grid);
+
+  // partial-chapter drill-down (verse-level truth)
+  const partRow = h(`<div class="row" style="margin-top:12px;align-items:center">
+    <span class="muted" style="font-size:12px">Only part of a chapter?</span>
+    <select class="mod-vch" style="margin-left:auto;padding:9px;border-radius:3px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:14px">
+      <option value="">Pick verses in…</option>
+      ${b.verses.map((_, ci) => `<option value="${ci}">Chapter ${ci + 1}</option>`).join('')}
+    </select>
+  </div>`).firstElementChild;
+  const sel = partRow.querySelector('.mod-vch');
+  sel.onchange = () => { const ci = Number(sel.value); if (sel.value !== '') render(() => moduleVerseScreen(b, ci)); };
+  wrap.append(partRow);
+
+  // live coverage readout
+  wrap.append(h(`<div class="muted" style="font-size:12px;margin:14px 4px 0">${MOD.moduleIsEmpty(mod) ? 'Nothing selected yet.' : esc(MOD.moduleCoverage(mod, b)) + ' · ' + MOD.moduleVerseCount(mod) + ' verses'}</div>`));
+
+  const save = h(`<button class="btn" style="margin-top:14px">Save module</button>`);
+  save.firstChild.onclick = () => {
+    if (MOD.moduleIsEmpty(mod)) { toast('Add at least one chapter or verse'); return; }
+    if (!modDraft.nameTouched || !mod.name.trim()) mod.name = MOD.moduleAutoName(mod, b);
+    MOD.commitModule(b.name, mod);
+    modDraft = null;
+    toast('Module saved');
+    render(() => modulesScreen(b), false);
+  };
+  wrap.append(save);
+  main().append(wrap);
+}
+
+// verse picker for one chapter of the module being edited; back returns to the editor
+function moduleVerseScreen(b, ci) {
+  if (!modDraft || modDraft.book !== b.name) { render(() => modulesScreen(b), false); return; }
+  const mod = modDraft.mod;
+  setHeader(b.name + ' ' + (ci + 1) + ' — pick verses', { back: true });
+  const wrap = document.createElement('div');
+  const full = MOD.moduleChapterState(mod, b, ci) === 'full';
+  const toggleAll = h(`<button class="btn ${full ? 'secondary' : ''}" style="margin-bottom:12px">${full ? 'Remove whole chapter' : 'Add whole chapter'}</button>`);
+  toggleAll.firstChild.onclick = () => { MOD.setModuleChapter(mod, b, ci, !full); render(() => moduleVerseScreen(b, ci), false); };
+  wrap.append(toggleAll);
+
+  const grid = document.createElement('div');
+  grid.className = 'grid';
+  for (let v = 1; v <= b.verses[ci]; v++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell' + (MOD.moduleHasVerse(mod, ci, v) ? ' done' : '');
+    cell.textContent = v;
+    cell.onclick = () => { MOD.toggleModuleVerse(mod, ci, v); cell.classList.toggle('done'); };
+    grid.append(cell);
+  }
+  wrap.append(grid);
+  wrap.append(h(`<button class="btn" style="margin-top:14px" data-a="done">Done</button>`));
+  wrap.querySelector('[data-a=done]').onclick = () => goBack();
+  main().append(wrap);
 }
 
 // SM5 — practice scope: whole book (≤28 chapters) / selected chapters / selected verses
