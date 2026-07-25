@@ -1613,7 +1613,7 @@ function itemsForDate(dk) {
   out.push(...planItemsForDate(dk));   // Bible reading plan portions (projected on future days)
   // pathway steps scheduled for this exact day (Phase 9.3)
   PW.scheduledSteps().forEach(({ p, s }) => {
-    if (s.date === dk) out.push({ kind: 'pstep', id: s.id, pid: p.id, label: s.label, domain: p.name, done: !!s.done, timed: PW.isTimed(p) });
+    if (s.date === dk) out.push({ kind: 'pstep', id: s.id, pid: p.id, label: s.label, domain: p.name, done: !!s.done, timed: PW.isTimed(p), ref: s.ref || null });
   });
   // due-date pace nudges (Phase 9.4) — readonly, so dayStats ignores them
   out.push(...TG.paceNudges(dk));
@@ -4363,20 +4363,38 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
     wrap.append(sectionTitle('Reviews due'));
     revRows.forEach(r => {
       const el = h(`
-        <div class="list-item" style="cursor:pointer${r.late ? ';border-color:var(--danger)' : ''}">
+        <div class="list-item" style="${r.scheduled ? '' : 'cursor:pointer'}${r.late ? ';border-color:var(--danger)' : ''}">
           <div class="check" style="color:var(--accent);border-color:var(--accent)">◎</div>
           <div class="grow">
             <div class="title">${esc(r.title)}</div>
             <div class="sub">${r.scheduled ? '◎ review due' : (r.late ? '⚠ overdue · ' : '') + r.st.covered + '/' + r.st.total + ' reviewed this cycle · ' + RV.cadenceLabel(r.a.cadence)}</div>
           </div>
         </div>`);
-      el.querySelector('.list-item').onclick = () => launchReviewAssignment(r);
+      // due (not a future scheduled marker) → tap opens the review-mode sheet scoped to this unit
+      if (!r.scheduled) el.querySelector('.list-item').onclick = () => scopeModeSheet(r, 'review');
       wrap.append(el);
     });
   }
 
   if (items.length) wrap.append(sectionTitle('Planned'));
   items.forEach(entry => {
+    // a scheduled assignment-step (scope + intent) → offer the ▸ launch (Practice/Review modes, or memorize)
+    if (entry.kind === 'pstep' && entry.ref && !entry.done) {
+      const p = PW.all().find(x => x.id === entry.pid);
+      const s = p && pathwayStepById(p, entry.id);
+      const el = h(`
+        <div class="list-item" style="cursor:default">
+          <div class="check">✓</div>
+          <div class="grow">
+            <div class="title">${esc(entry.label)}</div>
+            <div class="sub">${esc(entry.domain)} · ${esc(intentVerb(entry.ref.intent).toLowerCase())}</div>
+          </div>
+        </div>`);
+      const pill = s ? refLaunchPill(s) : null;
+      if (pill) el.querySelector('.list-item').append(pill);
+      wrap.append(el);
+      return;
+    }
     // a scheduled step on a timed (Scripture Review) pathway → offer the ⏱ inline, like the next-steps list
     if (entry.kind === 'pstep' && entry.timed && !entry.done) {
       const p = PW.all().find(x => x.id === entry.pid);
@@ -4452,11 +4470,13 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
                 <div class="title">${esc(s.label)}</div>
                 <div class="sub">${esc(p.name)} · was due ${shortDate(s.date)}</div>
               </div>
-              ${PW.isTimed(p) ? '<button class="pill" data-a="t" style="padding:7px 11px;font-size:15px">⏱</button>' : ''}
+              ${!s.ref && PW.isTimed(p) ? '<button class="pill" data-a="t" style="padding:7px 11px;font-size:15px">⏱</button>' : ''}
             </div>`);
           el.querySelector('.check').onclick = () => { PW.completeStep(p, s.id); rerender(); };
           const tb = el.querySelector('[data-a=t]');
           if (tb) tb.onclick = () => render(() => stepTimer(p, s.id));
+          const rp = refLaunchPill(s);   // scoped step → ▸ launch (its modes include the timer)
+          if (rp) el.querySelector('.list-item').append(rp);
           wrap.append(el);
         });
       }
@@ -4475,11 +4495,13 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
               <div class="title">${esc(s.label)}</div>
               <div class="sub">${esc(p.name)} · step ${st.doneSteps + 1} of ${st.totalSteps}</div>
             </div>
-            ${PW.isTimed(p) ? '<button class="pill" style="padding:7px 11px;font-size:15px">⏱</button>' : ''}
+            ${!s.ref && PW.isTimed(p) ? '<button class="pill" data-a="t" style="padding:7px 11px;font-size:15px">⏱</button>' : ''}
           </div>`);
         el.querySelector('.check').onclick = () => { completePathwayStep(p); rerender(); };
-        const tbtn = el.querySelector('.pill');
+        const tbtn = el.querySelector('[data-a=t]');
         if (tbtn) tbtn.onclick = () => render(() => stepTimer(p));
+        const rp = refLaunchPill(s);   // scoped step → ▸ launch (Practice/Review modes, or memorize)
+        if (rp) el.querySelector('.list-item').append(rp);
         wrap.append(el);
       });
     }
@@ -5029,7 +5051,7 @@ function buildPathwayBody(wrap, p) {
       const go = stone.querySelector('[data-a=go]');
       if (go) go.onclick = () => { completePathwayStep(p); drawPathway(p); };
       const refgo = stone.querySelector('[data-a=refgo]');
-      if (refgo) refgo.onclick = () => refStepLaunch(s);
+      if (refgo) refgo.onclick = () => launchRefStep(s);   // review/practice → scoped mode sheet; memorize → open the scope
       const time = stone.querySelector('[data-a=time]');
       const timebox = stone.querySelector('[data-slot=timebox]');
       if (time) time.onclick = () => openTimeBox(p, timebox);
@@ -5052,7 +5074,12 @@ function buildPathwayBody(wrap, p) {
 
   if (!PW.flatSteps(p).length) wrap.append(h(`<div class="empty">Add the steps in order — first step first.</div>`));
 
-  wrap.append(addRow('Add step to “' + p.milestones[p.milestones.length - 1].name + '”', v => { PW.addStep(p, v); drawPathway(p); }));
+  const lastMid = p.milestones[p.milestones.length - 1].id;
+  wrap.append(addRow('Add step to “' + p.milestones[p.milestones.length - 1].name + '”', v => { PW.addStep(p, v, lastMid); drawPathway(p); }));
+  // attach Scripture right when adding — no need to enter Edit first
+  const sciBtn = h(`<button class="pill" style="display:block;width:100%;margin-top:8px;padding:10px">＋ Scripture step — practice / review a passage</button>`).firstChild;
+  sciBtn.onclick = () => scopeAssignPicker(({ key, intent, label }) => { PW.addStep(p, label, lastMid, { key, intent }); toast('Added ' + label); drawPathway(p); });
+  wrap.append(sciBtn);
   const msBtn = h(`<button class="btn secondary" style="margin-top:10px">Start a new milestone</button>`);
   msBtn.firstChild.onclick = () => { PW.addMilestone(p); drawPathway(p); };
   wrap.append(msBtn);
@@ -5084,12 +5111,17 @@ function buildPathwayEdit(wrap, p) {
           <div class="pw-handle pw-shandle" title="Drag to reorder">≡</div>
           <div class="pw-sdot ${s.done ? 'done' : ''}">${s.done ? '✓' : ''}</div>
           <input class="grow pw-rename" value="${esc(s.label)}" placeholder="Step">
+          <button class="pw-wbtn" data-a="link" title="${s.ref ? 'Linked · ' + intentVerb(s.ref.intent) + ' — tap to unlink' : 'Link to a Scripture passage'}"${s.ref ? ' style="color:var(--gold)"' : ''}>🔗</button>
           <button class="pw-wbtn" data-a="wminus">−</button>
           <span class="pw-wt">×${PW.stepWeight(s)}</span>
           <button class="pw-wbtn" data-a="wplus">+</button>
           <button class="pw-del" data-a="del" title="Delete step">✕</button>
         </div>`).firstElementChild;
       row.querySelector('.pw-rename').onchange = e => PW.renameStep(p, s.id, e.target.value);
+      row.querySelector('[data-a=link]').onclick = () => {
+        if (s.ref) { if (!confirm('Unlink this step from Scripture? It becomes a plain step again.')) return; delete s.ref; s.done = false; s.doneTs = null; save(); drawPathway(p); }
+        else scopeAssignPicker(({ key, intent }) => { s.ref = { key, intent }; save(); drawPathway(p); });
+      };
       row.querySelector('[data-a=wminus]').onclick = () => { PW.setStepWeight(p, s.id, PW.stepWeight(s) - 1); drawPathway(p); };
       row.querySelector('[data-a=wplus]').onclick = () => { PW.setStepWeight(p, s.id, PW.stepWeight(s) + 1); drawPathway(p); };
       row.querySelector('[data-a=del]').onclick = () => { PW.removeStep(p, s.id); drawPathway(p); };
@@ -5109,6 +5141,7 @@ function buildPathwayEdit(wrap, p) {
         <input class="grow" id="pw-newstep" placeholder="Step name" style="padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;min-width:0">
         <button class="pill on" id="pw-addstep" style="padding:10px 16px">Add</button>
       </div>
+      <button class="pill" id="pw-addscripture" style="display:block;width:100%;margin-top:8px;padding:10px">＋ Scripture step — practice / review a passage</button>
     </div>`).firstElementChild;
   const pills = addCard.querySelector('#pw-target');
   const renderPills = () => {
@@ -5124,6 +5157,8 @@ function buildPathwayEdit(wrap, p) {
   const doAdd = () => { const v = inp.value.trim(); if (!v) return; PW.addStep(p, v, targetMid); drawPathway(p); };
   addCard.querySelector('#pw-addstep').onclick = doAdd;
   inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); doAdd(); } };
+  // D-AG: build an assignment step (scope + intent) — auto-completes from the engine, launchable from Today/pathway
+  addCard.querySelector('#pw-addscripture').onclick = () => scopeAssignPicker(({ key, intent, label }) => { PW.addStep(p, label, targetMid, { key, intent }); toast('Added ' + label); drawPathway(p); });
   wrap.append(addCard);
 
   const msBtn = h(`<button class="btn secondary" style="margin-top:10px">Start a new milestone</button>`).firstElementChild;
@@ -5885,14 +5920,175 @@ function reviewRowsForDate(dk, today = todayKey()) {
   });
   return rows;
 }
-// launch a due review: a module reviews its uncovered-this-cycle verses directly; a whole book opens
-// its screen (the whole-book deck can be large — resume from there).
-async function launchReviewAssignment(r) {
-  if (r.kind === 'module') {
-    const doc = await moduleFetchDoc(r.book, r.mod, () => {});
-    if (!doc) { toast('Could not load verses'); return; }
-    binaryStart(doc, 'review', binaryOpts, r.a.cycleStart);
-  } else render(() => bookScreen(r.book));
+
+// ---- Phase 11.4 / D-AG — scoped practice+review launcher (Today + pathway steps) ----
+// Fetch a doc containing exactly the given coverage keys (only fetches the chapters they touch), then
+// trim to that key set. Works for any scope (module/book/chapter/verse); keys carry the scope.
+async function fetchScopeDoc(b, keys) {
+  const cis = [...new Set(keys.map(k => Number(k.split(':')[2].split('#')[0]) - 1))].sort((x, y) => x - y);
+  const parts = [];
+  for (const ci of cis) { const e = await esvFetchChapter(b.name, ci + 1); parts.push({ ci, verses: e.verses }); }
+  if (!parts.length) return null;
+  const doc = bibleMultiDoc(b, parts);
+  const keep = new Set(keys);
+  doc.sections = doc.sections.filter(sec => keep.has(RV.coverageKey(prDocId(doc, sec), prN(sec))));
+  return doc.sections.length ? doc : null;
+}
+// Launch a mode scoped to a unit, for practice OR review. Review is cycle/whole-scoped and marks coverage
+// (rank-5 / Got-it / typing ≥90% / logged timer). Practice runs the whole scope and marks nothing (rank-5 /
+// typing ≥90% still mark memorized per D-AF). t = { kind, book, mod?, a?, keys, title }.
+async function launchScopeMode(t, mode, scope, intent, btn) {
+  if (mode === 'timer') { render(() => reviewTimer(t.book, (t.kind === 'module' && t.mod) ? MOD.moduleReviewScope(t.mod) : null, t.title)); return; }
+  const cycleStart = (t.a && t.a.cycleStart) || 0;
+  let keys = (intent === 'review' && scope === 'cycle') ? t.keys.filter(k => !RV.isCovered(k, cycleStart)) : t.keys.slice();
+  if (!keys.length) keys = t.keys.slice();   // all covered this cycle → a fresh pass over the whole unit
+  if (!keys.length) { toast('No verses in this scope yet'); return; }
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '…'; btn.disabled = true; }
+  let doc;
+  try { doc = await fetchScopeDoc(t.book, keys); }
+  catch (e) { if (btn) { btn.textContent = orig; btn.disabled = false; } esvErrToast(e); return; }
+  if (!doc) { if (btn) { btn.textContent = orig; btn.disabled = false; } toast('Could not load verses'); return; }
+  const queue = doc.sections.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn, ci: x.ci }));
+  if (mode === 'flash') { const ordered = queue.slice().sort((a, b) => a.n - b.n); render(() => orderedFlashCard(doc, ordered, 0, {}, intent)); }
+  else if (mode === 'typer') render(() => typerScreen(doc, queue, 0, [], intent));
+  else if (mode === 'fade') render(() => fadeScreen(doc, queue, 0, 0, []));
+  else {   // binary Got-it/Missed — a coverage-marking pass in review, plain rehearsal in practice
+    let deck = doc.sections.map(sec => ({ n: sec.n, q: sec.label, a: sec.text, docId: sec.docId, vn: sec.vn, ci: sec.ci, key: RV.coverageKey(prDocId(doc, sec), prN(sec)) }));
+    if (binaryOpts.order === 'shuffled') deck = RV.shuffled(deck);
+    render(() => binaryFlashScreen(doc, deck, { order: binaryOpts.order, miss: binaryOpts.miss, intent }));
+  }
+}
+// The mode sheet's body: review → scope toggle (This cycle / Whole) + Cards 1–5 · Cards ✓ · Typing · Timer;
+// practice → the whole scope + Cards 1–5 · Cards ✓ · Typing · Fade. No scramble pill (11.4).
+function scopeModeControls(t, intent) {
+  let scope = 'cycle';
+  const wholeLbl = t.kind === 'module' ? 'module' : t.kind === 'chapter' ? 'chapter' : t.kind === 'verse' ? 'verse' : 'book';
+  const modes = intent === 'review'
+    ? [['flash', 'Cards 1–5'], ['binary', 'Cards ✓'], ['typer', 'Typing'], ['timer', 'Timer']]
+    : [['flash', 'Cards 1–5'], ['binary', 'Cards ✓'], ['typer', 'Typing'], ['fade', 'Fade']];
+  const wrap = document.createElement('div');
+  if (intent === 'review') {
+    const sc = h(`<div class="pillrow" style="margin-bottom:6px">
+      <button class="pill on" data-s="cycle" style="padding:4px 10px;font-size:12px">This cycle</button>
+      <button class="pill" data-s="whole" style="padding:4px 10px;font-size:12px">Whole ${wholeLbl}</button></div>`).firstElementChild;
+    sc.querySelectorAll('[data-s]').forEach(b => b.onclick = () => { scope = b.dataset.s; sc.querySelectorAll('[data-s]').forEach(x => x.classList.toggle('on', x === b)); });
+    wrap.append(sc);
+  }
+  const mr = h(`<div class="pillrow">${modes.map(([m, l]) => `<button class="pill" data-m="${m}" style="padding:5px 10px;font-size:12px">${l}</button>`).join('')}</div>`).firstElementChild;
+  mr.querySelectorAll('[data-m]').forEach(b => b.onclick = () => launchScopeMode(t, b.dataset.m, scope, intent, b));
+  wrap.append(mr);
+  return wrap;
+}
+function scopeModeSheet(t, intent) {
+  openSheet((intent === 'review' ? 'Review' : 'Practice') + ' · ' + t.title, (body) => {
+    body.append(h(`<div class="muted" style="font-size:12px;margin:0 2px 8px">${intent === 'review' ? 'Pick a mode — it counts as review coverage.' : 'Pick a mode to rehearse this passage.'}</div>`));
+    body.append(scopeModeControls(t, intent));
+  });
+}
+// Normalize a pathway ref-step into a scope target. Review draws the scope's MEMORIZED verses (you review
+// what you know); practice draws ALL verses in the scope (you rehearse toward memorizing).
+function stepScopeTarget(s) {
+  const sc = parseScopeKey(s.ref.key), intent = s.ref.intent;
+  const keys = scopeVerses(sc, intent === 'review').map(([bn, ci, v]) => 'bible:' + bn + ':' + (ci + 1) + '#' + v);
+  const a = scopeReviewAssign(sc, s.ref.key) || { cycleStart: 0 };
+  let book, mod = null;
+  if (sc.kind === 'module') { const r = scopeModule(sc); if (!r) return null; book = allBooks.find(x => x.name === r[0]); mod = r[1]; }
+  else book = allBooks.find(x => x.name === sc.book);
+  if (!book) return null;
+  return { kind: sc.kind, book, mod, a, keys, title: s.label, intent };
+}
+// A ref-step's launch action: review/practice → the scoped mode sheet; memorize → open the scope to memorize.
+function launchRefStep(s) {
+  if (s.ref.intent === 'memorize') return refStepLaunch(s);
+  const t = stepScopeTarget(s);
+  if (!t) { toast('Could not resolve this step’s scope'); return; }
+  if (t.intent === 'review' && !t.keys.length) { toast('Nothing memorized in this scope to review yet'); return; }
+  scopeModeSheet(t, t.intent);
+}
+// A small ▸ launch pill for a ref-step (used across Today's pathway surfaces). Null if the step has no scope.
+function refLaunchPill(s) {
+  if (!s || !s.ref) return null;
+  const b = h(`<button class="pill" style="padding:5px 11px;font-size:12px">▸ ${intentVerb(s.ref.intent)}</button>`).firstChild;
+  b.onclick = e => { e.stopPropagation(); launchRefStep(s); };
+  return b;
+}
+// find a step object by id across a pathway's milestones
+function pathwayStepById(p, sid) { for (const m of p.milestones) { const s = m.steps.find(x => x.id === sid); if (s) return s; } return null; }
+
+// D-AG creation wizard: pick a Scripture scope (book → whole/chapter/verse/module) + intent →
+// onDone({ key, intent, label }). Used by the pathway editor to build/associate assignment steps.
+function scopeAssignPicker(onDone) {
+  const st = { stage: 'book', book: null, ci: null, key: null, label: null };
+  // several chapters/verses → a saved module unit (ranges live as modules per D-V); returns {key,label}
+  const makeModuleUnit = (book, fill) => { const m = MOD.blankModule(); fill(m); m.name = MOD.moduleAutoName(m, book); MOD.commitModule(book.name, m); return { key: 'mod:' + m.id, label: m.name }; };
+  openSheet('Scripture step', (body, close) => {
+    const draw = () => {
+      body.innerHTML = '';
+      const backBtn = to => { const b = h(`<button class="pill" style="margin-bottom:10px;padding:4px 10px;font-size:12px">‹ Back</button>`).firstChild; b.onclick = () => { st.stage = to; draw(); }; body.append(b); };
+      const opt = (label, fn) => { const b = h(`<button class="pill" style="display:block;width:100%;text-align:left;margin-bottom:6px">${label}</button>`).firstChild; b.onclick = fn; body.append(b); };
+      const toIntent = (key, label) => { st.key = key; st.label = label; st.stage = 'intent'; draw(); };
+      const hint = t => body.append(h(`<div class="muted" style="font-size:12px;margin:0 2px 8px">${t}</div>`));
+      if (st.stage === 'book') {
+        hint('Pick a book');
+        const memo = allBooks.filter(b => SC.bookStats(b).done > 0), rest = allBooks.filter(b => SC.bookStats(b).done === 0);
+        [...memo, ...rest].forEach(b => opt(esc(b.name), () => { st.book = b; st.stage = 'scope'; draw(); }));
+        return;
+      }
+      if (st.stage === 'scope') {
+        backBtn('book'); hint(esc(st.book.name) + ' — pick a scope');
+        opt('Whole book', () => toIntent('bible:' + st.book.name, st.book.name));
+        opt('Chapter(s)', () => { st.chaps = new Set(); st.stage = 'chapter'; draw(); });
+        opt('Verse(s)', () => { st.stage = 'vchapter'; draw(); });
+        if (MOD.modulesFor(st.book.name).length) opt('An existing module', () => { st.stage = 'module'; draw(); });
+        return;
+      }
+      if (st.stage === 'chapter') {
+        backBtn('scope'); hint('Tap chapters — one makes a chapter step, several make a unit');
+        const sel = st.chaps;
+        const done = h(`<button class="btn" style="margin-top:12px" disabled>Use 0 chapters</button>`).firstChild;
+        const refresh = () => { done.textContent = 'Use ' + sel.size + ' chapter' + (sel.size === 1 ? '' : 's'); done.disabled = !sel.size; };
+        const grid = h(`<div class="grid"></div>`).firstElementChild;
+        st.book.verses.forEach((_, ci) => { const c = h(`<div class="cell ${sel.has(ci) ? 'done' : ''}">${ci + 1}</div>`).firstElementChild; c.onclick = () => { sel.has(ci) ? sel.delete(ci) : sel.add(ci); c.classList.toggle('done'); refresh(); }; grid.append(c); });
+        body.append(grid, done); refresh();
+        done.onclick = () => { const cis = [...sel].sort((a, b) => a - b); if (!cis.length) return;
+          if (cis.length === 1) return toIntent('bible:' + st.book.name + ':' + (cis[0] + 1), st.book.name + ' ' + (cis[0] + 1));
+          const u = makeModuleUnit(st.book, m => cis.forEach(ci => MOD.setModuleChapter(m, st.book, ci, true))); toIntent(u.key, u.label); };
+        return;
+      }
+      if (st.stage === 'vchapter') {
+        backBtn('scope'); hint('Pick the chapter');
+        const grid = h(`<div class="grid"></div>`).firstElementChild;
+        st.book.verses.forEach((_, ci) => { const c = h(`<div class="cell">${ci + 1}</div>`).firstElementChild; c.onclick = () => { st.ci = ci; st.vs = new Set(); st.stage = 'verse'; draw(); }; grid.append(c); });
+        body.append(grid);
+        return;
+      }
+      if (st.stage === 'verse') {
+        backBtn('vchapter'); hint(esc(st.book.name) + ' ' + (st.ci + 1) + ' — tap verses; one makes a verse step, several make a unit');
+        const sel = st.vs;
+        const done = h(`<button class="btn" style="margin-top:12px" disabled>Use 0 verses</button>`).firstChild;
+        const refresh = () => { done.textContent = 'Use ' + sel.size + ' verse' + (sel.size === 1 ? '' : 's'); done.disabled = !sel.size; };
+        const grid = h(`<div class="grid"></div>`).firstElementChild;
+        for (let v = 1; v <= st.book.verses[st.ci]; v++) { const vv = v; const c = h(`<div class="cell ${sel.has(vv) ? 'done' : ''}">${vv}</div>`).firstElementChild; c.onclick = () => { sel.has(vv) ? sel.delete(vv) : sel.add(vv); c.classList.toggle('done'); refresh(); }; grid.append(c); }
+        body.append(grid, done); refresh();
+        done.onclick = () => { const vs = [...sel].sort((a, b) => a - b); if (!vs.length) return;
+          if (vs.length === 1) return toIntent('bible:' + st.book.name + ':' + (st.ci + 1) + '#' + vs[0], st.book.name + ' ' + (st.ci + 1) + ':' + vs[0]);
+          const u = makeModuleUnit(st.book, m => vs.forEach(v => MOD.toggleModuleVerse(m, st.ci, v))); toIntent(u.key, u.label); };
+        return;
+      }
+      if (st.stage === 'module') {
+        backBtn('scope'); hint('Pick a module');
+        MOD.modulesFor(st.book.name).forEach(mod => { const nm = mod.name || MOD.moduleAutoName(mod, st.book); opt(esc(nm), () => toIntent('mod:' + mod.id, nm)); });
+        return;
+      }
+      if (st.stage === 'intent') {
+        backBtn('scope'); hint('“' + esc(st.label) + '” — what for?');
+        [['review', 'Review — recurring, counts as coverage'], ['practice', 'Practice — rehearse, marks nothing'], ['memorize', 'Memorize — a finish-by target']].forEach(([i, d]) => opt(esc(d), () => { close(); onDone({ key: st.key, intent: i, label: st.label }); }));
+        return;
+      }
+    };
+    draw();
+  });
 }
 
 // Memorized sheet — SM3 mark whole book memorized (undoable) + reset
