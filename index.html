@@ -1376,6 +1376,7 @@ function RVS() {
   if (!state.review || typeof state.review !== 'object') state.review = {};
   if (!state.review.covered || typeof state.review.covered !== 'object') state.review.covered = {};
   if (!state.review.books || typeof state.review.books !== 'object') state.review.books = {};   // whole-book cadence assignments
+  if (!state.review.assign || typeof state.review.assign !== 'object') state.review.assign = {}; // per-scope review/practice/memBy (D-AF)
   return state.review;
 }
 function ensureReview() { RVS(); }
@@ -1520,6 +1521,42 @@ function moduleKeys(bookName, mod) {
   return out;
 }
 
+// ==== Per-scope assignments (D-AF) — review + practice cadences + a memorize-by date, at ANY scope ====
+// A verse/chapter/whole-book scope stores its assignments here keyed by a STABLE scope key (modules
+// keep theirs on the module object — mod.review, + new mod.practice/mod.memBy). Additive: the existing
+// whole-book review (state.review.books) and module review (mod.review) keep working untouched; the
+// resolver below reads every source so nothing had to migrate. The scope key IS the reference a
+// pathway step uses (single source of truth — doing the work updates coverage/mastery, the step reads it).
+function ASG() { return RVS().assign; }
+function bookScopeKey(name) { return 'bible:' + name; }
+function chapterScopeKey(name, ci) { return 'bible:' + name + ':' + (ci + 1); }   // 1-based, matches coverage/docId
+function verseScopeKey(name, ci, v) { return 'bible:' + name + ':' + (ci + 1) + '#' + v; }
+
+function getUnit(key) { return ASG()[key] || null; }
+function ensureUnit(key) { const a = ASG(); if (!a[key]) a[key] = {}; return a[key]; }
+function pruneUnit(key) { const u = ASG()[key]; if (u && !u.review && !u.practice && !u.memBy) delete ASG()[key]; }
+// intent: 'review' | 'practice'
+function setUnitCadence(key, intent, cadence) { ensureUnit(key)[intent] = newAssignment(cadence); save(); }
+function clearUnitCadence(key, intent) { const u = ASG()[key]; if (u) { delete u[intent]; pruneUnit(key); save(); } }
+function setUnitMemBy(key, dateKey) { if (dateKey) ensureUnit(key).memBy = dateKey; else { const u = ASG()[key]; if (u) delete u.memBy; } pruneUnit(key); save(); }
+function unitMemBy(key) { const u = ASG()[key]; return (u && u.memBy) || null; }
+
+// Most-specific REVIEW cadence governing a verse → its interval (ms); drives the decay FILL (practice
+// cadences do NOT — the fill is review-freshness only). Order: verse > chapter > module(s) containing
+// it > whole book. Returns null if nothing governs the verse (→ neutral fill). moduleReviews = the
+// review assignments of any modules containing this verse (app supplies them — modules live in
+// state.modules, kept out of review.js). Fixes chunk 3's "whole-book cadence only" interim.
+function governingReviewInterval(bookName, ci, v, moduleReviews = []) {
+  const uv = ASG()[verseScopeKey(bookName, ci, v)];
+  if (uv && uv.review) return cadenceIntervalMs(uv.review.cadence);
+  const uc = ASG()[chapterScopeKey(bookName, ci)];
+  if (uc && uc.review) return cadenceIntervalMs(uc.review.cadence);
+  for (const a of moduleReviews) if (a && a.cadence) return cadenceIntervalMs(a.cadence);
+  const bA = bookAssignment(bookName);
+  if (bA) return cadenceIntervalMs(bA.cadence);
+  return null;
+}
+
 // Where a missed card re-enters the working queue (queueLen = remaining cards, current already removed):
 //   'end'  → after everything left.
 //   'fold' → 3–5 cards ahead (small random gap so it's soon but doesn't clump), clamped to the end.
@@ -1536,7 +1573,7 @@ function shuffled(arr, rnd = Math.random) {
   return a;
 }
 
-const RV = {assignmentStatus,bookAssignment,cadenceIntervalMs,cadenceLabel,clearBookCadence,clearCovered,coverageKey,coverageTs,coveredCount,cycleAnchor,cycleComplete,cycleCoveredCount,ensureReview,isCovered,markCovered,missInsertIndex,moduleKeys,newAssignment,nextDueMs,normCadence,setBookCadence,shuffled,splitKey,syncCycle,uncoveredDeck,unitDecay,unitMastery,verseFreshness};
+const RV = {assignmentStatus,bookAssignment,bookScopeKey,cadenceIntervalMs,cadenceLabel,chapterScopeKey,clearBookCadence,clearCovered,clearUnitCadence,coverageKey,coverageTs,coveredCount,cycleAnchor,cycleComplete,cycleCoveredCount,ensureReview,getUnit,governingReviewInterval,isCovered,markCovered,missInsertIndex,moduleKeys,newAssignment,nextDueMs,normCadence,setBookCadence,setUnitCadence,setUnitMemBy,shuffled,splitKey,syncCycle,uncoveredDeck,unitDecay,unitMastery,unitMemBy,verseFreshness,verseScopeKey};
 // Strive — planner: day/week/month/year items, recurring rules
 
 
@@ -1747,10 +1784,13 @@ function milestoneStats(m) {
 function currentMilestone(p) { return p.milestones.find(m => m.steps.some(s => !s.done)) || null; }
 
 // ---- steps ----
-function addStep(p, label, mid = null) {
+function addStep(p, label, mid = null, ref = null) {
   const m = mid ? p.milestones.find(x => x.id === mid) : p.milestones[p.milestones.length - 1];
-  m.steps.push({ id: uid(), label, done: false, doneTs: null, secs: null, weight: 1 });
+  const step = { id: uid(), label, done: false, doneTs: null, secs: null, weight: 1 };
+  if (ref) step.ref = ref;   // D-AG: links the step to a scripture scope+intent; its done is derived from the engine
+  m.steps.push(step);
   save();
+  return step;
 }
 
 function stepWeight(s) { return s.weight || 1; }
@@ -4314,6 +4354,7 @@ function dueControl({ label, hint, value, onSet, info, unit }) {
 function renderDayChecklist(container, dk, { showPathways = false } = {}) {
   const wrap = document.createElement('div');
   syncReviewCycles();
+  syncPathwayRefSteps();   // D-AG: assignment-steps auto-complete in Today from the engine
   const items = PL.itemsForDate(dk);
 
   // reviews due (Phase 11 cadence layer) — a module/book whose cycle is due; tap to review it
@@ -4897,6 +4938,7 @@ function pathwayDetail(p) {
   drawPathway(p);
 }
 function drawPathway(p) {
+  syncPathwayRefSteps();   // D-AG: refresh assignment-steps' done from the engine before rendering
   setHeader(p.name, { back: () => pathwaysHome(), action: { label: pwEditMode ? 'Done' : 'Edit', fn: () => { pwEditMode = !pwEditMode; drawPathway(p); } } });
   const wrap = document.createElement('div');
   buildPathwayBody(wrap, p);
@@ -4969,7 +5011,8 @@ function buildPathwayBody(wrap, p) {
             <div class="row">
               <div class="grow" style="font-size:14px;font-weight:600;${s.done ? 'text-decoration:line-through' : ''}">${esc(s.label)}
                 ${!pwEditMode && PW.stepWeight(s) > 1 ? ` <span style="font-size:11px;font-weight:700;color:var(--gold)">×${PW.stepWeight(s)}</span>` : ''}</div>
-              ${isNext && !pwEditMode && !locked ? `<button class="pill on" data-a="go" style="padding:5px 12px;font-size:12px">Done</button>` +
+              ${s.ref && !s.done && !pwEditMode ? `<button class="pill" data-a="refgo" style="padding:5px 12px;font-size:12px">▸ ${intentVerb(s.ref.intent)}</button>`
+                : isNext && !pwEditMode && !locked ? `<button class="pill on" data-a="go" style="padding:5px 12px;font-size:12px">Done</button>` +
                 (PW.isTimed(p) ? `<button class="pill" data-a="time" style="padding:5px 9px;font-size:13px">⏱</button>` : '') : ''}
               ${!s.done && !pwEditMode ? `<button class="pill pw-datechip ${s.date ? 'on' : ''}" data-a="date" style="padding:5px 9px;font-size:12px">${s.date ? '📅 ' + shortDate(s.date) : '📅'}</button>` : ''}
               ${s.done && pwEditMode ? '<button class="pill" data-a="undo" style="font-size:12px;padding:5px 10px">Undo</button>' : ''}
@@ -4985,6 +5028,8 @@ function buildPathwayBody(wrap, p) {
         </div>`);
       const go = stone.querySelector('[data-a=go]');
       if (go) go.onclick = () => { completePathwayStep(p); drawPathway(p); };
+      const refgo = stone.querySelector('[data-a=refgo]');
+      if (refgo) refgo.onclick = () => refStepLaunch(s);
       const time = stone.querySelector('[data-a=time]');
       const timebox = stone.querySelector('[data-slot=timebox]');
       if (time) time.onclick = () => openTimeBox(p, timebox);
@@ -5502,16 +5547,17 @@ function bookScreen(b) {
   wrap.append(sectionTitle('Chapters'));
   const grid = document.createElement('div');
   grid.className = 'scgrid';
-  const bCad = RV.bookAssignment(b.name);
-  const bIv = bCad ? RV.cadenceIntervalMs(bCad.cadence) : null;   // decay window; null → neutral fill (interim: whole-book cadence only until the assign engine, chunk 4)
+  const bModReviews = MOD.modulesFor(b.name).filter(m => m.review);
   b.verses.forEach((_, ci) => {
     const c = SC.chapterStats(b, ci);
     const keys = [];
     for (let v = 1; v <= c.total; v++) if (SC.verseDone(b, ci, v)) keys.push('bible:' + b.name + ':' + (ci + 1) + '#' + v);
+    const chMods = bModReviews.filter(m => MOD.moduleChapters(m).includes(ci)).map(m => m.review);
+    const chIv = RV.governingReviewInterval(b.name, ci, -1, chMods);   // chapter cadence → covering module → whole book (most-specific wins)
     grid.append(scriptureCircle({
       num: ci + 1,
       memorized: c.done > 0,
-      decay: (bIv != null && keys.length) ? RV.unitDecay(keys, bIv) : null,
+      decay: (chIv != null && keys.length) ? RV.unitDecay(keys, chIv) : null,
       mastery: RV.unitMastery(keys, verseRingMastery),
       count: c.done + '/' + c.total,
       title: b.name + ' ' + (ci + 1),
@@ -5526,12 +5572,12 @@ function bookScreen(b) {
   const pills = h(`<div class="pillrow" style="margin-top:16px">
     <button class="pill" data-s="project">${isCurrent ? '✓ Project' : 'Project'}</button>
     <button class="pill" data-s="modules">Modules${modCount ? ' · ' + modCount : ''}</button>
-    <button class="pill" data-s="cadence">Cadence${cad ? ' · ' + RV.cadenceLabel(cad.cadence) : ''}</button>
+    <button class="pill" data-s="cadence">Assign${cad ? ' · ' + RV.cadenceLabel(cad.cadence) : ''}</button>
     <button class="pill" data-s="memorized">Memorized</button>
   </div>`);
   pills.querySelector('[data-s=project]').onclick = () => memProjectSheet(b);
   pills.querySelector('[data-s=modules]').onclick = () => render(() => modulesScreen(b));
-  pills.querySelector('[data-s=cadence]').onclick = () => bookCadenceSheet(b);
+  pills.querySelector('[data-s=cadence]').onclick = () => assignSheet(assignScope('book', { b }));
   pills.querySelector('[data-s=memorized]').onclick = () => memMemorizedSheet(b);
   wrap.append(pills);
 
@@ -5622,6 +5668,138 @@ function bookCadenceSheet(b) {
     else { RV.clearBookCadence(b.name); SC.setReviewInterval(b.name, 0); }
   });
 }
+// ===== Assign control (D-AF/4b) — review + practice cadences + a memorize-by date, at any scope =====
+// A scope abstracts read/write of the three intents so one sheet serves book / chapter / verse. Book
+// review keeps its existing home (state.review.books + the staleness mirror); chapter/verse review +
+// all practice + all memBy live in the per-scope assign store (review.js). The scope key is a pathway
+// step's stable reference (D-AG).
+function assignScope(kind, ref) {
+  const b = ref.b;
+  if (kind === 'book') {
+    const pk = RV.bookScopeKey(b.name);
+    return {
+      title: b.name,
+      key: pk,
+      reviewAssign: () => RV.bookAssignment(b.name),
+      setReview: c => { if (c) { RV.setBookCadence(b.name, c); SC.setReviewInterval(b.name, RV.normCadence(c).days); } else { RV.clearBookCadence(b.name); SC.setReviewInterval(b.name, 0); } },
+      practiceAssign: () => { const u = RV.getUnit(pk); return u && u.practice ? u.practice : null; },
+      setPractice: c => c ? RV.setUnitCadence(pk, 'practice', c) : RV.clearUnitCadence(pk, 'practice'),
+      memBy: () => RV.unitMemBy(pk),
+      setMemBy: d => RV.setUnitMemBy(pk, d)
+    };
+  }
+  if (kind === 'module') {
+    const mod = ref.mod, pk = 'mod:' + mod.id;
+    return {
+      title: mod.name || MOD.moduleAutoName(mod, b),
+      key: pk,
+      reviewAssign: () => mod.review || null,
+      setReview: c => { if (c) mod.review = RV.newAssignment(c); else delete mod.review; save(); },
+      practiceAssign: () => { const u = RV.getUnit(pk); return u && u.practice ? u.practice : null; },
+      setPractice: c => c ? RV.setUnitCadence(pk, 'practice', c) : RV.clearUnitCadence(pk, 'practice'),
+      memBy: () => RV.unitMemBy(pk),
+      setMemBy: d => RV.setUnitMemBy(pk, d)
+    };
+  }
+  const key = kind === 'verse' ? RV.verseScopeKey(b.name, ref.ci, ref.v) : RV.chapterScopeKey(b.name, ref.ci);
+  return {
+    title: b.name + ' ' + (ref.ci + 1) + (kind === 'verse' ? ':' + ref.v : ''),
+    key,
+    reviewAssign: () => { const u = RV.getUnit(key); return u && u.review ? u.review : null; },
+    setReview: c => c ? RV.setUnitCadence(key, 'review', c) : RV.clearUnitCadence(key, 'review'),
+    practiceAssign: () => { const u = RV.getUnit(key); return u && u.practice ? u.practice : null; },
+    setPractice: c => c ? RV.setUnitCadence(key, 'practice', c) : RV.clearUnitCadence(key, 'practice'),
+    memBy: () => RV.unitMemBy(key),
+    setMemBy: d => RV.setUnitMemBy(key, d)
+  };
+}
+function assignSheet(scope) {
+  openSheet('Assign · ' + scope.title, (body, close) => {
+    const rvA = scope.reviewAssign(), prA = scope.practiceAssign();
+    const rowBtn = (label, sub) => h(`<button class="pill" style="display:block;width:100%;text-align:left;margin-bottom:8px">${label} · <span style="color:var(--gold)">${esc(sub)}</span></button>`).firstChild;
+    const rv = rowBtn('Review cadence', RV.cadenceLabel(rvA && rvA.cadence));
+    rv.onclick = () => { close(); reviewCadenceSheet(scope.title, rvA, c => scope.setReview(c)); };
+    const pr = rowBtn('Practice cadence', RV.cadenceLabel(prA && prA.cadence));
+    pr.onclick = () => { close(); reviewCadenceSheet(scope.title, prA, c => scope.setPractice(c)); };
+    body.append(rv, pr);
+    body.append(h(`<div class="muted" style="font-size:12px;margin:6px 4px 4px">Review comes due on a cadence; practice is a rehearsal reminder; memorize-by sets a target date.</div>`));
+    body.append(dueControl({ label: 'Memorize by', value: scope.memBy(), onSet: d => { scope.setMemBy(d); rerender(); } }));
+    const addPw = h(`<button class="pill" style="display:block;width:100%;text-align:left;margin-top:12px">Add to a pathway ›</button>`).firstChild;
+    addPw.onclick = () => { close(); pathwayAddSheet(scope.key, scope.title); };
+    body.append(addPw);
+  });
+}
+
+// ===== Pathway assignment-steps (D-AG) — a step.ref = {key, intent} links it to a scripture scope;
+// its completion is DERIVED from the engine (single source of truth) and synced onto s.done, so ALL
+// existing pathway rendering + Today surfacing work unchanged. Doing the work anywhere completes it. =====
+function parseScopeKey(key) {
+  if (key.startsWith('mod:')) return { kind: 'module', modId: key.slice(4) };
+  const body = key.slice(6);   // drop 'bible:'
+  const hash = body.indexOf('#');
+  if (hash >= 0) { const v = Number(body.slice(hash + 1)), bc = body.slice(0, hash), cc = bc.lastIndexOf(':'); return { kind: 'verse', book: bc.slice(0, cc), ci: Number(bc.slice(cc + 1)) - 1, v }; }
+  const cc = body.lastIndexOf(':');
+  if (cc >= 0 && !isNaN(Number(body.slice(cc + 1)))) return { kind: 'chapter', book: body.slice(0, cc), ci: Number(body.slice(cc + 1)) - 1 };
+  return { kind: 'book', book: body };
+}
+function scopeModule(sc) { for (const bn in (state.modules || {})) { const m = MOD.getModule(bn, sc.modId); if (m) return [bn, m]; } return null; }
+// [bookName, ci, v] of every verse in the scope; memorizedOnly filters to memorized ones
+function scopeVerses(sc, memorizedOnly) {
+  const out = [];
+  if (sc.kind === 'module') { const r = scopeModule(sc); if (!r) return out; const [bn, m] = r, b = allBooks.find(x => x.name === bn); for (const ci in (m.verses || {})) for (const v of m.verses[ci]) if (!memorizedOnly || (b && SC.verseDone(b, Number(ci), v))) out.push([bn, Number(ci), v]); return out; }
+  const b = allBooks.find(x => x.name === sc.book); if (!b) return out;
+  const chapters = sc.kind === 'book' ? b.verses.map((_, i) => i) : [sc.ci];
+  chapters.forEach(ci => { const vs = sc.kind === 'verse' ? [sc.v] : Array.from({ length: b.verses[ci] }, (_, i) => i + 1); vs.forEach(v => { if (!memorizedOnly || SC.verseDone(b, ci, v)) out.push([sc.book, ci, v]); }); });
+  return out;
+}
+function scopeCoverageKeys(sc) { return scopeVerses(sc, true).map(([bn, ci, v]) => 'bible:' + bn + ':' + (ci + 1) + '#' + v); }
+function scopeReviewAssign(sc, key) {
+  if (sc.kind === 'module') { const r = scopeModule(sc); return r && r[1].review ? r[1].review : null; }
+  if (sc.kind === 'book') return RV.bookAssignment(sc.book);
+  const u = RV.getUnit(key); return u && u.review ? u.review : null;
+}
+// Derived completion of an assignment-step (single source of truth — D-AG).
+function refStepDone(step) {
+  const { key, intent } = step.ref, sc = parseScopeKey(key);
+  if (intent === 'memorize') { const all = scopeVerses(sc, false); return all.length > 0 && all.every(([bn, ci, v]) => { const b = allBooks.find(x => x.name === bn); return b && SC.verseDone(b, ci, v); }); }
+  const memKeys = scopeCoverageKeys(sc);
+  if (!memKeys.length) return false;
+  if (intent === 'review') { const a = scopeReviewAssign(sc, key), since = a ? a.cycleStart : 0; return memKeys.every(k => RV.isCovered(k, since)); }
+  const u = RV.getUnit(sc.kind === 'module' ? 'mod:' + sc.modId : key), since = u && u.practice ? u.practice.cycleStart : 0;   // practice: every memorized verse practiced since the cycle start (or ever)
+  return scopeVerses(sc, true).every(([bn, ci, v]) => CR.lastPracticeTs('bible:' + bn + ':' + (ci + 1), v) >= (since || 1));
+}
+function syncPathwayRefSteps() {
+  let dirty = false;
+  PW.all().forEach(p => p.milestones.forEach(m => m.steps.forEach(s => {
+    if (!s.ref) return; const d = refStepDone(s);
+    if (d !== !!s.done) { s.done = d; s.doneTs = d ? Date.now() : null; dirty = true; }
+  })));
+  if (dirty) save();
+}
+function refStepLaunch(step) {
+  const sc = parseScopeKey(step.ref.key);
+  if (sc.kind === 'module') { const r = scopeModule(sc); if (r) { const b = allBooks.find(x => x.name === r[0]); render(() => moduleScreen(b, r[1])); } return; }
+  const b = allBooks.find(x => x.name === sc.book); if (!b) return;
+  if (sc.kind === 'book') render(() => bookScreen(b)); else render(() => chapterScreen(b, sc.ci));
+}
+const intentVerb = i => i === 'memorize' ? 'Memorize' : i === 'practice' ? 'Practice' : 'Review';
+// pick a pathway (or create one) to add this scope as an assignment-step, with an intent
+function pathwayAddSheet(scopeKey, title) {
+  openSheet('Add to pathway · ' + title, (body, close) => {
+    let intent = 'review';
+    const irow = h(`<div class="pillrow" style="margin-bottom:12px">
+      <button class="pill on" data-i="review">Review</button>
+      <button class="pill" data-i="practice">Practice</button>
+      <button class="pill" data-i="memorize">Memorize</button></div>`).firstElementChild;
+    irow.querySelectorAll('[data-i]').forEach(btn => btn.onclick = () => { intent = btn.dataset.i; irow.querySelectorAll('.pill').forEach(x => x.classList.toggle('on', x === btn)); });
+    body.append(h(`<div class="muted" style="font-size:12px;margin-bottom:4px">Add “${esc(title)}” as an assignment step. It auto-completes when you do the work.</div>`), irow);
+    const add = (p) => { PW.addStep(p, intentVerb(intent) + ' ' + title, null, { key: scopeKey, intent }); toast('Added to ' + p.name); close(); };
+    PW.all().forEach(p => { const btn = h(`<button class="pill" style="display:block;width:100%;text-align:left;margin-bottom:6px">${esc(p.name)}</button>`).firstChild; btn.onclick = () => add(p); body.append(btn); });
+    const nw = h(`<button class="pill on" style="display:block;width:100%;text-align:left;margin-top:6px">＋ New pathway for this</button>`).firstChild;
+    nw.onclick = () => add(PW.create(title + ' plan', 'scripture-review'));
+    body.append(nw);
+  });
+}
 // paper (#fbf7ed) → ink (#262016) interpolation; f 0=fresh(light) … 1=due(black).
 function reviewShade(f) {
   const A = [0xfb, 0xf7, 0xed], B = [0x26, 0x20, 0x16], mix = i => Math.round(A[i] + (B[i] - A[i]) * f);
@@ -5634,7 +5812,7 @@ function reviewShade(f) {
 // optional count caption BELOW (always shown on aggregate units so complete/incomplete look identical).
 // memorized=false → empty dashed circle (still tappable). decay/mastery null → that channel is omitted
 // (neutral paper fill / no ring). Returns a <button> (if onClick) or <div>.
-function scriptureCircle({ num, memorized = true, decay = null, mastery = null, count = null, title = '', onClick = null }) {
+function scriptureCircle({ num, memorized = true, decay = null, mastery = null, count = null, title = '', onClick = null, onLong = null }) {
   const RR = 24, C = 2 * Math.PI * RR;
   let fillBg = 'none', numCol = 'var(--text-2)', fillStroke = 'stroke:var(--line);stroke-width:1;stroke-dasharray:3 3';
   if (memorized) {
@@ -5653,7 +5831,15 @@ function scriptureCircle({ num, memorized = true, decay = null, mastery = null, 
     ${ring}
     <text x="29" y="29" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="600" style="fill:${numCol}">${num}</text>
   </svg>${count != null ? `<span class="scircle-cap">${esc(count)}</span>` : ''}`;
-  if (onClick) el.onclick = onClick;
+  if (onLong) {   // long-press = a secondary action (e.g. open the Assign sheet on a verse); pointer-based so it works in the installed PWA
+    let lt = null, longed = false;
+    el.addEventListener('pointerdown', () => { longed = false; lt = setTimeout(() => { longed = true; onLong(); }, 450); });
+    const cancel = () => { if (lt) { clearTimeout(lt); lt = null; } };
+    el.addEventListener('pointerup', cancel);
+    el.addEventListener('pointerleave', cancel);
+    el.addEventListener('pointercancel', cancel);
+    el.onclick = () => { if (longed) { longed = false; return; } if (onClick) onClick(); };
+  } else if (onClick) el.onclick = onClick;
   return el;
 }
 // masteryOf(coverageKey) → ringMastery for that verse (used by the unit rollups; D-AE ring source)
@@ -5895,8 +6081,8 @@ function moduleScreen(b, mod) {
   </div>`));
 
   // Review cadence control + white→black freshness fade (layer 3)
-  const cadBtn = h(`<button class="pill" style="margin:2px 0 4px">Review cadence · ${RV.cadenceLabel(mod.review && mod.review.cadence)}</button>`).firstChild;
-  cadBtn.onclick = () => reviewCadenceSheet(title, mod.review || null, c => { if (c) mod.review = RV.newAssignment(c); else delete mod.review; save(); });
+  const cadBtn = h(`<button class="pill" style="margin:2px 0 4px">Assign · ${RV.cadenceLabel(mod.review && mod.review.cadence)}</button>`).firstChild;
+  cadBtn.onclick = () => assignSheet(assignScope('module', { mod, b }));
   wrap.append(cadBtn);
   if (mod.review) {
     const a = mod.review, mkeys = RV.moduleKeys(b.name, mod);
@@ -5979,7 +6165,7 @@ async function moduleLaunch(b, mod, mode, btn) {
   try {
     const doc = await moduleFetchDoc(b, mod, s => { if (btn) btn.textContent = s; });
     if (!doc) { if (btn) { delete btn.dataset.busy; btn.textContent = orig; } toast('Could not load verses'); return; }
-    const queue = doc.sections.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn }));
+    const queue = doc.sections.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn, ci: x.ci }));
     if (mode === 'fade') render(() => fadeScreen(doc, queue, 0, 0, []));
     else if (mode === 'typer') render(() => typerScreen(doc, queue, 0, []));
     else render(() => flashSession(doc, queue, 20, 'adaptive'));
@@ -6173,6 +6359,11 @@ function chapterScreen(b, ci) {
   };
   wrap.append(saBtn);
 
+  // Assign (D-AF/4b) — set a review cadence, practice cadence, and/or memorize-by date on THIS chapter
+  const asgBtn = h(`<button class="btn secondary" style="margin-bottom:12px">Assign — review · practice · memorize</button>`);
+  asgBtn.firstChild.onclick = () => assignSheet(assignScope('chapter', { b, ci }));
+  wrap.append(asgBtn);
+
   // 9.4 — finish-by date for a standalone chapter project
   if (isItem) {
     const it = state.scripture.currentItems.find(x => x.book === b.name && x.ch === ci + 1);
@@ -6186,26 +6377,28 @@ function chapterScreen(b, ci) {
   // verse grid — universal circle per verse (D-AE): decay fill + mastery ring; tap toggles memorized
   const grid = document.createElement('div');
   grid.className = 'scgrid';
-  const vCad = RV.bookAssignment(b.name);
-  const vIv = vCad ? RV.cadenceIntervalMs(vCad.cadence) : null;
   const vDoc = 'bible:' + b.name + ':' + (ci + 1);
+  const vModReviews = MOD.modulesFor(b.name).filter(m => m.review);
   for (let v = 1; v <= b.verses[ci]; v++) {
     const vn = v;
     const mk = () => {
       const done = SC.verseDone(b, ci, vn), key = vDoc + '#' + vn;
+      const iv = RV.governingReviewInterval(b.name, ci, vn, vModReviews.filter(m => MOD.moduleHasVerse(m, ci, vn)).map(m => m.review));   // verse → chapter → module → book
       return scriptureCircle({
         num: vn,
         memorized: done,
-        decay: (vIv != null && done) ? RV.verseFreshness(RV.coverageTs(key), vIv) : null,
+        decay: (iv != null && done) ? RV.verseFreshness(RV.coverageTs(key), iv) : null,
         mastery: done ? CR.ringMastery(vDoc, vn) : null,
         title: b.name + ' ' + (ci + 1) + ':' + vn,
-        onClick: () => { SC.toggleVerse(b, ci, vn); const fresh = mk(); cur.replaceWith(fresh); cur = fresh; }
+        onClick: () => { SC.toggleVerse(b, ci, vn); const fresh = mk(); cur.replaceWith(fresh); cur = fresh; },
+        onLong: () => assignSheet(assignScope('verse', { b, ci, v: vn }))
       });
     };
     let cur = mk();
     grid.append(cur);
   }
   wrap.append(grid);
+  wrap.append(h(`<div class="muted" style="font-size:11px;margin:6px 4px 0">Tap a verse to mark it memorized · long-press a verse to set its own cadence.</div>`));
 
   const prFrag = h(`<button class="btn" style="margin-top:14px">Practice this chapter — ESV</button>`);
   const prB = prFrag.firstChild;
@@ -7817,7 +8010,7 @@ function practiceSetup(d, intent = 'practice') {
     }
     const queue = list.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn, ci: x.ci }));
     if (s.mode === 'fade') render(() => fadeScreen(d, queue, 0, 0, []));
-    if (s.mode === 'typer') render(() => typerScreen(d, queue, 0, []));
+    if (s.mode === 'typer') render(() => typerScreen(d, queue, 0, [], intent));
     if (s.mode === 'flash') {
       if (s.flashOrder === 'inorder') {
         const ordered = queue.slice().sort((a, b) => a.n - b.n);   // written order, always
@@ -7896,7 +8089,7 @@ function fadeScreen(d, queue, qi, stage, results) {
 }
 
 // ---- First-Letter typer ----
-function typerScreen(d, queue, qi, results) {
+function typerScreen(d, queue, qi, results, intent = 'practice') {
   const item = queue[qi];
   if (!item) { practiceSummary(d, 'First-Letter', results.map(r => `Q${r.n} — ${r.acc}% (${r.missed.length ? 'missed: ' + r.missed.join(', ') : 'perfect'})`), queue.length); return; }
   setHeader(`First-Letter · Q${item.n}`, { back: true });
@@ -7951,8 +8144,12 @@ function typerScreen(d, queue, qi, results) {
     const acc = total ? Math.round(100 * correct / total) : 100;
     results.push({ n: item.n, acc, missed: missedWords, secs });
     CR.logPractice(prDocId(d, item), prN(item), 'typer', acc);
-    toast(`Q${item.n}: ${acc}% in ${SC.fmtSecs(secs)}`);
-    render(() => typerScreen(d, queue, qi + 1, results), false);
+    if (acc >= 90) {   // ≥90% is a success (D-M4/D-AE): practice marks the verse memorized, review marks it reviewed
+      if (intent === 'review') RV.markCovered(RV.coverageKey(prDocId(d, item), prN(item)));
+      else binaryMarkMemorized(d, item);
+    }
+    toast(`Q${item.n}: ${acc}%${acc >= 90 && intent !== 'review' ? ' · memorized ✓' : ''} in ${SC.fmtSecs(secs)}`);
+    render(() => typerScreen(d, queue, qi + 1, results, intent), false);
   }
   function handle(ch) {
     if (pos >= words.length) return;
@@ -7983,9 +8180,9 @@ function typerScreen(d, queue, qi, results) {
   setTimeout(() => inp.focus(), 100);
 
   const skip = h(`<button class="btn secondary" style="margin-top:14px">Skip this question</button>`);
-  skip.firstChild.onclick = () => { render(() => typerScreen(d, queue, qi + 1, results), false); };
+  skip.firstChild.onclick = () => { render(() => typerScreen(d, queue, qi + 1, results, intent), false); };
   wrap.append(skip);
-  wrap.append(practiceCloseX(() => render(() => typerScreen(d, queue, queue.length, results), false)));
+  wrap.append(practiceCloseX(() => render(() => typerScreen(d, queue, queue.length, results, intent), false)));
   main().append(wrap);
 }
 
@@ -10175,7 +10372,7 @@ function plusLaunchSession(d, mode, intent = 'practice') {
   if (!queue.length) { toast('No verses in that selection'); return; }
   closePlusFan();
   if (mode === 'fade') render(() => fadeScreen(d, queue, 0, 0, []));
-  else if (mode === 'typer') render(() => typerScreen(d, queue, 0, []));
+  else if (mode === 'typer') render(() => typerScreen(d, queue, 0, [], intent));
   else render(() => flashSession(d, queue, 20, 'adaptive', intent));
 }
 
