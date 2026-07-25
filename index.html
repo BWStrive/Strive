@@ -63,6 +63,9 @@ header.topbar {
 header.topbar .back { border: none; background: none; color: var(--gold); font-family: var(--serif-display); font-size: 12px; font-weight: 700; letter-spacing: .08em; padding: 4px 6px 4px 0; cursor: pointer; display: none; }
 header.topbar h1 { font-family: var(--serif-display); font-size: 15px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; flex: 1; }
 header.topbar .h-action { border: none; background: none; color: var(--gold); font-family: var(--serif-display); font-size: 11px; font-weight: 700; letter-spacing: .1em; cursor: pointer; padding: 4px; }
+/* Floating close ✕ for practice-session screens (fade/typer/flashcards/scramble/binary) */
+.practice-x { position: fixed; top: calc(env(safe-area-inset-top) + 8px); right: 12px; z-index: 250; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--text); font-size: 17px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.practice-x:active { background: var(--bg); }
 
 main {
   flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
@@ -198,6 +201,11 @@ header.topbar .avatar {
 }
 .cell.done { background: var(--accent); border-color: var(--accent); color: var(--card); }
 .cell.partial { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+/* Universal scripture-circle grid (D-AE): decay fill + brass mastery ring + count caption below */
+.scgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 10px 6px; justify-items: center; }
+.scircle { display: flex; flex-direction: column; align-items: center; gap: 2px; background: none; border: none; padding: 0; margin: 0; cursor: pointer; font-family: inherit; -webkit-tap-highlight-color: transparent; }
+.scircle svg { display: block; }
+.scircle-cap { font-size: 11px; color: var(--text-2); line-height: 1; }
 
 .btn {
   display: block; width: 100%; border: none; border-radius: var(--radius);
@@ -541,7 +549,7 @@ function defaultState() {
     },
     pathways: [],          // {id, name, domain, milestones:[{id, name, steps:[{id, label, done, doneTs, secs}]}]}
     modules: {},           // (D-AB) modules[bookName] = [{id, name, verses:{ci:[v,...]}, created}] — review chunks, verse-level
-    review: { covered: {} },  // (D-AB layer 2) covered['docId#n'] = ts — sticky per-verse reviewed dots
+    review: { covered: {}, books: {} },  // (D-AB) covered['docId#n']=ts sticky dots · books[name]=whole-book cadence assignment (layer 3)
     settings: { migratedOldApp: false, esvKey: '', visionKey: '' }
   };
 }
@@ -732,8 +740,9 @@ function ensureShapes() {
   if (!state.planner) state.planner = def.planner;
   if (!Array.isArray(state.planner.targets)) state.planner.targets = [];   // Phase 9.5 (additive)
   if (!state.modules || typeof state.modules !== 'object' || Array.isArray(state.modules)) state.modules = {};   // D-AB Modules (additive)
-  if (!state.review || typeof state.review !== 'object' || Array.isArray(state.review)) state.review = { covered: {} };   // D-AB review coverage (additive)
+  if (!state.review || typeof state.review !== 'object' || Array.isArray(state.review)) state.review = { covered: {}, books: {} };   // D-AB review coverage (additive)
   if (!state.review.covered || typeof state.review.covered !== 'object') state.review.covered = {};
+  if (!state.review.books || typeof state.review.books !== 'object') state.review.books = {};   // layer-3 whole-book cadence assignments
   if (!state.settings) state.settings = def.settings;
 }
 
@@ -1366,22 +1375,149 @@ const MOD = {blankModule,commitModule,copyModule,deleteModule,ensureModules,getM
 function RVS() {
   if (!state.review || typeof state.review !== 'object') state.review = {};
   if (!state.review.covered || typeof state.review.covered !== 'object') state.review.covered = {};
+  if (!state.review.books || typeof state.review.books !== 'object') state.review.books = {};   // whole-book cadence assignments
   return state.review;
 }
 function ensureReview() { RVS(); }
 
 function coverageKey(docId, n) { return docId + '#' + n; }
-function isCovered(key) { return !!RVS().covered[key]; }
+function coverageTs(key) { return RVS().covered[key] || 0; }                          // 0 = never reviewed
+function isCovered(key, sinceMs = 0) { return coverageTs(key) > 0 && coverageTs(key) >= sinceMs; }
 function markCovered(key, ts = Date.now()) { RVS().covered[key] = ts; save(); }      // incremental auto-save
-function clearCovered(key) { delete RVS().covered[key]; save(); }                     // the cadence layer resets dots
-function coveredCount(keys) { const c = RVS().covered; let n = 0; for (const k of keys) if (c[k]) n++; return n; }
+function clearCovered(key) { delete RVS().covered[key]; save(); }                     // manual reset only (cadence uses the watermark, not deletion)
+function coveredCount(keys, sinceMs = 0) { let n = 0; for (const k of keys) if (isCovered(k, sinceMs)) n++; return n; }
 
-// Coverage-aware binary deck: the first N cards (in the given/written order) whose verse isn't
-// covered yet. cards: [{key, ...}]. n falsy/≤0 = all uncovered. Clearing these → next call yields
-// the next N (they walk the selection 1–20, 21–40, …).
-function uncoveredDeck(cards, n) {
-  const un = cards.filter(c => !isCovered(c.key));
+// Coverage-aware binary deck: the first N cards (written order) not covered SINCE the cycle's
+// watermark (sinceMs). sinceMs=0 → boolean "ever reviewed" (quick-log, no cadence). n falsy/≤0 = all.
+function uncoveredDeck(cards, n, sinceMs = 0) {
+  const un = cards.filter(c => !isCovered(c.key, sinceMs));
   return (n && n > 0) ? un.slice(0, n) : un;
+}
+
+// ==== Cadence layer (Phase 11, layer 3) ====
+// An ASSIGNMENT binds a scope (its coverage keys) to a cadence + a cycle watermark. It hangs off a
+// module (mod.review) or a whole book (state.review.books[bookName]). Watermark model — sticky
+// per-verse timestamps are NEVER deleted (that would break D-M5 shared coverage + lose history);
+// instead each assignment tracks cycleStart, and "covered this cycle" = a verse's ts >= cycleStart.
+// The cycle ANCHOR (D-M2) is DERIVED: the earliest covering ts >= cycleStart (0 until the first
+// entry of the cycle). Interval cadences float from that anchor and roll only once the whole scope
+// is covered; calendar cadences are rigid (roll on the date regardless of completion, D-M3b).
+const DAY = 86400000;
+
+function normCadence(c) {
+  if (!c || !c.type) return { type: 'interval', days: 30 };
+  if (c.type === 'weekly') return { type: 'weekly', days: 7 };
+  if (c.type === 'monthly') return { type: 'monthly', days: 30 };
+  return { type: 'interval', days: Math.max(1, Math.round(c.days || 30)) };
+}
+function cadenceLabel(c) {
+  if (!c) return 'Off';
+  c = normCadence(c);
+  if (c.type === 'weekly') return 'Weekly';
+  if (c.type === 'monthly') return 'Monthly';
+  return 'Every ' + c.days + ' day' + (c.days === 1 ? '' : 's');
+}
+function cadenceIntervalMs(c) { c = normCadence(c); return c.days * DAY; }   // the fade decay window
+function newAssignment(cadence, now = Date.now()) { return { cadence: normCadence(cadence), cycleStart: now, createdAt: now }; }
+
+// derived anchor (ms) = earliest covering ts >= cycleStart, or 0 if the cycle hasn't started
+function cycleAnchor(a, keys) {
+  let min = 0;
+  for (const k of keys) { const t = coverageTs(k); if (t > 0 && t >= a.cycleStart && (min === 0 || t < min)) min = t; }
+  return min;
+}
+function cycleCoveredCount(a, keys) { return coveredCount(keys, a.cycleStart); }
+function cycleComplete(a, keys) { return keys.length > 0 && cycleCoveredCount(a, keys) === keys.length; }
+
+// next-due (ms) for the current cycle
+function nextDueMs(a, keys) {
+  const c = normCadence(a.cadence);
+  if (c.type === 'interval') { const an = cycleAnchor(a, keys); return (an || a.cycleStart) + c.days * DAY; }
+  return a.cycleStart + c.days * DAY;   // calendar: rigid from cycleStart
+}
+
+// Advance the cycle if it's time. Interval: only after the whole scope is covered AND now past due.
+// Calendar: on the due date regardless of completion (rigid). Mutates a.cycleStart; returns changed.
+function syncCycle(a, keys, now = Date.now()) {
+  const c = normCadence(a.cadence);
+  let changed = false, guard = 0;
+  if (c.type === 'interval') {
+    while (cycleComplete(a, keys) && guard++ < 2000) {
+      const due = cycleAnchor(a, keys) + c.days * DAY;
+      if (now >= due) { a.cycleStart = due; changed = true; } else break;
+    }
+  } else {
+    while (guard++ < 2000) {
+      const due = a.cycleStart + c.days * DAY;
+      if (now >= due) { a.cycleStart = due; changed = true; } else break;
+    }
+  }
+  return changed;
+}
+
+// Read-only status for surfacing. dueKey = the day this cycle is due (incomplete → the cycle start,
+// so a just-set or rolled cadence is due from that day; complete → the next-due day).
+function assignmentStatus(a, keys, now = Date.now()) {
+  const total = keys.length;
+  const covered = cycleCoveredCount(a, keys);
+  const complete = total > 0 && covered === total;
+  const nd = nextDueMs(a, keys);
+  return { total, covered, complete, due: !complete, cycleStart: a.cycleStart, nextDueMs: nd,
+           dueKey: complete ? todayKey(new Date(nd)) : todayKey(new Date(a.cycleStart)) };
+}
+
+// Per-verse fade for the white→black display. 0 = just reviewed (light), 1 = interval elapsed / never
+// reviewed (black = due). Drives reviewShade in the UI.
+function verseFreshness(ts, intervalMs, now = Date.now()) {
+  if (!ts) return 1;
+  const f = (now - ts) / (intervalMs || DAY);
+  return f < 0 ? 0 : f > 1 ? 1 : f;
+}
+
+// ==== Unit rollup for the universal circle (D-AE) ====
+// A unit circle (chapter, book, module) summarizes its verses in two channels:
+//   fill  = review DECAY   → the LEAST-FRESH (most due) memorized verse pulls the whole unit toward due
+//   ring  = PROFICIENCY    → the AVERAGE mastery across the memorized verses
+// Both are computed over the MEMORIZED verses only (the caller passes their coverage keys). Pure +
+// data-source-agnostic (interval + a mastery lookup are injected), so headless-testable.
+
+// Split a coverage key 'bible:Hebrews:1#5' → { docId:'bible:Hebrews:1', n:5 } (mastery is keyed by docId+n).
+function splitKey(key) { const i = key.lastIndexOf('#'); return { docId: key.slice(0, i), n: Number(key.slice(i + 1)) }; }
+
+// Decay 0 (all fresh) .. 1 (the least-fresh memorized verse is fully due); null = no memorized verses.
+// A memorized-but-never-reviewed verse reads 1 (black/due). Caller only calls this when a cadence
+// governs the unit (intervalMs known); with no assignment the fill stays neutral and this isn't used.
+function unitDecay(keys, intervalMs, now = Date.now()) {
+  if (!keys || !keys.length) return null;
+  let worst = 0;
+  for (const k of keys) { const f = verseFreshness(coverageTs(k), intervalMs, now); if (f > worst) worst = f; }
+  return worst;
+}
+
+// Average proficiency (0..100) over the memorized verses; null = no memorized verses. masteryOf(key)
+// → 0..100 | null (null = memorized but no rated flash/typing yet). `unrated` = how a null verse is
+// treated: 'zero' (a memorized-but-unrated verse counts as 0 — no demonstrated proficiency drags the
+// average down, DEFAULT — flagged for Baruch) or 'skip' (average only the verses with rated history).
+function unitMastery(keys, masteryOf, { unrated = 'zero' } = {}) {
+  if (!keys || !keys.length) return null;
+  let sum = 0, cnt = 0;
+  for (const k of keys) {
+    const m = masteryOf(k);
+    if (m == null) { if (unrated === 'zero') cnt++; continue; }
+    sum += m; cnt++;
+  }
+  return cnt ? Math.round(sum / cnt) : null;
+}
+
+// ---- assignment storage: whole-book cadence hangs here; module cadence hangs on mod.review ----
+function bookAssignment(name) { return RVS().books[name] || null; }
+function setBookCadence(name, cadence) { RVS().books[name] = newAssignment(cadence); save(); return RVS().books[name]; }
+function clearBookCadence(name) { delete RVS().books[name]; save(); }
+// coverage keys for a module (from its verse map — pure, no bible-data needed): bible:Book:CH#v
+function moduleKeys(bookName, mod) {
+  const out = [], vs = (mod && mod.verses) || {};
+  for (const ci in vs) for (const v of vs[ci]) out.push('bible:' + bookName + ':' + (Number(ci) + 1) + '#' + v);
+  return out;
 }
 
 // Where a missed card re-enters the working queue (queueLen = remaining cards, current already removed):
@@ -1400,7 +1536,7 @@ function shuffled(arr, rnd = Math.random) {
   return a;
 }
 
-const RV = {clearCovered,coverageKey,coveredCount,ensureReview,isCovered,markCovered,missInsertIndex,shuffled,uncoveredDeck};
+const RV = {assignmentStatus,bookAssignment,cadenceIntervalMs,cadenceLabel,clearBookCadence,clearCovered,coverageKey,coverageTs,coveredCount,cycleAnchor,cycleComplete,cycleCoveredCount,ensureReview,isCovered,markCovered,missInsertIndex,moduleKeys,newAssignment,nextDueMs,normCadence,setBookCadence,shuffled,splitKey,syncCycle,uncoveredDeck,unitDecay,unitMastery,verseFreshness};
 // Strive — planner: day/week/month/year items, recurring rules
 
 
@@ -2082,11 +2218,11 @@ function sectionLabel(d, s) {
 // ---- practice tracking (never touches memorized status) ----
 function PRC() { ensure(); if (!C().practice) C().practice = {}; return C().practice; }
 
-function logPractice(docId, n, mode, score) {
+function logPractice(docId, n, mode, score, meta = null) {
   if (!PRC()[docId]) PRC()[docId] = {};
   if (!PRC()[docId][n]) PRC()[docId][n] = [];
   const arr = PRC()[docId][n];
-  arr.push({ ts: Date.now(), mode, score: Math.round(score) });
+  arr.push({ ts: Date.now(), mode, score: Math.round(score), ...(meta || {}) });   // meta e.g. {binary:true} — additive, tags an entry without changing its mode
   if (arr.length > 20) arr.splice(0, arr.length - 20);   // keep a short history
   recordStreakDay('cr');
   save();
@@ -2129,7 +2265,19 @@ function lastPracticeTs(docId, n) {
   return arr.length ? arr[arr.length - 1].ts : 0;
 }
 
-const CR = {GROUPS,currentDoc,currentDocs,docDueOf,docStats,docs,dueBaseOf,getDoc,isCurrentDoc,isDone,lastPracticeTs,lifetimeSectionsMarked,logPractice,mastery,practiceCountBetween,practiceHistory,sectionLabel,sectionsLeft,sectionsMarked,sectionsMarkedToday,setCurrentDoc,setDocDue,setTrack,toggleCurrentDoc,toggleSection,trackOf};
+// Ring/proficiency mastery (D-AE): ONLY rated Flashcards [1–5] (mode 'flash', NOT the binary card)
+// + Scripture typing ('typer') feed the proficiency ring. Excluded: the binary Got-it card (mode
+// 'flash' but tagged {binary:true} — it drives the review-decay FILL, not the ring), Scramble, Fade,
+// and the Timer. Recent-weighted = average of the last 10 such attempts. null = no rated history yet
+// (→ empty ring). Leaves CR.mastery (all scored modes) untouched for the practice-ordering/weakest use.
+function ringMastery(docId, n) {
+  const arr = practiceHistory(docId, n).filter(e => e.mode === 'typer' || (e.mode === 'flash' && !e.binary));
+  if (!arr.length) return null;
+  const last = arr.slice(-10);
+  return Math.round(last.reduce((a, x) => a + x.score, 0) / last.length);
+}
+
+const CR = {GROUPS,currentDoc,currentDocs,docDueOf,docStats,docs,dueBaseOf,getDoc,isCurrentDoc,isDone,lastPracticeTs,lifetimeSectionsMarked,logPractice,mastery,practiceCountBetween,practiceHistory,ringMastery,sectionLabel,sectionsLeft,sectionsMarked,sectionsMarkedToday,setCurrentDoc,setDocDue,setTrack,toggleCurrentDoc,toggleSection,trackOf};
 // Strive — Fitness domain: workout database (seeded from btwb export), logbook,
 // custom workout builder, weight log. Assessment scoring arrives in a later phase.
 
@@ -3519,6 +3667,7 @@ SC.ensureKeys();
 const main = () => document.getElementById('main');
 const stack = [];
 let activeTab = 'home';
+let backTarget = null; // logical-parent fn for the header ‹ Back (null = legacy pop-history)
 
 function h(html) { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content; }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -3531,6 +3680,7 @@ function setHeader(title, { back = false, action = null } = {}) {
   document.getElementById('h-title').textContent = title;
   const b = document.getElementById('h-back');
   b.style.display = back ? 'block' : 'none';
+  backTarget = typeof back === 'function' ? back : null;
   const a = document.getElementById('h-action');
   if (action) { a.style.display = 'block'; a.textContent = action.label; a.onclick = action.fn; }
   else { a.style.display = 'none'; }
@@ -3541,10 +3691,26 @@ function render(screen, pushToStack = true) {
   main().scrollTop = 0;
   screen();
 }
+// Floating close ✕ for practice-session screens (fade / typer / flashcards / scramble / binary).
+// Top-right corner, exits straight to that mode's summary/scorecard. The review Timer keeps its
+// own stop/log controls and does NOT use this. Append the returned element to the screen's wrap.
+function practiceCloseX(onClose) {
+  const b = h(`<button class="practice-x" aria-label="Close">✕</button>`).firstChild;
+  b.onclick = onClose;
+  return b;
+}
 function rerender() { const s = stack[stack.length - 1]; main().innerHTML = ''; s(); }
 function goBack() {
   if (stack.length > 1) { stack.pop(); rerender(); }
 }
+// Logical-parent back: content-hierarchy screens declare their true container via
+// setHeader({ back: () => parentScreen(args) }); ‹ Back renders that parent instead of
+// popping visit-history, so a deep-link (dashboard → OT) resolves UP its real chain
+// (OT → Whole Bible) rather than back to wherever you jumped from. Home/Plan tabs handle
+// "go to dashboard." Screens that pass back:true (practice sessions, editors, sheets)
+// keep pop-history, which is the right behavior for a launched-and-return flow.
+function navToParent(fn) { stack[stack.length - 1] = fn; render(fn, false); }
+function headerBack() { if (typeof backTarget === 'function') navToParent(backTarget); else goBack(); }
 function switchTab(tab) {
   activeTab = tab;
   stack.length = 0;
@@ -4038,7 +4204,7 @@ function dashboard() {
 
 // ---------- Trends (Phase 5 · F5) ----------
 function trendsScreen() {
-  setHeader('Trends', { back: true });
+  setHeader('Trends', { back: () => switchTab('home') });
   const wrap = document.createElement('div');
 
   if (!Object.keys(state.activity).length) {
@@ -4147,7 +4313,26 @@ function dueControl({ label, hint, value, onSet, info, unit }) {
 
 function renderDayChecklist(container, dk, { showPathways = false } = {}) {
   const wrap = document.createElement('div');
+  syncReviewCycles();
   const items = PL.itemsForDate(dk);
+
+  // reviews due (Phase 11 cadence layer) — a module/book whose cycle is due; tap to review it
+  const revRows = reviewRowsForDate(dk);
+  if (revRows.length) {
+    wrap.append(sectionTitle('Reviews due'));
+    revRows.forEach(r => {
+      const el = h(`
+        <div class="list-item" style="cursor:pointer${r.late ? ';border-color:var(--danger)' : ''}">
+          <div class="check" style="color:var(--accent);border-color:var(--accent)">◎</div>
+          <div class="grow">
+            <div class="title">${esc(r.title)}</div>
+            <div class="sub">${r.scheduled ? '◎ review due' : (r.late ? '⚠ overdue · ' : '') + r.st.covered + '/' + r.st.total + ' reviewed this cycle · ' + RV.cadenceLabel(r.a.cadence)}</div>
+          </div>
+        </div>`);
+      el.querySelector('.list-item').onclick = () => launchReviewAssignment(r);
+      wrap.append(el);
+    });
+  }
 
   if (items.length) wrap.append(sectionTitle('Planned'));
   items.forEach(entry => {
@@ -4268,7 +4453,8 @@ let planMode = 'day';
 let planCursor = todayKey();   // date key anchoring all views
 
 function plan() {
-  setHeader('Planner', { back: true });
+  setHeader('Planner', { back: () => switchTab('plan') });
+  syncReviewCycles();   // roll any due review cycles so Week/Month markers are current
   const wrap = document.createElement('div');
   // time-window views on one line; Targets & Rules are a different kind of thing,
   // so they sit on their own line under a hairline (keeps the pill row clean — D-X spirit).
@@ -4339,13 +4525,15 @@ function planWeek(body) {
       const c = pr.done ? 'var(--forest)' : 'var(--accent)';
       return `<div class="sub" style="color:${c}">● ${esc(t.scope && t.scope.label ? t.scope.label : TG.domainLabelOf(t.domain))} · ${pr.amount}/${pr.target} ${esc(t.unit)}${pr.done ? ' ✓' : ''}</div>`;
     }).join('');
-    const anyExtra = nudges.length || dayTgts.length;
+    const revRows = reviewRowsForDate(dk);
+    const revLines = revRows.map(r => `<div class="sub" style="color:${r.late ? 'var(--danger)' : 'var(--accent)'}">◎ ${esc(r.title)} · ${r.scheduled ? 'review due' : r.st.covered + '/' + r.st.total + ' this cycle'}</div>`).join('');
+    const anyExtra = nudges.length || dayTgts.length || revRows.length;
     const el = h(`
       <div class="list-item" style="${isToday ? 'border-color:var(--accent)' : ''}">
         <div class="grow">
           <div class="title">${PL.fmtDate(dk)}${isToday ? ' · today' : ''}</div>
           <div class="sub">${st.total ? st.done + '/' + st.total + ' done' : (anyExtra ? 'targets below' : 'nothing planned')}</div>
-          ${paceLines}${tgtLines}
+          ${paceLines}${tgtLines}${revLines}
           ${st.total ? `<div class="progressbar" style="margin-top:6px"><div style="width:${st.done / st.total * 100}%"></div></div>` : ''}
         </div>
         <span class="chev">›</span>
@@ -4403,6 +4591,7 @@ function planMonth(body) {
     const dots = [];
     if (st.total) dots.push(`<span style="width:5px;height:5px;border-radius:50%;background:${st.done === st.total ? 'var(--accent)' : 'var(--gold)'}"></span>`);
     if (hasTarget) dots.push(`<span title="reading/pace target" style="width:5px;height:5px;border-radius:50%;border:1.5px solid var(--accent);background:transparent"></span>`);
+    if (reviewRowsForDate(dk).length) dots.push(`<span title="review due" style="width:5px;height:5px;border-radius:50%;background:var(--text)"></span>`);
     // one dot per DAILY target applying this day: filled (forest) if met, hollow (gold) if not (9.5)
     PL.targets().filter(t => t.period === 'day' && TG.targetAppliesOn(t, dk)).slice(0, 4).forEach(t => {
       const done = TG.targetProgress(t, dk).done;
@@ -4649,7 +4838,7 @@ function planRules(body) {
 
 // ---------- Pathways ----------
 function pathwaysHome() {
-  setHeader('Pathways', { back: true });
+  setHeader('Pathways', { back: () => switchTab('home') });
   const wrap = document.createElement('div');
   wrap.append(h(`<div class="muted" style="margin:2px 4px 12px">Ordered steps toward an accomplishment, grouped into milestones. No dates — just always know your next stone.</div>`));
   PW.all().forEach(p => {
@@ -4708,7 +4897,7 @@ function pathwayDetail(p) {
   drawPathway(p);
 }
 function drawPathway(p) {
-  setHeader(p.name, { back: true, action: { label: pwEditMode ? 'Done' : 'Edit', fn: () => { pwEditMode = !pwEditMode; drawPathway(p); } } });
+  setHeader(p.name, { back: () => pathwaysHome(), action: { label: pwEditMode ? 'Done' : 'Edit', fn: () => { pwEditMode = !pwEditMode; drawPathway(p); } } });
   const wrap = document.createElement('div');
   buildPathwayBody(wrap, p);
   main().innerHTML = '';
@@ -5118,7 +5307,7 @@ function shelfTile(b) {
 }
 
 function scriptureHome() {
-  setHeader('Scripture', { back: true });
+  setHeader('Scripture', { back: () => switchTab('home') });
   const wrap = document.createElement('div');
   const body = document.createElement('div');
   wrap.append(body);
@@ -5200,7 +5389,7 @@ function scriptureHome() {
 // 7B.2 — dashboard hub: a browsable list of a corpus's books (t = 'ot' | 'nt' | null for whole Bible)
 function corpusBooks(t) {
   const title = t === 'ot' ? 'Old Testament' : t === 'nt' ? 'New Testament' : 'Whole Bible';
-  setHeader(title, { back: true });
+  setHeader(title, { back: t ? () => corpusBooks(null) : scriptureHome });
   const wrap = document.createElement('div');
   const books = SC.allBooks.filter(b => t == null || b.t === t);
   let done = 0, total = 0;
@@ -5227,7 +5416,7 @@ function corpusBooks(t) {
 
 // 7B.2 — dashboard hub: books fully memorized
 function booksCompleteScreen() {
-  setHeader('Books complete', { back: true });
+  setHeader('Books complete', { back: scriptureHome });
   const wrap = document.createElement('div');
   const done = SC.allBooks.filter(b => { const s = SC.bookStats(b); return s.total > 0 && s.done === s.total; });
   if (!done.length) wrap.append(h(`<div class="muted" style="padding:8px 4px">No books fully memorized yet. Finish every verse in a book and it lands here.</div>`));
@@ -5244,7 +5433,7 @@ function booksCompleteScreen() {
 }
 
 function practiceScriptureLauncher() {
-  setHeader('Practice Scripture', { back: true });
+  setHeader('Practice Scripture', { back: scriptureHome });
   const wrap = document.createElement('div');
   const books = SC.allBooks.filter(b => SC.bookStats(b).done > 0);
   if (!books.length) wrap.append(h(`<div class="muted" style="padding:8px 4px">Nothing to practice yet — start memorizing a book first.</div>`));
@@ -5260,7 +5449,7 @@ function practiceScriptureLauncher() {
 }
 
 function practiceCreedsLauncher() {
-  setHeader('Practice Creeds', { back: true });
+  setHeader('Practice Creeds', { back: creedsHome });
   const wrap = document.createElement('div');
   CR.docs().forEach(d => {
     const st = CR.docStats(d.id);
@@ -5275,7 +5464,7 @@ function practiceCreedsLauncher() {
 const INTERVALS = [[0, 'None'], [7, 'Weekly'], [14, '2 weeks'], [30, 'Monthly'], [90, '3 months']];
 
 function bookScreen(b) {
-  setHeader(b.name, { back: true });
+  setHeader(b.name, { back: () => corpusBooks(b.t) });
   const wrap = document.createElement('div');
   const st = SC.bookStats(b);
   const stale = SC.isStale(b);
@@ -5309,31 +5498,40 @@ function bookScreen(b) {
   actions.querySelector('[data-a=review]').onclick = () => render(() => practiceScope(b, 'review'));
   wrap.append(actions);
 
-  // chapters grid — core navigation for marking verses, directly beneath the actions
+  // chapters grid — universal circle per chapter (D-AE): decay fill + mastery ring + verses count
   wrap.append(sectionTitle('Chapters'));
   const grid = document.createElement('div');
-  grid.className = 'grid';
+  grid.className = 'scgrid';
+  const bCad = RV.bookAssignment(b.name);
+  const bIv = bCad ? RV.cadenceIntervalMs(bCad.cadence) : null;   // decay window; null → neutral fill (interim: whole-book cadence only until the assign engine, chunk 4)
   b.verses.forEach((_, ci) => {
     const c = SC.chapterStats(b, ci);
-    const cell = document.createElement('div');
-    cell.className = 'cell' + (c.done === c.total ? ' done' : c.done > 0 ? ' partial' : '');
-    cell.textContent = ci + 1;
-    cell.onclick = () => render(() => chapterScreen(b, ci));
-    grid.append(cell);
+    const keys = [];
+    for (let v = 1; v <= c.total; v++) if (SC.verseDone(b, ci, v)) keys.push('bible:' + b.name + ':' + (ci + 1) + '#' + v);
+    grid.append(scriptureCircle({
+      num: ci + 1,
+      memorized: c.done > 0,
+      decay: (bIv != null && keys.length) ? RV.unitDecay(keys, bIv) : null,
+      mastery: RV.unitMastery(keys, verseRingMastery),
+      count: c.done + '/' + c.total,
+      title: b.name + ' ' + (ci + 1),
+      onClick: () => render(() => chapterScreen(b, ci))
+    }));
   });
   wrap.append(grid);
 
   // secondary pill row → focused sheets
   const modCount = MOD.moduleCount(b.name);
+  const cad = RV.bookAssignment(b.name);
   const pills = h(`<div class="pillrow" style="margin-top:16px">
     <button class="pill" data-s="project">${isCurrent ? '✓ Project' : 'Project'}</button>
     <button class="pill" data-s="modules">Modules${modCount ? ' · ' + modCount : ''}</button>
-    <button class="pill" data-s="interval">Interval${days ? ' · ' + days + 'd' : ''}</button>
+    <button class="pill" data-s="cadence">Cadence${cad ? ' · ' + RV.cadenceLabel(cad.cadence) : ''}</button>
     <button class="pill" data-s="memorized">Memorized</button>
   </div>`);
   pills.querySelector('[data-s=project]').onclick = () => memProjectSheet(b);
   pills.querySelector('[data-s=modules]').onclick = () => render(() => modulesScreen(b));
-  pills.querySelector('[data-s=interval]').onclick = () => memIntervalSheet(b);
+  pills.querySelector('[data-s=cadence]').onclick = () => bookCadenceSheet(b);
   pills.querySelector('[data-s=memorized]').onclick = () => memMemorizedSheet(b);
   wrap.append(pills);
 
@@ -5398,6 +5596,119 @@ function memIntervalSheet(b) {
   });
 }
 
+// ===== Cadence layer (Phase 11, layer 3) — set cadence, fade shade, reviews-due surfacing =====
+const CADENCE_PRESETS = [['off', 'Off'], ['i7', 'Every 7d'], ['i14', 'Every 14d'], ['i30', 'Every 30d'], ['i60', 'Every 60d'], ['i90', 'Every 90d'], ['weekly', 'Weekly'], ['monthly', 'Monthly']];
+function cadenceKeyOf(a) { if (!a) return 'off'; const c = RV.normCadence(a.cadence); if (c.type === 'weekly') return 'weekly'; if (c.type === 'monthly') return 'monthly'; return 'i' + c.days; }
+function cadenceFromKey(k) { if (k === 'off') return null; if (k === 'weekly') return { type: 'weekly' }; if (k === 'monthly') return { type: 'monthly' }; return { type: 'interval', days: Number(k.slice(1)) }; }
+// Shared cadence sheet. `current` = the assignment (or null); onApply(cadence|null).
+function reviewCadenceSheet(name, current, onApply) {
+  openSheet('Review cadence', (body, close) => {
+    const sel = cadenceKeyOf(current);
+    const card = h(`<div>
+      <div class="muted" style="font-size:12px;margin-bottom:8px">How often <b>${esc(name)}</b> comes due for review. Reviewed verses fade white→black as the next review nears; at due they're black again.</div>
+      <div class="pillrow" style="margin-bottom:8px">
+        ${CADENCE_PRESETS.map(([k, l]) => `<button class="pill ${sel === k ? 'on' : ''}" data-k="${k}">${l}</button>`).join('')}
+      </div>
+      <div class="muted" style="font-size:12px">${current ? 'Interval cadences (Every Nd) float from your first review each cycle; Weekly / Monthly are a fixed rhythm.' : 'Off — this material never comes due for review.'}</div>
+    </div>`).firstElementChild;
+    card.querySelectorAll('[data-k]').forEach(btn => btn.onclick = () => { onApply(cadenceFromKey(btn.dataset.k)); close(); rerender(); });
+    body.append(card);
+  });
+}
+// whole-book cadence sheet — also mirrors to the legacy reviewIntervals so the staleness ⚠ keeps working
+function bookCadenceSheet(b) {
+  reviewCadenceSheet(b.name, RV.bookAssignment(b.name), c => {
+    if (c) { RV.setBookCadence(b.name, c); SC.setReviewInterval(b.name, RV.normCadence(c).days); }
+    else { RV.clearBookCadence(b.name); SC.setReviewInterval(b.name, 0); }
+  });
+}
+// paper (#fbf7ed) → ink (#262016) interpolation; f 0=fresh(light) … 1=due(black).
+function reviewShade(f) {
+  const A = [0xfb, 0xf7, 0xed], B = [0x26, 0x20, 0x16], mix = i => Math.round(A[i] + (B[i] - A[i]) * f);
+  return { bg: `rgb(${mix(0)},${mix(1)},${mix(2)})`, fg: f > 0.55 ? 'var(--card)' : 'var(--text)' };
+}
+
+// Universal scripture-unit glyph (D-AE) — one circle carrying BOTH channels, used everywhere a verse/
+// chapter/book/module shows: FILL = review decay (light→black = due, via reviewShade), brass RING =
+// proficiency/mastery (0→100% arc, with a radial gap from the fill so both read), number centered,
+// optional count caption BELOW (always shown on aggregate units so complete/incomplete look identical).
+// memorized=false → empty dashed circle (still tappable). decay/mastery null → that channel is omitted
+// (neutral paper fill / no ring). Returns a <button> (if onClick) or <div>.
+function scriptureCircle({ num, memorized = true, decay = null, mastery = null, count = null, title = '', onClick = null }) {
+  const RR = 24, C = 2 * Math.PI * RR;
+  let fillBg = 'none', numCol = 'var(--text-2)', fillStroke = 'stroke:var(--line);stroke-width:1;stroke-dasharray:3 3';
+  if (memorized) {
+    if (decay == null) { fillBg = '#fbf7ed'; numCol = 'var(--text)'; }          // memorized, no cadence → neutral fill
+    else { const sh = reviewShade(decay); fillBg = sh.bg; numCol = sh.fg; }      // decay fill
+    fillStroke = 'stroke:rgba(38,32,22,0.20);stroke-width:0.5';
+  }
+  const ring = (memorized && mastery != null)
+    ? `<circle cx="29" cy="29" r="${RR}" fill="none" stroke-linecap="round" style="stroke:var(--gold);stroke-width:2.5" stroke-dasharray="${(mastery / 100 * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 29 29)"/>`
+    : '';
+  const el = document.createElement(onClick ? 'button' : 'div');
+  el.className = 'scircle';
+  if (title) el.title = title;
+  el.innerHTML = `<svg viewBox="0 0 58 58" width="46" height="46" aria-hidden="true">
+    <circle cx="29" cy="29" r="19" fill="${fillBg}" style="${fillStroke}"/>
+    ${ring}
+    <text x="29" y="29" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="600" style="fill:${numCol}">${num}</text>
+  </svg>${count != null ? `<span class="scircle-cap">${esc(count)}</span>` : ''}`;
+  if (onClick) el.onclick = onClick;
+  return el;
+}
+// masteryOf(coverageKey) → ringMastery for that verse (used by the unit rollups; D-AE ring source)
+const verseRingMastery = k => { const s = RV.splitKey(k); return CR.ringMastery(s.docId, s.n); };
+// per-verse coverage keys for a book's MEMORIZED verses (whole-book review = what you've memorized)
+function bookMemorizedKeys(b) {
+  const prog = (state.scripture.progress || {})[b.name] || {}, out = [];
+  for (const k in prog) { if (!prog[k]) continue; const [ci, v] = k.split('_').map(Number); out.push('bible:' + b.name + ':' + (ci + 1) + '#' + v); }
+  return out;
+}
+// every active review assignment (modules with a cadence + whole-book assignments), resolved to keys
+function collectReviewAssignments() {
+  const out = [];
+  for (const bookName in (state.modules || {})) {
+    const b = allBooks.find(x => x.name === bookName); if (!b) continue;
+    MOD.modulesFor(bookName).forEach(mod => {
+      if (!mod.review) return;
+      const keys = RV.moduleKeys(bookName, mod); if (!keys.length) return;
+      out.push({ id: 'mod-' + bookName + '-' + mod.id, kind: 'module', book: b, mod, a: mod.review, keys, title: (mod.name || MOD.moduleAutoName(mod, b)) });
+    });
+  }
+  for (const bookName in (state.review.books || {})) {
+    const b = allBooks.find(x => x.name === bookName); if (!b) continue;
+    const keys = bookMemorizedKeys(b); if (!keys.length) continue;
+    out.push({ id: 'book-' + bookName, kind: 'book', book: b, a: state.review.books[bookName], keys, title: bookName });
+  }
+  return out;
+}
+// roll any cycles that have come due (interval: after completion; calendar: on the date). Save once.
+function syncReviewCycles() {
+  let changed = false;
+  collectReviewAssignments().forEach(A => { if (RV.syncCycle(A.a, A.keys)) changed = true; });
+  if (changed) save();
+}
+// review rows to surface on day dk: due (incomplete) rows land on today only; a complete assignment
+// shows a scheduled marker on its next-due day.
+function reviewRowsForDate(dk, today = todayKey()) {
+  const rows = [];
+  collectReviewAssignments().forEach(A => {
+    const st = RV.assignmentStatus(A.a, A.keys);
+    if (!st.complete) { if (dk === today) rows.push({ ...A, st, late: st.dueKey < today, scheduled: false }); }
+    else { const ndKey = todayKey(new Date(st.nextDueMs)); if (dk === ndKey) rows.push({ ...A, st, scheduled: true }); }
+  });
+  return rows;
+}
+// launch a due review: a module reviews its uncovered-this-cycle verses directly; a whole book opens
+// its screen (the whole-book deck can be large — resume from there).
+async function launchReviewAssignment(r) {
+  if (r.kind === 'module') {
+    const doc = await moduleFetchDoc(r.book, r.mod, () => {});
+    if (!doc) { toast('Could not load verses'); return; }
+    binaryStart(doc, 'review', binaryOpts, r.a.cycleStart);
+  } else render(() => bookScreen(r.book));
+}
+
 // Memorized sheet — SM3 mark whole book memorized (undoable) + reset
 function memMemorizedSheet(b) {
   openSheet('Memorized', (body, close) => {
@@ -5438,7 +5749,7 @@ function memMemorizedSheet(b) {
 let modDraft = null;   // { book, mod, isNew, nameTouched }
 
 function modulesScreen(b) {
-  setHeader(b.name + ' — Modules', { back: true });
+  setHeader(b.name + ' — Modules', { back: () => bookScreen(b) });
   const wrap = document.createElement('div');
   wrap.append(h(`<div class="muted" style="font-size:12px;margin:2px 4px 12px">Split ${esc(b.name)} into named chunks to practice or review one at a time. Tap a module to edit it.</div>`));
 
@@ -5481,7 +5792,7 @@ function moduleEditScreen(b) {
   if (!modDraft || modDraft.book !== b.name) { render(() => modulesScreen(b), false); return; }
   const mod = modDraft.mod;
   if (!modDraft.nameTouched) mod.name = MOD.moduleAutoName(mod, b);   // keep name synced to selection until edited
-  setHeader(modDraft.isNew ? 'New module' : 'Edit module', { back: true });
+  setHeader(modDraft.isNew ? 'New module' : 'Edit module', { back: () => modulesScreen(b) });
   const wrap = document.createElement('div');
 
   // name
@@ -5574,7 +5885,7 @@ function moduleReviewedCount(b, mod) {
 // (The ◎ unified Practice/Review front door and timed-Review coverage arrive with the review engine.)
 function moduleScreen(b, mod) {
   const title = mod.name || MOD.moduleAutoName(mod, b);
-  setHeader(title, { back: true });
+  setHeader(title, { back: () => modulesScreen(b) });
   const wrap = document.createElement('div');
   const vtotal = MOD.moduleVerseCount(mod), vreviewed = moduleReviewedCount(b, mod);
   wrap.append(h(`<div class="card">
@@ -5582,6 +5893,35 @@ function moduleScreen(b, mod) {
     <div class="muted" style="margin-top:4px">${esc(MOD.moduleCoverage(mod, b))} · ${vtotal} verses</div>
     <div class="muted" style="font-size:12px;margin-top:6px">✓ ${vreviewed} / ${vtotal} reviewed${vreviewed === vtotal && vtotal ? ' · fully reviewed' : ''}</div>
   </div>`));
+
+  // Review cadence control + white→black freshness fade (layer 3)
+  const cadBtn = h(`<button class="pill" style="margin:2px 0 4px">Review cadence · ${RV.cadenceLabel(mod.review && mod.review.cadence)}</button>`).firstChild;
+  cadBtn.onclick = () => reviewCadenceSheet(title, mod.review || null, c => { if (c) mod.review = RV.newAssignment(c); else delete mod.review; save(); });
+  wrap.append(cadBtn);
+  if (mod.review) {
+    const a = mod.review, mkeys = RV.moduleKeys(b.name, mod);
+    if (RV.syncCycle(a, mkeys)) save();
+    const stA = RV.assignmentStatus(a, mkeys), iv = RV.cadenceIntervalMs(a.cadence), now = Date.now();
+    wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 8px;${!stA.complete ? 'color:var(--accent);font-weight:600' : ''}">${stA.complete ? '✓ Reviewed this cycle · next due ' + shortDate(stA.dueKey) : '◎ Due now · ' + stA.covered + ' / ' + stA.total + ' reviewed this cycle'}</div>`));
+    const fadeWrap = document.createElement('div');
+    MOD.moduleChapters(mod).forEach(ci => {
+      const vs = (mod.verses[ci] || []); if (!vs.length) return;
+      fadeWrap.append(h(`<div class="muted" style="font-size:11px;margin:2px 2px 3px">Ch ${ci + 1}</div>`));
+      const g = document.createElement('div'); g.className = 'grid';
+      vs.forEach(v => {
+        const key = 'bible:' + b.name + ':' + (ci + 1) + '#' + v;
+        const sh = reviewShade(RV.verseFreshness(RV.coverageTs(key), iv, now));
+        const cell = document.createElement('div'); cell.className = 'cell';
+        cell.style.cssText = `background:${sh.bg};color:${sh.fg}`;
+        cell.textContent = v; cell.title = 'Ch ' + (ci + 1) + ':' + v;
+        g.append(cell);
+      });
+      fadeWrap.append(g);
+    });
+    wrap.append(sectionTitle('Review freshness'));
+    wrap.append(fadeWrap);
+    wrap.append(h(`<div class="muted" style="font-size:11px;margin:6px 4px 0">Light = just reviewed · black = due. Fades toward black as the next review nears.</div>`));
+  }
 
   wrap.append(sectionTitle('Practice'));
   wrap.append(h(`<div class="muted" style="font-size:12px;margin:-4px 4px 8px">Rehearse this module. Marking it reviewed (coverage) arrives with the review engine.</div>`));
@@ -5672,7 +6012,7 @@ async function fetchChaptersProgress(b, cis, btn) {
 // intent 'practice' | 'review' — same scope→mode flow for both (D-AB unification);
 // Review currently differs only in label. Marking a module reviewed (coverage) is the Phase 11 engine.
 function practiceScope(b, intent = 'practice') {
-  setHeader((intent === 'review' ? 'Review' : 'Practice') + ' · ' + b.name, { back: true });
+  setHeader((intent === 'review' ? 'Review' : 'Practice') + ' · ' + b.name, { back: () => bookScreen(b) });
   if (prScope.book !== b.name) prScope = { book: b.name, mode: b.chapters <= WHOLE_BOOK_CAP ? 'book' : 'chapters', chapters: {}, vch: null, verses: {} };
   const s = prScope;
   const wrap = document.createElement('div');
@@ -5795,7 +6135,7 @@ function practiceScope(b, intent = 'practice') {
 }
 
 function chapterScreen(b, ci) {
-  setHeader(b.name + ' ' + (ci + 1), { back: true });
+  setHeader(b.name + ' ' + (ci + 1), { back: () => bookScreen(b) });
   const wrap = document.createElement('div');
 
   // SM4 — next/previous chapter navigation (one at a time, both directions)
@@ -5843,14 +6183,27 @@ function chapterScreen(b, ci) {
     }));
   }
 
+  // verse grid — universal circle per verse (D-AE): decay fill + mastery ring; tap toggles memorized
   const grid = document.createElement('div');
-  grid.className = 'grid';
+  grid.className = 'scgrid';
+  const vCad = RV.bookAssignment(b.name);
+  const vIv = vCad ? RV.cadenceIntervalMs(vCad.cadence) : null;
+  const vDoc = 'bible:' + b.name + ':' + (ci + 1);
   for (let v = 1; v <= b.verses[ci]; v++) {
-    const cell = document.createElement('div');
-    cell.className = 'cell' + (SC.verseDone(b, ci, v) ? ' done' : '');
-    cell.textContent = v;
-    cell.onclick = () => { SC.toggleVerse(b, ci, v); cell.classList.toggle('done'); };
-    grid.append(cell);
+    const vn = v;
+    const mk = () => {
+      const done = SC.verseDone(b, ci, vn), key = vDoc + '#' + vn;
+      return scriptureCircle({
+        num: vn,
+        memorized: done,
+        decay: (vIv != null && done) ? RV.verseFreshness(RV.coverageTs(key), vIv) : null,
+        mastery: done ? CR.ringMastery(vDoc, vn) : null,
+        title: b.name + ' ' + (ci + 1) + ':' + vn,
+        onClick: () => { SC.toggleVerse(b, ci, vn); const fresh = mk(); cur.replaceWith(fresh); cur = fresh; }
+      });
+    };
+    let cur = mk();
+    grid.append(cur);
   }
   wrap.append(grid);
 
@@ -6035,7 +6388,7 @@ function multiGraph(series) {   // [{label, entries}] — entries any order
 let timesOpen = null;   // book name whose entry list is expanded
 
 function reviewArea() {
-  setHeader('Scripture Review', { back: true });
+  setHeader('Scripture Review', { back: scriptureHome });
   const wrap = document.createElement('div');
   main().append(wrap);
   renderTimes(wrap);
@@ -6175,7 +6528,7 @@ const RD_BADGE = {
 };
 
 function readingHome() {
-  setHeader('Reading', { back: true });
+  setHeader('Reading', { back: () => switchTab('home') });
   const wrap = document.createElement('div');
   const lib = RD.libraryLevel(), life = RD.lifetime();
   wrap.append(h(`
@@ -6281,7 +6634,7 @@ function openSheet(title, build) {
 }
 
 function bookDetail(b) {
-  setHeader(b.title, { back: true });
+  setHeader(b.title, { back: readingHome });
   const wrap = document.createElement('div');
   const est = RD.estimate(b);
   const curCh = RD.currentChapter(b);
@@ -6426,7 +6779,7 @@ function bookRemoveSheet(b) {
 
 // Notes — a full sub-screen (summaries / quotes / questions), opened from the Notes pill
 function bookNotes(b) {
-  setHeader('Notes · ' + b.title, { back: true });
+  setHeader('Notes · ' + b.title, { back: () => bookDetail(b) });
   const wrap = document.createElement('div');
   const notePills = h(`<div class="pillrow">
     <button class="pill ${rdNoteMode === 'summaries' ? 'on' : ''}" data-n="summaries">Summaries</button>
@@ -6474,7 +6827,7 @@ function parseTocText(text) {
 // initialStatus carries the scan result line across the re-render that loads new rows —
 // without it the "found N rows via …" message is built and then immediately discarded.
 function chapterEditor(b, initialRows = null, initialStatus = '') {
-  setHeader('Chapters · ' + b.title, { back: true });
+  setHeader('Chapters · ' + b.title, { back: () => bookDetail(b) });
   const wrap = document.createElement('div');
   const rows = initialRows || (b.chapterList ? b.chapterList.map(c => ({ ...c })) : []);
   if (!rows.length) rows.push({ title: '', page: '' });
@@ -6740,7 +7093,7 @@ function renderQuestions(body, b) {
 let researchSel = {};   // tag → true
 let researchText = '';
 function researchScreen() {
-  setHeader('Research', { back: true });
+  setHeader('Research', { back: readingHome });
   const wrap = document.createElement('div');
   const tags = state.reading.tags || [];
 
@@ -6793,7 +7146,7 @@ function researchScreen() {
 
 // ---------- Bible reading plans ----------
 function plansScreen() {
-  setHeader('Reading Plans', { back: true });
+  setHeader('Reading Plans', { back: readingHome });
   const wrap = document.createElement('div');
   renderPlans(wrap);
   main().append(wrap);
@@ -6825,7 +7178,7 @@ function renderPlans(body) {
 }
 
 function planCreate() {
-  setHeader('New reading plan', { back: true });
+  setHeader('New reading plan', { back: plansScreen });
   const wrap = document.createElement('div');
   let preset = 'whole', mode = 'perday';
   const picked = {};
@@ -6965,7 +7318,7 @@ function planCreate() {
 }
 
 function planDetail(p) {
-  setHeader(p.name, { back: true });
+  setHeader(p.name, { back: plansScreen });
   const wrap = document.createElement('div');
   const st = RP.planStats(p);
   const fin = RP.estFinish(p);
@@ -7019,7 +7372,7 @@ function planDetail(p) {
 
 // ---------- Creeds, Catechisms & Confessions ----------
 function creedsHome() {
-  setHeader('Creeds, Catechisms & Confessions', { back: true });
+  setHeader('Creeds, Catechisms & Confessions', { back: () => switchTab('home') });
   const wrap = document.createElement('div');
 
   const currents = CR.currentDocs();
@@ -7069,7 +7422,7 @@ function creedsHome() {
 let crOpenSection = null;
 
 function creedDocScreen(d) {
-  setHeader(d.name.replace(/^The /, ''), { back: true });
+  setHeader(d.name.replace(/^The /, ''), { back: creedsHome });
   const wrap = document.createElement('div');
   const st = CR.docStats(d.id);
   const tr = CR.trackOf(d.id);
@@ -7173,7 +7526,7 @@ function creedSectionSheet(d, s) {
 
 // A group written out in full — every section/Q&A, each markable. ld null = the whole doc.
 function creedGroupScreen(d, ld) {
-  setHeader(d.name.replace(/^The /, '') + (ld != null ? " · Lord's Day " + ld : ''), { back: true });
+  setHeader(d.name.replace(/^The /, '') + (ld != null ? " · Lord's Day " + ld : ''), { back: () => creedDocScreen(d) });
   const wrap = document.createElement('div');
   d.sections.filter(s => ld == null || s.ld === ld).forEach(s => {
     const done = CR.isDone(d.id, s.n);
@@ -7256,6 +7609,15 @@ let prSetup = { mode: 'fade', sel: 'all', from: 1, to: 10, lds: {}, picked: {}, 
 const prDocId = (d, x) => x.docId || d.id;
 const prN = x => x.vn != null ? x.vn : x.n;
 
+// Rating-5 terminal action for the rank 1–5 flashcards, by intent (chunk-1 flashcard cleanup):
+//   practice → mark the verse memorized (like the binary Memorized button)
+//   review   → mark the verse reviewed (RV coverage), same as a binary "Got it"
+// 1–4 do neither. Mastery is logged separately (rating × 20) by the caller.
+function flashRankFive(d, item, intent) {
+  if (intent === 'review') RV.markCovered(RV.coverageKey(prDocId(d, item), prN(item)));
+  else binaryMarkMemorized(d, item);
+}
+
 // gradient tile: white = 100% mastery → black = never practiced
 function masteryTileStyle(m) {
   const L = m === null ? 0 : 18 + m * 0.82;   // 0 (black) for never; 18%→100% lightness by mastery
@@ -7305,9 +7667,9 @@ function practiceSetup(d, intent = 'practice') {
   const modes = h(`<div class="pillrow">
     <button class="pill ${s.mode === 'fade' ? 'on' : ''}" data-m="fade">Fade</button>
     <button class="pill ${s.mode === 'typer' ? 'on' : ''}" data-m="typer">First-Letter</button>
-    <button class="pill ${s.mode === 'flash' ? 'on' : ''}" data-m="flash">Flashcards</button>
+    <button class="pill ${s.mode === 'flash' ? 'on' : ''}" data-m="flash">Flashcards [1–5]</button>
     <button class="pill ${s.mode === 'scramble' ? 'on' : ''}" data-m="scramble">Scramble</button>
-    <button class="pill ${s.mode === 'binary' ? 'on' : ''}" data-m="binary">Got it / Missed</button>
+    <button class="pill ${s.mode === 'binary' ? 'on' : ''}" data-m="binary">Flashcards [✓]</button>
     ${d.bible ? `<button class="pill ${s.mode === 'review' ? 'on' : ''}" data-m="review">Review ⏱</button>` : ''}
   </div>`);
   modes.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { s.mode = b.dataset.m; rerender(); });
@@ -7315,9 +7677,9 @@ function practiceSetup(d, intent = 'practice') {
   wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 4px">${{
     fade: 'Recite while the text disappears in stages — tap a blank to peek. Pure learning; never scored.',
     typer: 'Type the first letter of each word. Three misses reveals the word. Accuracy feeds mastery.',
-    flash: 'Adaptive deck: weak cards return often, new cards enter once the active ones reach 3+. Exit ratings feed mastery.',
+    flash: `Rate each card 1–5. Weak cards return often; a 5 retires the card${intent === 'review' ? ' and marks that verse reviewed' : ' and marks that verse memorized'}. Exit ratings feed mastery.`,
     scramble: 'Rebuild the text by tapping the pieces in order. First-try accuracy feeds mastery.',
-    binary: 'Got it / Missed — the review pass. Got it marks the verse reviewed; missed cards repeat until cleared. Save & exit anytime.',
+    binary: intent === 'review' ? 'Two buttons — Missed or Got it. Got it marks the verse reviewed; missed cards repeat until cleared. Tap ✕ anytime.' : 'Three buttons — Missed, Memorized, or Got it. Memorized marks a verse memorized; missed cards repeat until cleared. Tap ✕ anytime.',
     review: 'Timed recitation of this selection — logs to the review tracker. Tap 📖 View text to peek without stopping the clock.'
   }[s.mode]}</div>`));
 
@@ -7453,14 +7815,14 @@ function practiceSetup(d, intent = 'practice') {
       toast({ memorized: 'Nothing marked memorized yet.', weakest: 'No practice history yet — run a session first.', ld: "No Lord's Days selected." }[s.sel] || 'No questions selected.');
       return;
     }
-    const queue = list.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn }));
+    const queue = list.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn, ci: x.ci }));
     if (s.mode === 'fade') render(() => fadeScreen(d, queue, 0, 0, []));
     if (s.mode === 'typer') render(() => typerScreen(d, queue, 0, []));
     if (s.mode === 'flash') {
       if (s.flashOrder === 'inorder') {
         const ordered = queue.slice().sort((a, b) => a.n - b.n);   // written order, always
-        render(() => orderedFlashCard(d, ordered, 0, {}));
-      } else render(() => flashSession(d, queue, s.budget, s.flashOrder));
+        render(() => orderedFlashCard(d, ordered, 0, {}, intent));
+      } else render(() => flashSession(d, queue, s.budget, s.flashOrder, intent));
     }
     if (s.mode === 'scramble') render(() => scrambleScreen(d, queue, 0, []));
   };
@@ -7529,6 +7891,7 @@ function fadeScreen(d, queue, qi, stage, results) {
     skip.firstChild.onclick = () => { results.push({ n: item.n, peeks: item._peeks }); render(() => fadeScreen(d, queue, qi + 1, 0, results), false); };
     wrap.append(skip);
   }
+  wrap.append(practiceCloseX(() => render(() => fadeScreen(d, queue, queue.length, 0, results), false)));
   main().append(wrap);
 }
 
@@ -7622,6 +7985,7 @@ function typerScreen(d, queue, qi, results) {
   const skip = h(`<button class="btn secondary" style="margin-top:14px">Skip this question</button>`);
   skip.firstChild.onclick = () => { render(() => typerScreen(d, queue, qi + 1, results), false); };
   wrap.append(skip);
+  wrap.append(practiceCloseX(() => render(() => typerScreen(d, queue, queue.length, results), false)));
   main().append(wrap);
 }
 
@@ -7704,6 +8068,7 @@ function scrambleScreen(d, queue, qi, results) {
     toast(`Q${item.n}: ${acc}%`);
     render(() => scrambleScreen(d, queue, qi + 1, results), false);
   }
+  wrap.append(practiceCloseX(() => render(() => scrambleScreen(d, queue, queue.length, results), false)));
   main().append(wrap);
 }
 
@@ -7757,11 +8122,11 @@ function flashIntroduce(session) {
   }
 }
 
-function flashSession(d, queue, budget, order = 'adaptive') {
+function flashSession(d, queue, budget, order = 'adaptive', intent = 'practice') {
   const session = {
     pool: buildFlashPool(d, queue, order),
     byN: Object.fromEntries(queue.map(i => [i.n, i])),   // SM5: n → item, for per-chapter mastery logging
-    active: [], shown: [], ratings: {}, exit: {}, reps: 0, budget,
+    active: [], shown: [], ratings: {}, exit: {}, reps: 0, budget, intent,
     seed: order === 'seq' ? 1 : 3
   };
   flashIntroduce(session);
@@ -7805,9 +8170,7 @@ function flashCard(d, session) {
   draw();
   wrap.append(card);
 
-  const endBtn = h(`<button class="btn secondary" style="margin-top:14px">End session</button>`);
-  endBtn.firstChild.onclick = () => render(() => flashEnd(d, session), false);
-  wrap.append(endBtn);
+  wrap.append(practiceCloseX(() => render(() => flashEnd(d, session), false)));
   main().append(wrap);
 
   function draw() {
@@ -7839,7 +8202,7 @@ function flashCard(d, session) {
     session.shown.push(item.n);
     session.ratings[item.n] = r;
     session.exit[item.n] = r;
-    if (r === 5) session.active = session.active.filter(c => c.n !== item.n);   // retire
+    if (r === 5) { session.active = session.active.filter(c => c.n !== item.n); flashRankFive(d, item, session.intent); }   // retire + terminal action
     flashIntroduce(session);
     render(() => flashCard(d, session), false);
   }
@@ -7848,7 +8211,7 @@ function flashCard(d, session) {
 // Phase 7.4 — plain in-order flashcards: one linear pass, each card once, front to
 // back. No adaptive reordering. Ratings feed mastery just like the adaptive deck
 // (rating × 20), one entry per card. `exit` accumulates ratings across the recursion.
-function orderedFlashCard(d, queue, idx, exit) {
+function orderedFlashCard(d, queue, idx, exit, intent = 'practice') {
   if (idx >= queue.length) {
     const touched = Object.keys(exit);
     const dist = [1, 2, 3, 4, 5].map(r => `${r}: ${touched.filter(n => exit[n] === r).length}`).join('  ·  ');
@@ -7874,9 +8237,7 @@ function orderedFlashCard(d, queue, idx, exit) {
   draw();
   wrap.append(card);
 
-  const endBtn = h(`<button class="btn secondary" style="margin-top:14px">End session</button>`).firstChild;
-  endBtn.onclick = () => render(() => orderedFlashCard(d, queue, queue.length, exit), false);
-  wrap.append(endBtn);
+  wrap.append(practiceCloseX(() => render(() => orderedFlashCard(d, queue, queue.length, exit, intent), false)));
   main().append(wrap);
 
   function draw() {
@@ -7906,7 +8267,8 @@ function orderedFlashCard(d, queue, idx, exit) {
   function rate(r) {
     exit[item.n] = r;
     CR.logPractice(prDocId(d, item), prN(item), 'flash', r * 20);
-    render(() => orderedFlashCard(d, queue, idx + 1, exit), false);
+    if (r === 5) flashRankFive(d, item, intent);
+    render(() => orderedFlashCard(d, queue, idx + 1, exit, intent), false);
   }
 }
 
@@ -7915,6 +8277,22 @@ function orderedFlashCard(d, queue, idx, exit) {
 // verses, each Got-it marks the verse reviewed (RV coverage, incremental + auto-saved), missed
 // cards repeat until cleared. Save & exit anytime → scorecard; resume picks up the next un-dotted.
 let binaryOpts = { order: 'inorder', miss: 'fold', count: 20 };
+
+// Build the coverage-aware deck from the current dials and launch the cards. Shared by the
+// on-screen setup (book-screen Practice/Review) and the quick-log direct launch.
+function binaryStart(d, intent, o = binaryOpts, sinceMs = 0) {
+  const full = d.sections.map(sec => ({ n: sec.n, q: sec.label, a: sec.text, docId: sec.docId, vn: sec.vn, ci: sec.ci, key: RV.coverageKey(prDocId(d, sec), prN(sec)) }));
+  let deck;
+  if (intent === 'review') {
+    deck = RV.uncoveredDeck(full, o.count, sinceMs);                                   // review walks verses not covered THIS cycle (sinceMs=cycle watermark)
+    if (!deck.length) deck = (o.count && o.count > 0) ? full.slice(0, o.count) : full;   // all reviewed → fresh pass
+  } else {
+    deck = (o.count && o.count > 0) ? full.slice(0, o.count) : full;                   // practice = the verses you chose, NOT coverage-filtered
+  }
+  if (!deck.length) { toast('No verses in that selection'); return; }
+  if (o.order === 'shuffled') deck = RV.shuffled(deck);
+  render(() => binaryFlashScreen(d, deck, { order: o.order, miss: o.miss, intent }));
+}
 
 function binaryMarkMemorized(d, item) {
   if (d.bible) {
@@ -7933,8 +8311,9 @@ function binarySetupBlock(d, intent) {
   const keys = d.sections.map(sec => RV.coverageKey(prDocId(d, sec), prN(sec)));
   const total = keys.length, covered = RV.coveredCount(keys), remaining = total - covered;
   const o = binaryOpts;
-  wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 10px">Got it / Missed — the review pass. Each verse you clear gets a ✓ reviewed dot; missed cards repeat until you clear them. Save & exit anytime.</div>`));
-  wrap.append(h(`<div class="card"><div class="row"><span class="grow">Reviewed</span><b>${covered} / ${total}</b></div>
+  wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 10px">${intent === 'review' ? 'Missed or Got it. Each verse you clear gets marked reviewed; missed cards repeat until you clear them. Tap ✕ anytime — nothing is lost.' : 'Missed, Memorized, or Got it. Memorized marks a verse memorized; missed cards repeat until you clear them. Tap ✕ anytime — nothing is lost.'}</div>`));
+  // Coverage readout is a Review concern only — Practice isn't gated by what's been reviewed.
+  if (intent === 'review') wrap.append(h(`<div class="card"><div class="row"><span class="grow">Reviewed</span><b>${covered} / ${total}</b></div>
     <div class="progressbar" style="margin-top:8px;height:7px"><div style="width:${total ? covered / total * 100 : 0}%"></div></div>
     ${remaining === 0 ? `<div class="muted" style="font-size:12px;margin-top:8px">All reviewed — a fresh pass reviews them again without changing the dots.</div>` : ''}</div>`));
 
@@ -7960,15 +8339,9 @@ function binarySetupBlock(d, intent) {
   cnt.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { o.count = Number(b.dataset.c); rerender(); });
   wrap.append(cnt);
 
-  const start = h(`<button class="btn" style="margin-top:16px">${remaining === 0 ? 'Review again (fresh pass)' : 'Start review'}</button>`);
-  start.firstChild.onclick = () => {
-    const full = d.sections.map(sec => ({ n: sec.n, q: sec.label, a: sec.text, docId: sec.docId, vn: sec.vn, ci: sec.ci, key: RV.coverageKey(prDocId(d, sec), prN(sec)) }));
-    let deck = RV.uncoveredDeck(full, o.count);
-    if (!deck.length) deck = (o.count && o.count > 0) ? full.slice(0, o.count) : full;   // fresh pass over already-reviewed
-    if (!deck.length) { toast('Nothing to review'); return; }
-    if (o.order === 'shuffled') deck = RV.shuffled(deck);
-    render(() => binaryFlashScreen(d, deck, { order: o.order, miss: o.miss, intent }));
-  };
+  const startLabel = remaining === 0 ? (intent === 'review' ? 'Review again (fresh pass)' : 'Practice again (fresh pass)') : (intent === 'review' ? 'Start review' : 'Start practice');
+  const start = h(`<button class="btn" style="margin-top:16px">${startLabel}</button>`);
+  start.firstChild.onclick = () => binaryStart(d, intent, o);
   wrap.append(start);
   return wrap;
 }
@@ -7979,9 +8352,10 @@ function binaryFlashScreen(d, deck, opts) {
 }
 
 function binaryCard(d, session) {
+  const intent = session.opts.intent;
   if (!session.queue.length) { render(() => binaryScorecard(d, session), false); return; }
   const item = session.queue[0];
-  setHeader('Review · Got it / Missed', { back: true });
+  setHeader((intent === 'review' ? 'Review' : 'Practice') + ' · Flashcards [✓]', { back: true });
   let flipped = false;
   const wrap = document.createElement('div');
   wrap.append(h(`<div class="row" style="margin:2px 4px 10px"><div class="grow muted">${session.cleared} of ${session.total} cleared · ${session.queue.length} in queue</div></div>`));
@@ -7991,9 +8365,7 @@ function binaryCard(d, session) {
   card.style.cssText = 'min-height:220px;display:flex;flex-direction:column;justify-content:center;cursor:pointer;text-align:center;padding:24px 18px';
   draw();
   wrap.append(card);
-  const endBtn = h(`<button class="btn secondary" style="margin-top:14px">Save &amp; exit</button>`);
-  endBtn.firstChild.onclick = () => render(() => binaryScorecard(d, session), false);
-  wrap.append(endBtn);
+  wrap.append(practiceCloseX(() => render(() => binaryScorecard(d, session), false)));
   main().append(wrap);
 
   function draw() {
@@ -8003,22 +8375,23 @@ function binaryCard(d, session) {
       card.onclick = () => { flipped = true; draw(); };
     } else {
       card.onclick = null;
+      const memBtn = intent === 'review' ? '' : '<button class="pill" data-b="mem" style="padding:11px 13px">Memorized</button>';
       card.append(h(`<div><div style="font-size:15px;line-height:1.65;text-align:left;white-space:pre-line">${esc(item.a)}</div>
         <div class="row" style="justify-content:center;gap:8px;margin-top:18px">
           <button class="pill" data-b="missed" style="border-color:var(--danger);color:var(--danger);padding:11px 13px">Missed</button>
-          <button class="pill" data-b="mem" style="padding:11px 13px">Memorized</button>
+          ${memBtn}
           <button class="pill" data-b="got" style="border-color:var(--forest);color:var(--forest);padding:11px 13px">Got it</button>
         </div></div>`));
       card.querySelector('[data-b=missed]').onclick = () => answer('missed');
-      card.querySelector('[data-b=mem]').onclick = () => answer('mem');
+      const mb = card.querySelector('[data-b=mem]'); if (mb) mb.onclick = () => answer('mem');
       card.querySelector('[data-b=got]').onclick = () => answer('got');
     }
   }
   function answer(kind) {
     session.queue.shift();
     if (kind === 'got') {
-      RV.markCovered(item.key);
-      CR.logPractice(prDocId(d, item), prN(item), 'flash', 100);
+      if (intent === 'review') RV.markCovered(item.key);   // practice marks nothing; review covers
+      CR.logPractice(prDocId(d, item), prN(item), 'flash', 100, { binary: true });   // tag: drives the decay fill, NOT the proficiency ring (D-AE)
       session.cleared++;
       if (!session.missedNs.has(item.n)) session.firstTryNs.add(item.n);
     } else if (kind === 'missed') {
@@ -8035,17 +8408,18 @@ function binaryCard(d, session) {
 }
 
 function binaryScorecard(d, session) {
-  setHeader('Review scorecard', { back: true });
-  const s = session, secs = Math.round((Date.now() - s.startTs) / 1000);
+  const s = session, review = s.opts.intent === 'review';
+  setHeader(review ? 'Review scorecard' : 'Practice scorecard', { back: true });
+  const secs = Math.round((Date.now() - s.startTs) / 1000);
   const left = s.total - s.cleared - s.memorized;
   const firstTry = s.firstTryNs.size, repeated = s.cleared - firstTry;
   const wrap = document.createElement('div');
   wrap.append(h(`<div class="card" style="text-align:center;padding:24px 16px">
     <div class="big">${s.cleared}/${s.total}</div>
-    <div style="font-weight:700;margin-top:4px">reviewed this session</div>
+    <div style="font-weight:700;margin-top:4px">${review ? 'reviewed' : 'cleared'} this session</div>
     <div class="muted" style="margin-top:4px">${SC.fmtSecs(secs)}${s.memorized ? ' · ' + s.memorized + ' marked memorized' : ''}</div></div>`));
   const lines = [`${firstTry} first try · ${repeated} needed another pass`, `${s.missEvents} miss${s.missEvents === 1 ? '' : 'es'} total`];
-  lines.push(left > 0 ? `${left} still to review — pick up next time where you left off` : 'Selection fully reviewed ✓');
+  lines.push(left > 0 ? `${left} still to go — pick up next time where you left off` : `Selection fully ${review ? 'reviewed' : 'cleared'} ✓`);
   const card = document.createElement('div'); card.className = 'card';
   lines.forEach(l => card.append(h(`<div style="font-size:13px;padding:5px 0;border-bottom:1px solid var(--line)">${esc(l)}</div>`)));
   wrap.append(card);
@@ -8086,7 +8460,7 @@ let ftSearch = '';
 const FIN = 'padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px';
 
 function fitnessHome() {
-  setHeader('Fitness', { back: true });
+  setHeader('Fitness', { back: () => switchTab('home') });
   const wrap = document.createElement('div');
   const tabs = [['level', 'Level'], ['workouts', 'Workouts'], ['log', 'Logbook'], ['weight', 'Weight'], ['water', 'Water'], ['diet', 'Macros'], ['sleep', 'Sleep'], ['timers', 'Timers']];
   const pills = h(`<div class="pillrow">${tabs.map(([m, l]) => `<button class="pill ${ftMode === m ? 'on' : ''}" data-m="${m}">${l}</button>`).join('')}</div>`);
@@ -8209,7 +8583,7 @@ function libRow(w) {
 }
 function ftDomainScreen(d) {
   const label = (FT.ASSESS_DOMAINS.find(x => x[0] === d) || ['', d])[1];
-  setHeader(label, { back: true });
+  setHeader(label, { back: fitnessHome });
   const wrap = document.createElement('div');
   const a = FT.assessment();
   const domA = a.alltime.domains[d], domL = a.live.domains[d];
@@ -9136,7 +9510,7 @@ function areas() {
 
 // ---------- You / Profile (D-S: Settings folded into a profile screen, reached from the header avatar) ----------
 function youProfile() {
-  setHeader('You', { back: true });
+  setHeader('You', { back: () => switchTab('home') });
   const wrap = document.createElement('div');
 
   wrap.append(h(`<div class="card"><div class="row">
@@ -9679,14 +10053,22 @@ function plusPractice(fan) {
 }
 function plusPRDomain(fan, intent) {
   plusChoose(fan, plusIntentTitle(intent), [
-    { label: 'Scripture', sub: 'Memorized books', on: () => plusPracticeScripture(fan, intent) },
+    { label: 'Scripture', sub: intent === 'review' ? 'Memorized books' : 'Any book', on: () => plusPracticeScripture(fan, intent) },
     { label: 'Creeds, Catechisms & Confessions', on: () => plusPracticeCreeds(fan, intent) },
   ], () => plusPractice(fan));
 }
 function plusPracticeScripture(fan, intent) {
-  const books = memorizedBooksRecentFirst();
-  if (!books.length) { toast('Memorize a book first'); return; }
-  plusChoose(fan, plusIntentTitle(intent) + ' · book', books.map(b => ({ label: b.name, sub: SC.bookStats(b).done + ' verses', on: () => plusPracticeChapter(fan, b, intent) })), () => plusPRDomain(fan, intent));
+  // Review is limited to memorized books (you review what you know); Practice can reach ANY book,
+  // memorized or not — memorized/recent first, then the rest of the canon.
+  let books;
+  if (intent === 'review') books = memorizedBooksRecentFirst();
+  else {
+    const mem = memorizedBooksRecentFirst();
+    const memSet = new Set(mem.map(b => b.name));
+    books = [...mem, ...allBooks.filter(b => !memSet.has(b.name))];
+  }
+  if (!books.length) { toast(intent === 'review' ? 'Memorize a book first' : 'No books available'); return; }
+  plusChoose(fan, plusIntentTitle(intent) + ' · book', books.map(b => { const done = SC.bookStats(b).done; return { label: b.name, sub: done > 0 ? done + ' verses' : b.chapters + ' ch', on: () => plusPracticeChapter(fan, b, intent) }; }), () => plusPRDomain(fan, intent));
 }
 // Clean top-level scope choose (mirrors the dedicated Timer): Whole book / By chapter / Modules —
 // so Modules is a prominent option under both Practice and Review, not buried in a long chip row.
@@ -9736,9 +10118,9 @@ function plusPracticeMode(fan, b, scope, intent) {
       : scope.kind === 'module' ? plusPracticeModulePick(fan, b, intent)
         : plusPracticeChapter(fan, b, intent);
   const shared = [
-    { label: 'Flashcards', on: () => plusPracticeLaunch(fan, b, scope, 'flash', intent) },
+    { label: 'Flashcards [1–5]', on: () => plusPracticeLaunch(fan, b, scope, 'flash', intent) },
     { label: 'First-Letter', on: () => plusPracticeLaunch(fan, b, scope, 'typer', intent) },
-    { label: 'Got it/Missed', on: () => plusPracticeLaunch(fan, b, scope, 'binary', intent) },
+    { label: 'Flashcards [✓]', on: () => plusPracticeLaunch(fan, b, scope, 'binary', intent) },
   ];
   const modes = intent === 'review'
     ? [...shared, { label: 'Timer ⏱', on: () => plusPracticeLaunch(fan, b, scope, 'timer', intent) }]
@@ -9771,8 +10153,8 @@ async function plusPracticeLaunch(fan, b, scope, mode, intent) {
       doc = bibleDoc(b, scope.ci, e.verses);
       if (scope.kind === 'verses') doc.sections = doc.sections.filter(x => scope.verses.includes(x.n));
     }
-    if (mode === 'binary') { closePlusFan(); prSetup.mode = 'binary'; render(() => practiceSetup(doc, intent)); }
-    else plusLaunchSession(doc, mode);
+    if (mode === 'binary') { closePlusFan(); binaryStart(doc, intent); }
+    else plusLaunchSession(doc, mode, intent);
   } catch (err) { closePlusFan(); esvErrToast(err); }
 }
 function plusPracticeCreeds(fan, intent) {
@@ -9781,20 +10163,20 @@ function plusPracticeCreeds(fan, intent) {
 function plusPracticeCreedMode(fan, d, intent) {
   // Creeds have no timed-review scope (reviewTimer is Bible-only), so Review = flash/typer only.
   const modes = [
-    { label: 'Flashcards', on: () => plusLaunchSession(d, 'flash') },
-    { label: 'First-Letter', on: () => plusLaunchSession(d, 'typer') },
+    { label: 'Flashcards [1–5]', on: () => plusLaunchSession(d, 'flash', intent) },
+    { label: 'First-Letter', on: () => plusLaunchSession(d, 'typer', intent) },
   ];
-  if (intent !== 'review') modes.push({ label: 'Fade', on: () => plusLaunchSession(d, 'fade') });
+  if (intent !== 'review') modes.push({ label: 'Fade', on: () => plusLaunchSession(d, 'fade', intent) });
   plusChips(fan, plusIntentTitle(intent) + ' · mode', modes, () => plusPracticeCreeds(fan, intent));
 }
 // build the queue exactly like practiceSetup and launch the chosen session (the one full screen)
-function plusLaunchSession(d, mode) {
-  const queue = d.sections.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn }));
+function plusLaunchSession(d, mode, intent = 'practice') {
+  const queue = d.sections.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn, ci: x.ci }));
   if (!queue.length) { toast('No verses in that selection'); return; }
   closePlusFan();
   if (mode === 'fade') render(() => fadeScreen(d, queue, 0, 0, []));
   else if (mode === 'typer') render(() => typerScreen(d, queue, 0, []));
-  else render(() => flashSession(d, queue, 20, 'adaptive'));
+  else render(() => flashSession(d, queue, 20, 'adaptive', intent));
 }
 
 // ===== Workout (search existing → format-aware result | New → builder) =====
@@ -9921,7 +10303,7 @@ function enablePlusReorder(list) {
 // Areas + Settings tabs removed — the dashboard is the hub, Settings lives in You/Profile (avatar).
 const TABS = { home: dashboard, plan: today };
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('h-back').onclick = goBack;
+  document.getElementById('h-back').onclick = headerBack;
   const av = document.getElementById('h-avatar');
   if (av) av.onclick = () => render(youProfile);
   document.querySelectorAll('nav.tabbar button:not(.tab-plus)').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
