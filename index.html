@@ -550,7 +550,9 @@ function defaultState() {
     pathways: [],          // {id, name, domain, milestones:[{id, name, steps:[{id, label, done, doneTs, secs}]}]}
     modules: {},           // (D-AB) modules[bookName] = [{id, name, verses:{ci:[v,...]}, created}] — review chunks, verse-level
     review: { covered: {}, books: {} },  // (D-AB) covered['docId#n']=ts sticky dots · books[name]=whole-book cadence assignment (layer 3)
-    settings: { migratedOldApp: false, esvKey: '', visionKey: '' }
+    // scopeLaunch (one-tap review/practice): remembered mode per intent + the review cycle/whole choice.
+    // null mode = no default yet → the ▸ pill opens the mode sheet the first time, then remembers your pick.
+    settings: { migratedOldApp: false, esvKey: '', visionKey: '', scopeLaunch: { review: { mode: null, scope: 'cycle' }, practice: { mode: null } } }
   };
 }
 
@@ -744,6 +746,10 @@ function ensureShapes() {
   if (!state.review.covered || typeof state.review.covered !== 'object') state.review.covered = {};
   if (!state.review.books || typeof state.review.books !== 'object') state.review.books = {};   // layer-3 whole-book cadence assignments
   if (!state.settings) state.settings = def.settings;
+  // one-tap scoped launch (additive/sync-safe): remembered mode per intent + review cycle/whole choice
+  if (!state.settings.scopeLaunch || typeof state.settings.scopeLaunch !== 'object') state.settings.scopeLaunch = { review: { mode: null, scope: 'cycle' }, practice: { mode: null } };
+  if (!state.settings.scopeLaunch.review || typeof state.settings.scopeLaunch.review !== 'object') state.settings.scopeLaunch.review = { mode: null, scope: 'cycle' };
+  if (!state.settings.scopeLaunch.practice || typeof state.settings.scopeLaunch.practice !== 'object') state.settings.scopeLaunch.practice = { mode: null };
 }
 
 // ---- Export / Import ----
@@ -4370,8 +4376,14 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
             <div class="sub">${r.scheduled ? '◎ review due' : (r.late ? '⚠ overdue · ' : '') + r.st.covered + '/' + r.st.total + ' reviewed this cycle · ' + RV.cadenceLabel(r.a.cadence)}</div>
           </div>
         </div>`);
-      // due (not a future scheduled marker) → tap opens the review-mode sheet scoped to this unit
-      if (!r.scheduled) el.querySelector('.list-item').onclick = () => scopeModeSheet(r, 'review');
+      // due (not a future scheduled marker) → tap launches your remembered review mode; ▾ picks a different one
+      if (!r.scheduled) {
+        const li = el.querySelector('.list-item');
+        li.onclick = () => launchScoped(r, 'review');
+        const dd = h(`<button class="pill" title="Choose mode" style="padding:5px 8px;font-size:12px;align-self:center;flex-shrink:0">▾</button>`).firstChild;
+        dd.onclick = e => { e.stopPropagation(); scopeModeSheet(r, 'review'); };
+        li.append(dd);
+      }
       wrap.append(el);
     });
   }
@@ -5033,7 +5045,7 @@ function buildPathwayBody(wrap, p) {
             <div class="row">
               <div class="grow" style="font-size:14px;font-weight:600;${s.done ? 'text-decoration:line-through' : ''}">${esc(s.label)}
                 ${!pwEditMode && PW.stepWeight(s) > 1 ? ` <span style="font-size:11px;font-weight:700;color:var(--gold)">×${PW.stepWeight(s)}</span>` : ''}</div>
-              ${s.ref && !s.done && !pwEditMode ? `<button class="pill" data-a="refgo" style="padding:5px 12px;font-size:12px">▸ ${intentVerb(s.ref.intent)}</button>`
+              ${s.ref && !s.done && !pwEditMode ? `<button class="pill" data-a="refgo" style="padding:5px 12px;font-size:12px">${refPillLabel(s.ref.intent)}</button>${s.ref.intent !== 'memorize' ? `<button class="pill" data-a="refmodes" title="Choose mode" style="padding:5px 8px;font-size:12px">▾</button>` : ''}`
                 : isNext && !pwEditMode && !locked ? `<button class="pill on" data-a="go" style="padding:5px 12px;font-size:12px">Done</button>` +
                 (PW.isTimed(p) ? `<button class="pill" data-a="time" style="padding:5px 9px;font-size:13px">⏱</button>` : '') : ''}
               ${!s.done && !pwEditMode ? `<button class="pill pw-datechip ${s.date ? 'on' : ''}" data-a="date" style="padding:5px 9px;font-size:12px">${s.date ? '📅 ' + shortDate(s.date) : '📅'}</button>` : ''}
@@ -5051,7 +5063,9 @@ function buildPathwayBody(wrap, p) {
       const go = stone.querySelector('[data-a=go]');
       if (go) go.onclick = () => { completePathwayStep(p); drawPathway(p); };
       const refgo = stone.querySelector('[data-a=refgo]');
-      if (refgo) refgo.onclick = () => launchRefStep(s);   // review/practice → scoped mode sheet; memorize → open the scope
+      if (refgo) refgo.onclick = () => launchRefStep(s, refgo);   // one-tap remembered mode (memorize → open the scope)
+      const refmodes = stone.querySelector('[data-a=refmodes]');
+      if (refmodes) refmodes.onclick = () => refStepSheet(s);   // ▾ → choose mode/scope
       const time = stone.querySelector('[data-a=time]');
       const timebox = stone.querySelector('[data-slot=timebox]');
       if (time) time.onclick = () => openTimeBox(p, timebox);
@@ -5938,6 +5952,13 @@ async function fetchScopeDoc(b, keys) {
 // (rank-5 / Got-it / typing ≥90% / logged timer). Practice runs the whole scope and marks nothing (rank-5 /
 // typing ≥90% still mark memorized per D-AF). t = { kind, book, mod?, a?, keys, title }.
 async function launchScopeMode(t, mode, scope, intent, btn) {
+  // remember this pick as the one-tap default for this intent (choosing in the sheet updates the default too)
+  if (intent === 'review' || intent === 'practice') {
+    const pref = state.settings.scopeLaunch[intent] || (state.settings.scopeLaunch[intent] = {});
+    pref.mode = mode;
+    if (intent === 'review' && scope) pref.scope = scope;
+    save();
+  }
   if (mode === 'timer') { render(() => reviewTimer(t.book, (t.kind === 'module' && t.mod) ? MOD.moduleReviewScope(t.mod) : null, t.title)); return; }
   const cycleStart = (t.a && t.a.cycleStart) || 0;
   let keys = (intent === 'review' && scope === 'cycle') ? t.keys.filter(k => !RV.isCovered(k, cycleStart)) : t.keys.slice();
@@ -5998,20 +6019,64 @@ function stepScopeTarget(s) {
   if (!book) return null;
   return { kind: sc.kind, book, mod, a, keys, title: s.label, intent };
 }
-// A ref-step's launch action: review/practice → the scoped mode sheet; memorize → open the scope to memorize.
-function launchRefStep(s) {
+// One-tap launch: mode labels + the remembered preference per intent (D-AG one-tap scoped launch).
+const MODE_LABEL = { flash: 'Cards 1–5', binary: 'Cards ✓', typer: 'Typing', timer: 'Timer', fade: 'Fade' };
+const scopePref = intent => (state.settings.scopeLaunch && state.settings.scopeLaunch[intent]) || {};
+// The ▸ pill's label — shows the remembered mode so one tap is transparent (e.g. "▸ Review · Typing").
+function refPillLabel(intent) {
+  const v = intentVerb(intent);
+  if (intent === 'memorize') return '▸ ' + v;
+  const m = scopePref(intent).mode;
+  return '▸ ' + v + (m ? ' · ' + (MODE_LABEL[m] || m) : '');
+}
+// Launch a resolved target in one tap using the remembered mode; no default yet → open the sheet to pick one.
+function launchScoped(t, intent, btn) {
+  if (intent === 'review' && !t.keys.length) { toast('Nothing memorized in this scope to review yet'); return; }
+  const pref = scopePref(intent);
+  if (!pref.mode) return scopeModeSheet(t, intent);   // first time → pick a mode; it becomes the default
+  launchScopeMode(t, pref.mode, intent === 'review' ? (pref.scope || 'cycle') : undefined, intent, btn);
+}
+// Resolve a ref-step + open its mode sheet (the ▾ / long-press "change mode" path).
+function refStepSheet(s) {
+  const t = stepScopeTarget(s);
+  if (!t) { toast('Could not resolve this step’s scope'); return; }
+  scopeModeSheet(t, t.intent);
+}
+// A ref-step's launch action: review/practice → one-tap remembered mode (else sheet); memorize → open the scope.
+function launchRefStep(s, btn) {
   if (s.ref.intent === 'memorize') return refStepLaunch(s);
   const t = stepScopeTarget(s);
   if (!t) { toast('Could not resolve this step’s scope'); return; }
-  if (t.intent === 'review' && !t.keys.length) { toast('Nothing memorized in this scope to review yet'); return; }
-  scopeModeSheet(t, t.intent);
+  launchScoped(t, t.intent, btn);
 }
-// A small ▸ launch pill for a ref-step (used across Today's pathway surfaces). Null if the step has no scope.
+// A ▸ launch control for a ref-step (used across Today's pathway surfaces). Review/practice get a one-tap
+// primary (remembered mode, shown in the label) + a ▾ to change mode/scope; memorize is a single pill.
 function refLaunchPill(s) {
   if (!s || !s.ref) return null;
-  const b = h(`<button class="pill" style="padding:5px 11px;font-size:12px">▸ ${intentVerb(s.ref.intent)}</button>`).firstChild;
-  b.onclick = e => { e.stopPropagation(); launchRefStep(s); };
-  return b;
+  if (s.ref.intent === 'memorize') {
+    const b = h(`<button class="pill" style="padding:5px 11px;font-size:12px">▸ Memorize</button>`).firstChild;
+    b.onclick = e => { e.stopPropagation(); launchRefStep(s, b); };
+    return b;
+  }
+  const wrap = h(`<span style="display:inline-flex;gap:4px;flex-shrink:0">
+    <button class="pill" data-a="go" style="padding:5px 11px;font-size:12px">${refPillLabel(s.ref.intent)}</button>
+    <button class="pill" data-a="modes" title="Choose mode" style="padding:5px 8px;font-size:12px">▾</button></span>`).firstChild;
+  const go = wrap.querySelector('[data-a=go]');
+  go.onclick = e => { e.stopPropagation(); launchRefStep(s, go); };
+  attachLongPress(go, () => refStepSheet(s));   // long-press the primary = change mode too
+  wrap.querySelector('[data-a=modes]').onclick = e => { e.stopPropagation(); refStepSheet(s); };
+  return wrap;
+}
+// Pointer-based long-press (works in the installed PWA), mirroring the scriptureCircle handler.
+function attachLongPress(el, fn, ms = 450) {
+  let lt = null, longed = false;
+  el.addEventListener('pointerdown', () => { longed = false; lt = setTimeout(() => { longed = true; fn(); }, ms); });
+  const cancel = () => { if (lt) { clearTimeout(lt); lt = null; } };
+  el.addEventListener('pointerup', cancel);
+  el.addEventListener('pointerleave', cancel);
+  el.addEventListener('pointercancel', cancel);
+  const prev = el.onclick;
+  el.onclick = e => { if (longed) { longed = false; e.stopPropagation(); return; } if (prev) prev.call(el, e); };
 }
 // find a step object by id across a pathway's milestones
 function pathwayStepById(p, sid) { for (const m of p.milestones) { const s = m.steps.find(x => x.id === sid); if (s) return s; } return null; }
