@@ -67,6 +67,28 @@ header.topbar .h-action { border: none; background: none; color: var(--gold); fo
 .practice-x { position: fixed; top: calc(env(safe-area-inset-top) + 8px); right: 12px; z-index: 250; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--text); font-size: 17px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
 .practice-x:active { background: var(--bg); }
 
+/* ===== Immersive practice shell (Phase 11 chunk 3) =====
+   "Pulled into the cards": the topbar and the bottom nav both hide, main loses its chrome padding,
+   and a hairline progress line sits at the very top. The ✕ (above) is the only exit.
+   DELIBERATELY NOT a fixed-position overlay — staying in normal document flow preserves the
+   html/body height:100% keyboard-viewport behaviour that First-Letter typing depends on. That's the
+   whole reason this is a body class and not a new stacking context. */
+body.immersive header.topbar { display: none; }
+body.immersive nav.tabbar { display: none; }
+body.immersive main { padding: calc(env(safe-area-inset-top) + 16px) 14px calc(env(safe-area-inset-bottom) + 14px); }
+.imm-progress { position: fixed; top: 0; left: 0; right: 0; height: 2px; background: var(--line); z-index: 240; }
+.imm-progress > div { height: 100%; background: var(--gold); transition: width .18s ease; }
+/* the flashcard body itself grows to fill the freed space and centres — the other modes simply
+   inherit the extra room without having their internal layout touched */
+body.immersive .imm-card { min-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 92px); display: flex; flex-direction: column; justify-content: center; }
+/* card question + answer text. Base sizes match what the cards used before this chunk, so nothing
+   changes outside the immersive shell; inside it they step up to use the reclaimed room. Kept as
+   classes rather than inline styles precisely so the immersive rule can win without !important. */
+.imm-q { font-size: 17px; font-weight: 700; line-height: 1.5; }
+.imm-a { font-size: 14px; line-height: 1.65; text-align: left; white-space: pre-line; }
+body.immersive .imm-q { font-size: 19px; }
+body.immersive .imm-a { font-size: 17px; line-height: 1.75; }
+
 main {
   flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
   padding: 14px 16px calc(var(--nav-h) + env(safe-area-inset-bottom) + 20px);
@@ -1547,6 +1569,51 @@ function clearUnitCadence(key, intent) { const u = ASG()[key]; if (u) { delete u
 function setUnitMemBy(key, dateKey) { if (dateKey) ensureUnit(key).memBy = dateKey; else { const u = ASG()[key]; if (u) delete u.memBy; } pruneUnit(key); save(); }
 function unitMemBy(key) { const u = ASG()[key]; return (u && u.memBy) || null; }
 
+// ---- enumeration over the assign store (the SURFACING seam, added July 31 2026) ----
+// The store shipped with D-AF and the decay resolver read it, but nothing enumerated it — so every
+// chapter/verse review cadence, every practice cadence, and every memorize-by date was create-only:
+// saved correctly, never surfaced in Today/Week/Month. These three accessors close that.
+function unitsWithCadence(intent) {
+  const out = [], a = ASG();
+  for (const k in a) if (a[k] && a[k][intent]) out.push({ key: k, a: a[k][intent] });
+  return out;
+}
+function allMemBy() {
+  const out = [], a = ASG();
+  for (const k in a) if (a[k] && a[k].memBy) out.push({ key: k, memBy: a[k].memBy });
+  return out;
+}
+
+// ---- practice cadences (D-AF) — a parallel rehearsal rhythm ----
+// Practice MARKS NOTHING (D-AB), so unlike review a practice cycle's completion CANNOT be read from
+// the coverage store. The caller supplies `complete` from the practice log (every memorized verse in
+// scope practiced since cycleStart). Everything else mirrors the review cadence so both read the same
+// way in the planner. Kept pure here; the log lookup lives in app.js where CR is available.
+function practiceNextDueMs(a) { return a.cycleStart + cadenceIntervalMs(a.cadence); }
+
+function practiceStatus(a, complete, now = Date.now()) {
+  const nd = practiceNextDueMs(a);
+  return { complete: !!complete, due: !complete, cycleStart: a.cycleStart, nextDueMs: nd,
+           late: !complete && now >= nd,
+           dueKey: complete ? todayKey(new Date(nd)) : todayKey(new Date(a.cycleStart)) };
+}
+
+// Advance a practice cycle if it's time. Interval: only once the scope HAS been practiced and the
+// period elapsed — and only one step, since `complete` describes the cycle we're leaving (the caller
+// recomputes next pass). Calendar: rigid, catches up through every missed period (D-M3b).
+function syncPracticeCycle(a, complete, now = Date.now()) {
+  const c = normCadence(a.cadence);
+  let changed = false, guard = 0;
+  while (guard++ < 2000) {
+    const due = a.cycleStart + c.days * DAY;
+    if (now < due) break;
+    if (c.type === 'interval' && !complete) break;
+    a.cycleStart = due; changed = true;
+    if (c.type === 'interval') break;
+  }
+  return changed;
+}
+
 // Most-specific REVIEW cadence governing a verse → its interval (ms); drives the decay FILL (practice
 // cadences do NOT — the fill is review-freshness only). Order: verse > chapter > module(s) containing
 // it > whole book. Returns null if nothing governs the verse (→ neutral fill). moduleReviews = the
@@ -1579,7 +1646,7 @@ function shuffled(arr, rnd = Math.random) {
   return a;
 }
 
-const RV = {assignmentStatus,bookAssignment,bookScopeKey,cadenceIntervalMs,cadenceLabel,chapterScopeKey,clearBookCadence,clearCovered,clearUnitCadence,coverageKey,coverageTs,coveredCount,cycleAnchor,cycleComplete,cycleCoveredCount,ensureReview,getUnit,governingReviewInterval,isCovered,markCovered,missInsertIndex,moduleKeys,newAssignment,nextDueMs,normCadence,setBookCadence,setUnitCadence,setUnitMemBy,shuffled,splitKey,syncCycle,uncoveredDeck,unitDecay,unitMastery,unitMemBy,verseFreshness,verseScopeKey};
+const RV = {allMemBy,assignmentStatus,bookAssignment,bookScopeKey,cadenceIntervalMs,cadenceLabel,chapterScopeKey,clearBookCadence,clearCovered,clearUnitCadence,coverageKey,coverageTs,coveredCount,cycleAnchor,cycleComplete,cycleCoveredCount,ensureReview,getUnit,governingReviewInterval,isCovered,markCovered,missInsertIndex,moduleKeys,newAssignment,nextDueMs,normCadence,practiceNextDueMs,practiceStatus,setBookCadence,setUnitCadence,setUnitMemBy,shuffled,splitKey,syncCycle,syncPracticeCycle,uncoveredDeck,unitDecay,unitMastery,unitMemBy,unitsWithCadence,verseFreshness,verseScopeKey};
 // Strive — planner: day/week/month/year items, recurring rules
 
 
@@ -3733,6 +3800,7 @@ function setHeader(title, { back = false, action = null } = {}) {
 }
 function render(screen, pushToStack = true) {
   if (pushToStack) stack.push(screen);
+  setImmersive(false);   // a screen that wants the immersive shell re-asserts it as it draws
   main().innerHTML = '';
   main().scrollTop = 0;
   screen();
@@ -3745,7 +3813,37 @@ function practiceCloseX(onClose) {
   b.onclick = onClose;
   return b;
 }
-function rerender() { const s = stack[stack.length - 1]; main().innerHTML = ''; s(); }
+// ===== Immersive practice shell (Phase 11 chunk 3) =====
+// Hides the topbar + bottom nav so a practice session fills the screen. Implemented as a BODY CLASS
+// rather than a fixed overlay on purpose: the session stays in normal document flow, so the
+// html/body height:100% keyboard-viewport handling that First-Letter typing relies on is untouched.
+//
+// Invariant: render/rerender/switchTab always turn it OFF, and a screen that wants it turns it ON
+// while drawing. Since every practice screen re-renders itself card by card, each draw re-asserts it —
+// and any navigation away (scorecard, ‹ Back, Home, a tab) drops it automatically. That one rule is
+// what stops the app getting stranded with no header and no nav.
+function setImmersive(on) { document.body.classList.toggle('immersive', !!on); }
+// hairline progress line pinned to the very top of an immersive session (0..1)
+function immersiveProgress(frac) {
+  const f = Math.max(0, Math.min(1, frac || 0));
+  return h(`<div class="imm-progress"><div style="width:${f * 100}%"></div></div>`).firstChild;
+}
+// Put a practice screen into the immersive shell: hide the chrome, pin the hairline progress, add the
+// ✕. Every mode routes through this one call so the five can't drift apart.
+function immersiveSession(wrap, frac, onClose) {
+  setImmersive(true);
+  wrap.append(immersiveProgress(frac));
+  wrap.append(practiceCloseX(onClose));
+}
+// The full-bleed card shared by all three flashcard types once immersive (.imm-card grows to fill the
+// freed height and centres its content; outside the immersive shell it degrades to a normal .card).
+function immersiveCard() {
+  const card = document.createElement('div');
+  card.className = 'card imm-card';
+  card.style.cssText = 'min-height:220px;cursor:pointer;text-align:center;padding:24px 18px;display:flex;flex-direction:column;justify-content:center';
+  return card;
+}
+function rerender() { const s = stack[stack.length - 1]; setImmersive(false); main().innerHTML = ''; s(); }
 function goBack() {
   if (stack.length > 1) { stack.pop(); rerender(); }
 }
@@ -3759,6 +3857,7 @@ function navToParent(fn) { stack[stack.length - 1] = fn; render(fn, false); }
 function headerBack() { if (typeof backTarget === 'function') navToParent(backTarget); else goBack(); }
 function switchTab(tab) {
   activeTab = tab;
+  setImmersive(false);
   stack.length = 0;
   document.querySelectorAll('nav.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   render(TABS[tab]);
@@ -4388,6 +4487,55 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
     });
   }
 
+  // practice due (D-AF) — its own section, NOT folded into Reviews due: practice marks nothing while
+  // review counts as coverage, and keeping them visually separate keeps that distinction legible (D-AB).
+  const prRows = practiceRowsForDate(dk);
+  if (prRows.length) {
+    wrap.append(sectionTitle('Practice due'));
+    prRows.forEach(r => {
+      const el = h(`
+        <div class="list-item" style="${r.scheduled ? '' : 'cursor:pointer'}${r.late ? ';border-color:var(--danger)' : ''}">
+          <div class="check" style="color:var(--gold);border-color:var(--gold)">◈</div>
+          <div class="grow">
+            <div class="title">${esc(r.title)}</div>
+            <div class="sub">${r.scheduled ? '◈ practice due' : (r.late ? '⚠ overdue · ' : '') + 'rehearse · ' + RV.cadenceLabel(r.a.cadence)}</div>
+          </div>
+        </div>`);
+      if (!r.scheduled) {
+        const t = scopeLaunchTarget(r.sc, r.key, 'practice', r.title);
+        const li = el.querySelector('.list-item');
+        if (t) {
+          li.onclick = () => launchScoped(t, 'practice');
+          const dd = h(`<button class="pill" title="Choose mode" style="padding:5px 8px;font-size:12px;align-self:center;flex-shrink:0">▾</button>`).firstChild;
+          dd.onclick = e => { e.stopPropagation(); scopeModeSheet(t, 'practice'); };
+          li.append(dd);
+        }
+      }
+      wrap.append(el);
+    });
+  }
+
+  // memorize-by targets (D-AF) — a marker, not a pace amount; tapping opens the scope to work on it
+  const mbRows = memByRowsForDate(dk);
+  if (mbRows.length) {
+    wrap.append(sectionTitle('Memorize by'));
+    mbRows.forEach(r => {
+      const when = r.late ? '⚠ overdue by ' + Math.abs(r.daysLeft) + 'd'
+                 : r.daysLeft === 0 ? 'due today'
+                 : r.daysLeft + ' day' + (r.daysLeft === 1 ? '' : 's') + ' left';
+      const el = h(`
+        <div class="list-item" style="cursor:pointer${r.late ? ';border-color:var(--danger)' : ''}">
+          <div class="check" style="color:var(--forest);border-color:var(--forest)">◆</div>
+          <div class="grow">
+            <div class="title">${esc(r.title)}</div>
+            <div class="sub">${when} · ${r.done}/${r.total} memorized</div>
+          </div>
+        </div>`);
+      el.querySelector('.list-item').onclick = () => refStepLaunch({ ref: { key: r.key, intent: 'memorize' } });
+      wrap.append(el);
+    });
+  }
+
   if (items.length) wrap.append(sectionTitle('Planned'));
   items.forEach(entry => {
     // a scheduled assignment-step (scope + intent) → offer the ▸ launch (Practice/Review modes, or memorize)
@@ -4602,13 +4750,17 @@ function planWeek(body) {
     }).join('');
     const revRows = reviewRowsForDate(dk);
     const revLines = revRows.map(r => `<div class="sub" style="color:${r.late ? 'var(--danger)' : 'var(--accent)'}">◎ ${esc(r.title)} · ${r.scheduled ? 'review due' : r.st.covered + '/' + r.st.total + ' this cycle'}</div>`).join('');
-    const anyExtra = nudges.length || dayTgts.length || revRows.length;
+    const prRows = practiceRowsForDate(dk);
+    const prLines = prRows.map(r => `<div class="sub" style="color:${r.late ? 'var(--danger)' : 'var(--gold)'}">◈ ${esc(r.title)} · ${r.scheduled ? 'practice due' : 'rehearse'}</div>`).join('');
+    const mbRows = memByRowsForDate(dk);
+    const mbLines = mbRows.map(r => `<div class="sub" style="color:${r.late ? 'var(--danger)' : 'var(--forest)'}">◆ ${esc(r.title)} · memorize by · ${r.done}/${r.total}</div>`).join('');
+    const anyExtra = nudges.length || dayTgts.length || revRows.length || prRows.length || mbRows.length;
     const el = h(`
       <div class="list-item" style="${isToday ? 'border-color:var(--accent)' : ''}">
         <div class="grow">
           <div class="title">${PL.fmtDate(dk)}${isToday ? ' · today' : ''}</div>
           <div class="sub">${st.total ? st.done + '/' + st.total + ' done' : (anyExtra ? 'targets below' : 'nothing planned')}</div>
-          ${paceLines}${tgtLines}${revLines}
+          ${paceLines}${tgtLines}${revLines}${prLines}${mbLines}
           ${st.total ? `<div class="progressbar" style="margin-top:6px"><div style="width:${st.done / st.total * 100}%"></div></div>` : ''}
         </div>
         <span class="chev">›</span>
@@ -4667,6 +4819,8 @@ function planMonth(body) {
     if (st.total) dots.push(`<span style="width:5px;height:5px;border-radius:50%;background:${st.done === st.total ? 'var(--accent)' : 'var(--gold)'}"></span>`);
     if (hasTarget) dots.push(`<span title="reading/pace target" style="width:5px;height:5px;border-radius:50%;border:1.5px solid var(--accent);background:transparent"></span>`);
     if (reviewRowsForDate(dk).length) dots.push(`<span title="review due" style="width:5px;height:5px;border-radius:50%;background:var(--text)"></span>`);
+    if (practiceRowsForDate(dk).length) dots.push(`<span title="practice due" style="width:5px;height:5px;border-radius:50%;background:var(--gold)"></span>`);
+    if (memByRowsForDate(dk).length) dots.push(`<span title="memorize by" style="width:5px;height:5px;border-radius:50%;background:var(--forest)"></span>`);
     // one dot per DAILY target applying this day: filled (forest) if met, hollow (gold) if not (9.5)
     PL.targets().filter(t => t.period === 'day' && TG.targetAppliesOn(t, dk)).slice(0, 4).forEach(t => {
       const done = TG.targetProgress(t, dk).done;
@@ -5621,7 +5775,7 @@ function bookScreen(b) {
   const pills = h(`<div class="pillrow" style="margin-top:16px">
     <button class="pill" data-s="project">${isCurrent ? '✓ Project' : 'Project'}</button>
     <button class="pill" data-s="modules">Modules${modCount ? ' · ' + modCount : ''}</button>
-    <button class="pill" data-s="cadence">Assign${cad ? ' · ' + RV.cadenceLabel(cad.cadence) : ''}</button>
+    <button class="pill" data-s="cadence">${esc(assignPillLabel(RV.bookScopeKey(b.name), cad))}</button>
     <button class="pill" data-s="memorized">Memorized</button>
   </div>`);
   pills.querySelector('[data-s=project]').onclick = () => memProjectSheet(b);
@@ -5802,6 +5956,37 @@ function scopeVerses(sc, memorizedOnly) {
   return out;
 }
 function scopeCoverageKeys(sc) { return scopeVerses(sc, true).map(([bn, ci, v]) => 'bible:' + bn + ':' + (ci + 1) + '#' + v); }
+// the book a scope lives in (a module's book comes from the module's home)
+function scopeBook(sc) {
+  if (sc.kind === 'module') { const r = scopeModule(sc); return r ? allBooks.find(x => x.name === r[0]) : null; }
+  return allBooks.find(x => x.name === sc.book) || null;
+}
+// human label for a scope key — used by the planner rows and the Assign pills
+function scopeTitle(sc, b) {
+  if (sc.kind === 'module') { const r = scopeModule(sc); return r ? (r[1].name || MOD.moduleAutoName(r[1], b)) : 'Module'; }
+  if (sc.kind === 'book') return sc.book;
+  if (sc.kind === 'chapter') return sc.book + ' ' + (sc.ci + 1);
+  return sc.book + ' ' + (sc.ci + 1) + ':' + sc.v;
+}
+// Has every memorized verse in the scope been practiced since `since`? Practice MARKS NOTHING (D-AB),
+// so this reads the practice log, not the coverage store. Shared by assignment-step completion (D-AG)
+// and the practice-due planner rows — one definition, so the step and the row can never disagree.
+function practiceScopeDone(sc, since) {
+  const vs = scopeVerses(sc, true);
+  return vs.length > 0 && vs.every(([bn, ci, v]) => CR.lastPracticeTs('bible:' + bn + ':' + (ci + 1), v) >= (since || 1));
+}
+function practiceCycleStart(key) { const u = RV.getUnit(key); return u && u.practice ? u.practice.cycleStart : 0; }
+// Compact summary of EVERYTHING assigned to a scope: review cadence ◎ · practice cadence ◈ · memorize-by ◆.
+// The pills previously showed the review cadence alone, so a practice cadence or a memorize-by date you'd
+// just set read as unsaved the moment you closed the sheet. `reviewA` is passed in because whole-book and
+// module review live outside the assign store (state.review.books / mod.review).
+function assignPillLabel(key, reviewA) {
+  const u = RV.getUnit(key), bits = [];
+  if (reviewA) bits.push('◎ ' + RV.cadenceLabel(reviewA.cadence));
+  if (u && u.practice) bits.push('◈ ' + RV.cadenceLabel(u.practice.cadence));
+  if (u && u.memBy) bits.push('◆ ' + shortDate(u.memBy));
+  return 'Assign' + (bits.length ? ' · ' + bits.join(' · ') : '');
+}
 function scopeReviewAssign(sc, key) {
   if (sc.kind === 'module') { const r = scopeModule(sc); return r && r[1].review ? r[1].review : null; }
   if (sc.kind === 'book') return RV.bookAssignment(sc.book);
@@ -5814,8 +5999,7 @@ function refStepDone(step) {
   const memKeys = scopeCoverageKeys(sc);
   if (!memKeys.length) return false;
   if (intent === 'review') { const a = scopeReviewAssign(sc, key), since = a ? a.cycleStart : 0; return memKeys.every(k => RV.isCovered(k, since)); }
-  const u = RV.getUnit(sc.kind === 'module' ? 'mod:' + sc.modId : key), since = u && u.practice ? u.practice.cycleStart : 0;   // practice: every memorized verse practiced since the cycle start (or ever)
-  return scopeVerses(sc, true).every(([bn, ci, v]) => CR.lastPracticeTs('bible:' + bn + ':' + (ci + 1), v) >= (since || 1));
+  return practiceScopeDone(sc, practiceCycleStart(key));   // practice: every memorized verse practiced since the cycle start (or ever)
 }
 function syncPathwayRefSteps() {
   let dirty = false;
@@ -5915,12 +6099,41 @@ function collectReviewAssignments() {
     const keys = bookMemorizedKeys(b); if (!keys.length) continue;
     out.push({ id: 'book-' + bookName, kind: 'book', book: b, a: state.review.books[bookName], keys, title: bookName });
   }
+  // per-scope review cadences from the D-AF assign store — CHAPTER and VERSE scopes. Whole-book review
+  // lives in state.review.books and module review on mod.review, so those keys never carry .review here
+  // and can't double-count (guarded anyway). This loop is the seam that was missing until July 31 2026:
+  // the store and the decay resolver shipped in the seventh session, the surfacing never did, so a
+  // chapter cadence lit the circle but never reached Today/Week/Month.
+  RV.unitsWithCadence('review').forEach(({ key, a }) => {
+    const sc = parseScopeKey(key); if (!sc || sc.kind === 'book' || sc.kind === 'module') return;
+    const b = scopeBook(sc); if (!b) return;
+    const keys = scopeCoverageKeys(sc); if (!keys.length) return;
+    out.push({ id: 'asg-' + key, kind: sc.kind, book: b, key, sc, a, keys, title: scopeTitle(sc, b) });
+  });
+  return out;
+}
+// every active PRACTICE cadence, any scope (all of them live in the assign store — book, chapter,
+// verse, and module alike). Separate from review because practice marks nothing (D-AB): its cycle
+// completion is read from the practice log, not from coverage.
+function collectPracticeAssignments() {
+  const out = [];
+  RV.unitsWithCadence('practice').forEach(({ key, a }) => {
+    const sc = parseScopeKey(key); if (!sc) return;
+    const b = scopeBook(sc); if (!b) return;
+    if (!scopeVerses(sc, true).length) return;   // nothing memorized in scope yet → nothing to rehearse
+    out.push({ id: 'pr-' + key, kind: sc.kind, book: b, key, sc, a, keys: scopeCoverageKeys(sc), title: scopeTitle(sc, b) });
+  });
   return out;
 }
 // roll any cycles that have come due (interval: after completion; calendar: on the date). Save once.
 function syncReviewCycles() {
   let changed = false;
   collectReviewAssignments().forEach(A => { if (RV.syncCycle(A.a, A.keys)) changed = true; });
+  // practice cycles roll on their own rule — completion comes from the practice log, so it's computed
+  // here and handed to the pure roller rather than derived from coverage inside it.
+  collectPracticeAssignments().forEach(P => {
+    if (RV.syncPracticeCycle(P.a, practiceScopeDone(P.sc, P.a.cycleStart))) changed = true;
+  });
   if (changed) save();
 }
 // review rows to surface on day dk: due (incomplete) rows land on today only; a complete assignment
@@ -5931,6 +6144,37 @@ function reviewRowsForDate(dk, today = todayKey()) {
     const st = RV.assignmentStatus(A.a, A.keys);
     if (!st.complete) { if (dk === today) rows.push({ ...A, st, late: st.dueKey < today, scheduled: false }); }
     else { const ndKey = todayKey(new Date(st.nextDueMs)); if (dk === ndKey) rows.push({ ...A, st, scheduled: true }); }
+  });
+  return rows;
+}
+// practice rows, same shape and same rules as reviewRowsForDate so Today/Week/Month render them
+// identically — due rows pin to today, a satisfied cycle shows a marker on its next-due day.
+function practiceRowsForDate(dk, today = todayKey()) {
+  const rows = [];
+  collectPracticeAssignments().forEach(P => {
+    const done = practiceScopeDone(P.sc, P.a.cycleStart);
+    const st = RV.practiceStatus(P.a, done);
+    if (!st.complete) { if (dk === today) rows.push({ ...P, st, late: st.late, scheduled: false }); }
+    else { const ndKey = todayKey(new Date(st.nextDueMs)); if (dk === ndKey) rows.push({ ...P, st, scheduled: true }); }
+  });
+  return rows;
+}
+// Memorize-by markers (D-AF). Baruch's pick: a marker on the target day, pinned into Today once it's
+// within MEMBY_PIN_DAYS or overdue — deliberately NOT a pace computation, so targets.js is untouched.
+// An already-fully-memorized scope drops out (the goal is met; nothing to nudge).
+const MEMBY_PIN_DAYS = 7;
+function memByRowsForDate(dk, today = todayKey()) {
+  const rows = [];
+  RV.allMemBy().forEach(({ key, memBy }) => {
+    const sc = parseScopeKey(key); if (!sc) return;
+    const b = scopeBook(sc); if (!b) return;
+    const all = scopeVerses(sc, false), done = scopeVerses(sc, true).length;
+    if (!all.length || done >= all.length) return;
+    const daysLeft = Math.round((new Date(memBy + 'T00:00') - new Date(today + 'T00:00')) / 86400000);
+    const row = { id: 'mem-' + key, kind: sc.kind, book: b, key, sc, memBy, daysLeft,
+                  done, total: all.length, late: daysLeft < 0, title: scopeTitle(sc, b) };
+    if (dk === memBy) rows.push({ ...row, pinned: false });
+    else if (dk === today && daysLeft <= MEMBY_PIN_DAYS) rows.push({ ...row, pinned: true });
   });
   return rows;
 }
@@ -6009,15 +6253,22 @@ function scopeModeSheet(t, intent) {
 }
 // Normalize a pathway ref-step into a scope target. Review draws the scope's MEMORIZED verses (you review
 // what you know); practice draws ALL verses in the scope (you rehearse toward memorizing).
-function stepScopeTarget(s) {
-  const sc = parseScopeKey(s.ref.key), intent = s.ref.intent;
+// The launch target ({kind, book, mod, a, keys, title}) for a scope key — the shape launchScopeMode
+// expects. Review draws the scope's MEMORIZED verses and carries the review assignment (its cycleStart
+// scopes "this cycle"); practice runs every verse in scope. Shared by pathway steps and the planner's
+// practice-due rows so both launch identically.
+function scopeLaunchTarget(sc, key, intent, title) {
   const keys = scopeVerses(sc, intent === 'review').map(([bn, ci, v]) => 'bible:' + bn + ':' + (ci + 1) + '#' + v);
-  const a = scopeReviewAssign(sc, s.ref.key) || { cycleStart: 0 };
+  const u = RV.getUnit(key);
+  const a = (intent === 'review' ? scopeReviewAssign(sc, key) : (u && u.practice)) || { cycleStart: 0 };
   let book, mod = null;
   if (sc.kind === 'module') { const r = scopeModule(sc); if (!r) return null; book = allBooks.find(x => x.name === r[0]); mod = r[1]; }
   else book = allBooks.find(x => x.name === sc.book);
   if (!book) return null;
-  return { kind: sc.kind, book, mod, a, keys, title: s.label, intent };
+  return { kind: sc.kind, book, mod, a, keys, title, intent };
+}
+function stepScopeTarget(s) {
+  return scopeLaunchTarget(parseScopeKey(s.ref.key), s.ref.key, s.ref.intent, s.label);
 }
 // One-tap launch: mode labels + the remembered preference per intent (D-AG one-tap scoped launch).
 const MODE_LABEL = { flash: 'Cards 1–5', binary: 'Cards ✓', typer: 'Typing', timer: 'Timer', fade: 'Fade' };
@@ -6342,7 +6593,7 @@ function moduleScreen(b, mod) {
   </div>`));
 
   // Review cadence control + white→black freshness fade (layer 3)
-  const cadBtn = h(`<button class="pill" style="margin:2px 0 4px">Assign · ${RV.cadenceLabel(mod.review && mod.review.cadence)}</button>`).firstChild;
+  const cadBtn = h(`<button class="pill" style="margin:2px 0 4px">${esc(assignPillLabel('mod:' + mod.id, mod.review || null))}</button>`).firstChild;
   cadBtn.onclick = () => assignSheet(assignScope('module', { mod, b }));
   wrap.append(cadBtn);
   if (mod.review) {
@@ -6621,7 +6872,8 @@ function chapterScreen(b, ci) {
   wrap.append(saBtn);
 
   // Assign (D-AF/4b) — set a review cadence, practice cadence, and/or memorize-by date on THIS chapter
-  const asgBtn = h(`<button class="btn secondary" style="margin-bottom:12px">Assign — review · practice · memorize</button>`);
+  const asgLbl = assignPillLabel(RV.chapterScopeKey(b.name, ci), RV.getUnit(RV.chapterScopeKey(b.name, ci)) && RV.getUnit(RV.chapterScopeKey(b.name, ci)).review);
+  const asgBtn = h(`<button class="btn secondary" style="margin-bottom:12px">${esc(asgLbl === 'Assign' ? 'Assign — review · practice · memorize' : asgLbl)}</button>`);
   asgBtn.firstChild.onclick = () => assignSheet(assignScope('chapter', { b, ci }));
   wrap.append(asgBtn);
 
@@ -8345,7 +8597,7 @@ function fadeScreen(d, queue, qi, stage, results) {
     skip.firstChild.onclick = () => { results.push({ n: item.n, peeks: item._peeks }); render(() => fadeScreen(d, queue, qi + 1, 0, results), false); };
     wrap.append(skip);
   }
-  wrap.append(practiceCloseX(() => render(() => fadeScreen(d, queue, queue.length, 0, results), false)));
+  immersiveSession(wrap, queue.length ? qi / queue.length : 0, () => render(() => fadeScreen(d, queue, queue.length, 0, results), false));
   main().append(wrap);
 }
 
@@ -8443,7 +8695,9 @@ function typerScreen(d, queue, qi, results, intent = 'practice') {
   const skip = h(`<button class="btn secondary" style="margin-top:14px">Skip this question</button>`);
   skip.firstChild.onclick = () => { render(() => typerScreen(d, queue, qi + 1, results, intent), false); };
   wrap.append(skip);
-  wrap.append(practiceCloseX(() => render(() => typerScreen(d, queue, queue.length, results, intent), false)));
+  // typing is the fragile one — immersive here is chrome-hiding ONLY (a body class, no new stacking
+  // context and no layout change inside the screen), so the keyboard-viewport behaviour is unchanged.
+  immersiveSession(wrap, queue.length ? qi / queue.length : 0, () => render(() => typerScreen(d, queue, queue.length, results, intent), false));
   main().append(wrap);
 }
 
@@ -8526,7 +8780,7 @@ function scrambleScreen(d, queue, qi, results) {
     toast(`Q${item.n}: ${acc}%`);
     render(() => scrambleScreen(d, queue, qi + 1, results), false);
   }
-  wrap.append(practiceCloseX(() => render(() => scrambleScreen(d, queue, queue.length, results), false)));
+  immersiveSession(wrap, queue.length ? qi / queue.length : 0, () => render(() => scrambleScreen(d, queue, queue.length, results), false));
   main().append(wrap);
 }
 
@@ -8615,20 +8869,15 @@ function flashCard(d, session) {
 
   const wrap = document.createElement('div');
   const isNew = session.exit[item.n] === undefined && CR.mastery(prDocId(d, item), prN(item)) === null;
-  wrap.append(h(`<div class="row" style="margin:2px 4px 10px">
-    <div class="grow muted">card ${session.reps + 1} of ${session.budget} · ${session.active.length} in rotation${session.pool.length ? ' · ' + session.pool.length + ' waiting' : ''}</div>
-    ${isNew ? '<span class="badge" style="background:var(--gold)">NEW</span>' : ''}
-  </div>`));
-  const bar = h(`<div class="progressbar" style="margin-bottom:12px"><div style="width:${session.reps / session.budget * 100}%"></div></div>`);
-  wrap.append(bar);
+  // immersive: the counter row + inline bar give way to the hairline progress at the very top; only
+  // the NEW badge survives, because "this card is new" changes how you read it.
+  if (isNew) wrap.append(h(`<div class="row" style="margin:2px 4px 8px;justify-content:center"><span class="badge" style="background:var(--gold)">NEW</span></div>`));
 
-  const card = document.createElement('div');
-  card.className = 'card';
-  card.style.cssText = 'min-height:220px;display:flex;flex-direction:column;justify-content:center;cursor:pointer;text-align:center;padding:24px 18px';
+  const card = immersiveCard();
   draw();
   wrap.append(card);
 
-  wrap.append(practiceCloseX(() => render(() => flashEnd(d, session), false)));
+  immersiveSession(wrap, session.reps / session.budget, () => render(() => flashEnd(d, session), false));
   main().append(wrap);
 
   function draw() {
@@ -8636,14 +8885,14 @@ function flashCard(d, session) {
     if (!flipped) {
       card.append(h(`
         <div><div class="muted" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Question ${item.n}</div>
-        <div style="font-size:17px;font-weight:700;line-height:1.5">${esc(item.q)}</div>
+        <div class="imm-q">${esc(item.q)}</div>
         <div class="muted" style="margin-top:18px;font-size:13px">tap to flip</div></div>`));
       card.onclick = () => { flipped = true; draw(); };
     } else {
       card.onclick = null;
       card.append(h(`
         <div><div class="muted" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Answer</div>
-        <div style="font-size:14px;line-height:1.65;text-align:left;white-space:pre-line">${esc(item.a)}</div>
+        <div class="imm-a">${esc(item.a)}</div>
         <div class="muted" style="margin:16px 0 8px;font-size:12px">How well did you know it?</div>
         <div class="row" style="justify-content:center;gap:10px" data-a="ratings"></div></div>`));
       const row = card.querySelector('[data-a=ratings]');
@@ -8684,18 +8933,11 @@ function orderedFlashCard(d, queue, idx, exit, intent = 'practice') {
   let flipped = false;
 
   const wrap = document.createElement('div');
-  wrap.append(h(`<div class="row" style="margin:2px 4px 10px">
-    <div class="grow muted">card ${idx + 1} of ${queue.length} · in order</div>
-  </div>`));
-  wrap.append(h(`<div class="progressbar" style="margin-bottom:12px"><div style="width:${idx / queue.length * 100}%"></div></div>`));
-
-  const card = document.createElement('div');
-  card.className = 'card';
-  card.style.cssText = 'min-height:220px;display:flex;flex-direction:column;justify-content:center;cursor:pointer;text-align:center;padding:24px 18px';
+  const card = immersiveCard();
   draw();
   wrap.append(card);
 
-  wrap.append(practiceCloseX(() => render(() => orderedFlashCard(d, queue, queue.length, exit, intent), false)));
+  immersiveSession(wrap, idx / queue.length, () => render(() => orderedFlashCard(d, queue, queue.length, exit, intent), false));
   main().append(wrap);
 
   function draw() {
@@ -8703,14 +8945,14 @@ function orderedFlashCard(d, queue, idx, exit, intent = 'practice') {
     if (!flipped) {
       card.append(h(`
         <div><div class="muted" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Question ${item.n}</div>
-        <div style="font-size:17px;font-weight:700;line-height:1.5">${esc(item.q)}</div>
+        <div class="imm-q">${esc(item.q)}</div>
         <div class="muted" style="margin-top:18px;font-size:13px">tap to flip</div></div>`));
       card.onclick = () => { flipped = true; draw(); };
     } else {
       card.onclick = null;
       card.append(h(`
         <div><div class="muted" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Answer</div>
-        <div style="font-size:14px;line-height:1.65;text-align:left;white-space:pre-line">${esc(item.a)}</div>
+        <div class="imm-a">${esc(item.a)}</div>
         <div class="muted" style="margin:16px 0 8px;font-size:12px">How well did you know it?</div>
         <div class="row" style="justify-content:center;gap:10px" data-a="ratings"></div></div>`));
       const row = card.querySelector('[data-a=ratings]');
@@ -8816,14 +9058,10 @@ function binaryCard(d, session) {
   setHeader((intent === 'review' ? 'Review' : 'Practice') + ' · Flashcards [✓]', { back: true });
   let flipped = false;
   const wrap = document.createElement('div');
-  wrap.append(h(`<div class="row" style="margin:2px 4px 10px"><div class="grow muted">${session.cleared} of ${session.total} cleared · ${session.queue.length} in queue</div></div>`));
-  wrap.append(h(`<div class="progressbar" style="margin-bottom:12px"><div style="width:${session.total ? session.cleared / session.total * 100 : 0}%"></div></div>`));
-  const card = document.createElement('div');
-  card.className = 'card';
-  card.style.cssText = 'min-height:220px;display:flex;flex-direction:column;justify-content:center;cursor:pointer;text-align:center;padding:24px 18px';
+  const card = immersiveCard();
   draw();
   wrap.append(card);
-  wrap.append(practiceCloseX(() => render(() => binaryScorecard(d, session), false)));
+  immersiveSession(wrap, session.total ? session.cleared / session.total : 0, () => render(() => binaryScorecard(d, session), false));
   main().append(wrap);
 
   function draw() {
@@ -8834,7 +9072,7 @@ function binaryCard(d, session) {
     } else {
       card.onclick = null;
       const memBtn = intent === 'review' ? '' : '<button class="pill" data-b="mem" style="padding:11px 13px">Memorized</button>';
-      card.append(h(`<div><div style="font-size:15px;line-height:1.65;text-align:left;white-space:pre-line">${esc(item.a)}</div>
+      card.append(h(`<div><div class="imm-a">${esc(item.a)}</div>
         <div class="row" style="justify-content:center;gap:8px;margin-top:18px">
           <button class="pill" data-b="missed" style="border-color:var(--danger);color:var(--danger);padding:11px 13px">Missed</button>
           ${memBtn}
