@@ -534,6 +534,9 @@ function defaultState() {
       cr: { count: 0, lastDay: null }    // creeds & catechisms
     },                     // lastDay is a local 'YYYY-MM-DD' day-key
     activity: {},          // activity['YYYY-MM-DD'] = {sm?:1, rd?:1, cr?:1, ft?:1} — feeds weekly/monthly/yearly counters
+    stats: { sessions: [] },   // D-AB: per-SITTING practice/review records for the Stats page.
+                               //   [{id, mode, intent, title, docId, ts, secs, total, done, score, items[]}]
+                               //   Distinct from creeds.practice, which is per-CARD and capped at 20/card.
     reading: {
       books: [],           // {id, title, author, pages, chapters, status, queuePos, currentPage,
                            //  category, prefacePages, prefaceRead, logs, summaries, quotes, questions,
@@ -767,6 +770,8 @@ function ensureShapes() {
   if (!state.review || typeof state.review !== 'object' || Array.isArray(state.review)) state.review = { covered: {}, books: {} };   // D-AB review coverage (additive)
   if (!state.review.covered || typeof state.review.covered !== 'object') state.review.covered = {};
   if (!state.review.books || typeof state.review.books !== 'object') state.review.books = {};   // layer-3 whole-book cadence assignments
+  if (!state.stats || typeof state.stats !== 'object' || Array.isArray(state.stats)) state.stats = { sessions: [] };   // D-AB Stats session log (additive)
+  if (!Array.isArray(state.stats.sessions)) state.stats.sessions = [];
   if (!state.settings) state.settings = def.settings;
   // one-tap scoped launch (additive/sync-safe): remembered mode per intent + review cycle/whole choice
   if (!state.settings.scopeLaunch || typeof state.settings.scopeLaunch !== 'object') state.settings.scopeLaunch = { review: { mode: null, scope: 'cycle' }, practice: { mode: null } };
@@ -1433,20 +1438,85 @@ function uncoveredDeck(cards, n, sinceMs = 0) {
 // is covered; calendar cadences are rigid (roll on the date regardless of completion, D-M3b).
 const DAY = 86400000;
 
+// Calendar cadences may be PINNED to a weekday (weekly) or a day-of-month (monthly), and may repeat
+// every 1 or 2 periods (D-M3's "every-other-week/-month"). `dow` 0–6 / `dom` 1–31; both OPTIONAL —
+// an unpinned calendar cadence keeps the old behaviour exactly (fixed period from cycleStart), so
+// every cadence stored before this change keeps working with no migration.
 function normCadence(c) {
   if (!c || !c.type) return { type: 'interval', days: 30 };
-  if (c.type === 'weekly') return { type: 'weekly', days: 7 };
-  if (c.type === 'monthly') return { type: 'monthly', days: 30 };
+  const every = c.every === 2 ? 2 : 1;
+  if (c.type === 'weekly') {
+    const o = { type: 'weekly', days: 7 * every, every };
+    if (c.dow != null && c.dow >= 0 && c.dow <= 6) o.dow = Math.round(c.dow);
+    return o;
+  }
+  if (c.type === 'monthly') {
+    const o = { type: 'monthly', days: 30 * every, every };
+    if (c.dom != null && c.dom >= 1 && c.dom <= 31) o.dom = Math.round(c.dom);
+    return o;
+  }
   return { type: 'interval', days: Math.max(1, Math.round(c.days || 30)) };
+}
+const DOW_NAMES = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'];
+const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function dowName(d) { return DOW_NAMES[d] || ''; }
+function dowShort(d) { return DOW_SHORT[d] || ''; }
+function ordinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 function cadenceLabel(c) {
   if (!c) return 'Off';
   c = normCadence(c);
-  if (c.type === 'weekly') return 'Weekly';
-  if (c.type === 'monthly') return 'Monthly';
+  if (c.type === 'weekly') {
+    const base = c.every === 2 ? 'Every other week' : 'Weekly';
+    return c.dow == null ? base : (c.every === 2 ? 'Every other ' + DOW_SHORT[c.dow] : DOW_NAMES[c.dow]);
+  }
+  if (c.type === 'monthly') {
+    const base = c.every === 2 ? 'Every other month' : 'Monthly';
+    return c.dom == null ? base : base + ' · ' + ordinal(c.dom);
+  }
   return 'Every ' + c.days + ' day' + (c.days === 1 ? '' : 's');
 }
 function cadenceIntervalMs(c) { c = normCadence(c); return c.days * DAY; }   // the fade decay window
+
+// ---- pinned-calendar date maths ----
+// Deliberately computed from LOCAL DATE COMPONENTS, not by adding milliseconds. Adding 7*DAY across
+// a daylight-saving boundary lands an hour off and eventually slips a whole day, which for a rigid
+// cadence (D-M3b) means the pinned weekday quietly drifts. Anchoring at local noon also keeps a
+// date from tipping into its neighbour when the clock shifts.
+function atLocalNoon(y, m, d) { return new Date(y, m, d, 12, 0, 0, 0).getTime(); }
+// day-of-month clamped to the month's real length: the 31st in a 30-day month = the 30th, and in
+// February = the 28th/29th. Without this, `new Date(y, 1, 31)` silently rolls into March.
+function clampDom(y, m, dom) { return Math.min(dom, new Date(y, m + 1, 0).getDate()); }
+
+// The next occurrence of a pinned calendar cadence STRICTLY AFTER `fromMs`.
+// Unpinned calendar cadences fall back to the original fixed-period arithmetic.
+function calendarNextDue(cadence, fromMs) {
+  const c = normCadence(cadence);
+  const f = new Date(fromMs);
+  if (c.type === 'weekly') {
+    if (c.dow == null) return fromMs + c.days * DAY;
+    // step to the next matching weekday (1–7 days out), then add the extra week if every-other
+    let delta = (c.dow - f.getDay() + 7) % 7;
+    if (delta === 0) delta = 7;
+    if (c.every === 2) delta += 7;
+    return atLocalNoon(f.getFullYear(), f.getMonth(), f.getDate() + delta);
+  }
+  if (c.type === 'monthly') {
+    if (c.dom == null) return fromMs + c.days * DAY;
+    // try this month's pinned day; if it's already past, walk forward by `every` months
+    let y = f.getFullYear(), m = f.getMonth();
+    let due = atLocalNoon(y, m, clampDom(y, m, c.dom));
+    while (due <= fromMs) {
+      m += c.every;
+      y += Math.floor(m / 12); m = ((m % 12) + 12) % 12;
+      due = atLocalNoon(y, m, clampDom(y, m, c.dom));
+    }
+    return due;
+  }
+  return fromMs + c.days * DAY;
+}
 function newAssignment(cadence, now = Date.now()) { return { cadence: normCadence(cadence), cycleStart: now, createdAt: now }; }
 
 // derived anchor (ms) = earliest covering ts >= cycleStart, or 0 if the cycle hasn't started
@@ -1462,7 +1532,7 @@ function cycleComplete(a, keys) { return keys.length > 0 && cycleCoveredCount(a,
 function nextDueMs(a, keys) {
   const c = normCadence(a.cadence);
   if (c.type === 'interval') { const an = cycleAnchor(a, keys); return (an || a.cycleStart) + c.days * DAY; }
-  return a.cycleStart + c.days * DAY;   // calendar: rigid from cycleStart
+  return calendarNextDue(c, a.cycleStart);   // calendar: rigid — the pinned date after this cycle's start
 }
 
 // Advance the cycle if it's time. Interval: only after the whole scope is covered AND now past due.
@@ -1476,8 +1546,10 @@ function syncCycle(a, keys, now = Date.now()) {
       if (now >= due) { a.cycleStart = due; changed = true; } else break;
     }
   } else {
+    // rigid: roll to each successive pinned occurrence regardless of completion (D-M3b), so a missed
+    // Monday flags late but the NEXT one is still the following Monday rather than drifting.
     while (guard++ < 2000) {
-      const due = a.cycleStart + c.days * DAY;
+      const due = calendarNextDue(c, a.cycleStart);
       if (now >= due) { a.cycleStart = due; changed = true; } else break;
     }
   }
@@ -1646,7 +1718,127 @@ function shuffled(arr, rnd = Math.random) {
   return a;
 }
 
-const RV = {allMemBy,assignmentStatus,bookAssignment,bookScopeKey,cadenceIntervalMs,cadenceLabel,chapterScopeKey,clearBookCadence,clearCovered,clearUnitCadence,coverageKey,coverageTs,coveredCount,cycleAnchor,cycleComplete,cycleCoveredCount,ensureReview,getUnit,governingReviewInterval,isCovered,markCovered,missInsertIndex,moduleKeys,newAssignment,nextDueMs,normCadence,practiceNextDueMs,practiceStatus,setBookCadence,setUnitCadence,setUnitMemBy,shuffled,splitKey,syncCycle,syncPracticeCycle,uncoveredDeck,unitDecay,unitMastery,unitMemBy,unitsWithCadence,verseFreshness,verseScopeKey};
+const RV = {allMemBy,assignmentStatus,bookAssignment,bookScopeKey,cadenceIntervalMs,cadenceLabel,calendarNextDue,chapterScopeKey,clearBookCadence,clearCovered,clearUnitCadence,coverageKey,coverageTs,coveredCount,cycleAnchor,cycleComplete,cycleCoveredCount,dowName,dowShort,ensureReview,getUnit,governingReviewInterval,isCovered,markCovered,missInsertIndex,moduleKeys,newAssignment,nextDueMs,normCadence,ordinal,practiceNextDueMs,practiceStatus,setBookCadence,setUnitCadence,setUnitMemBy,shuffled,splitKey,syncCycle,syncPracticeCycle,uncoveredDeck,unitDecay,unitMastery,unitMemBy,unitsWithCadence,verseFreshness,verseScopeKey};
+// Strive — Session log + Stats (Phase 11, D-AB "Stats page above Trends").
+//
+// WHY THIS MODULE EXISTS. The practice store in creeds.js (`CR.logPractice`) records one entry PER
+// CARD — `{ts, mode, score}` under `practice[docId][n]` — and deliberately caps each card's history
+// at 20 entries so state stays small. That's exactly right for mastery/ring maths, and useless for
+// "show me that flashcard session I did on Tuesday": there is no session identity, the entries of one
+// sitting are scattered across every card it touched, and the cap silently discards old ones.
+//
+// So D-AB's "expandable per-session results" needs its own record. This module is that record, and
+// nothing else reads it — mastery, the ring, coverage, and targets all keep reading the practice log
+// exactly as before. Additive and sync-safe: `state.stats.sessions = [...]`.
+//
+// UPSERT, NOT APPEND. Practice scorecards are ordinary screens and re-render freely (‹ Back into one,
+// a rerender after a toast). An append-only log would record the same sitting several times, and the
+// duplicates would be indistinguishable from real repeat practice. So every session carries a stable
+// id minted once at the session's start, and logging is an UPSERT on that id.
+
+
+const CAP = 400;   // sessions kept; ~a year of heavy use, and each record is small
+
+function SS() {
+  if (!state.stats || typeof state.stats !== 'object' || Array.isArray(state.stats)) state.stats = {};
+  if (!Array.isArray(state.stats.sessions)) state.stats.sessions = [];
+  return state.stats;
+}
+function ensureStats() { SS(); }
+
+// A session id is minted ONCE per sitting by the caller and reused on every re-render of its
+// scorecard. Shape is informational only — uniqueness is what matters.
+function sessionId(mode, docId, startTs) { return mode + '|' + (docId || '-') + '|' + startTs; }
+
+// mode: 'flash' | 'binary' | 'typer' | 'fade' | 'scramble' | 'timer'
+// rec:  { id, mode, intent, title, docId, ts, secs, total, done, score, items:[{n,label,val,tag}] }
+// Returns the stored record. Upserts on `id`, so a re-rendered scorecard refreshes rather than duplicates.
+function logSession(rec) {
+  const s = SS();
+  const now = Date.now();
+  const clean = {
+    id: rec.id || sessionId(rec.mode, rec.docId, rec.ts || now),
+    mode: rec.mode,
+    intent: rec.intent || 'practice',
+    title: rec.title || '',
+    docId: rec.docId || '',
+    ts: rec.ts || now,
+    secs: Math.max(0, Math.round(rec.secs || 0)),
+    total: Math.max(0, Math.round(rec.total || 0)),
+    done: Math.max(0, Math.round(rec.done || 0)),
+    score: rec.score == null ? null : Math.round(rec.score),
+    items: Array.isArray(rec.items) ? rec.items.slice(0, 200) : []
+  };
+  const i = s.sessions.findIndex(x => x.id === clean.id);
+  if (i >= 0) s.sessions[i] = clean; else s.sessions.push(clean);
+  s.sessions.sort((a, b) => a.ts - b.ts);
+  if (s.sessions.length > CAP) s.sessions.splice(0, s.sessions.length - CAP);
+  save();
+  return clean;
+}
+
+function allSessions() { return SS().sessions.slice(); }
+// named sessionById, not getSession — sync.js already owns getSession (the auth session), and the
+// flattened build makes every module's top-level names global, so the collision would be silent there
+function sessionById(id) { return SS().sessions.find(s => s.id === id) || null; }
+function removeSession(id) {
+  const s = SS(), i = s.sessions.findIndex(x => x.id === id);
+  if (i >= 0) { s.sessions.splice(i, 1); save(); return true; }
+  return false;
+}
+
+// Newest-first query. corpus: 'scripture' (docId starts 'bible:') | 'creeds' | null for both.
+function sessions({ from = 0, to = Infinity, mode = null, intent = null, corpus = null, limit = 0 } = {}) {
+  let out = SS().sessions.filter(s => {
+    if (s.ts < from || s.ts > to) return false;
+    if (mode && s.mode !== mode) return false;
+    if (intent && s.intent !== intent) return false;
+    if (corpus === 'scripture' && !s.docId.startsWith('bible:')) return false;
+    if (corpus === 'creeds' && s.docId.startsWith('bible:')) return false;
+    return true;
+  });
+  out.sort((a, b) => b.ts - a.ts);
+  return limit > 0 ? out.slice(0, limit) : out;
+}
+
+// Roll-up over a window: how many sittings, how long, how much material, average score.
+// `score` averages only sessions that HAVE a score (the timer and fade don't produce one), so a
+// timed review can't drag the average of the modes that actually measure accuracy.
+function summary(opts = {}) {
+  const list = sessions(opts);
+  const scored = list.filter(s => s.score != null);
+  return {
+    count: list.length,
+    secs: list.reduce((a, s) => a + s.secs, 0),
+    items: list.reduce((a, s) => a + s.done, 0),
+    avgScore: scored.length ? Math.round(scored.reduce((a, s) => a + s.score, 0) / scored.length) : null,
+    byMode: list.reduce((m, s) => { m[s.mode] = (m[s.mode] || 0) + 1; return m; }, {})
+  };
+}
+
+// Sessions per local day across a key range, for the Stats bar strip. Returns { 'YYYY-MM-DD': n }.
+function dailyCounts(fromKey, toKey, opts = {}) {
+  const out = {};
+  sessions(opts).forEach(s => {
+    const dk = todayKey(new Date(s.ts));
+    if (dk >= fromKey && dk <= toKey) out[dk] = (out[dk] || 0) + 1;
+  });
+  return out;
+}
+
+// Score trend for one mode, oldest→newest, for a sparkline. Only scored modes return anything.
+function scoreSeries(mode, limit = 30) {
+  return sessions({ mode }).filter(s => s.score != null).slice(0, limit).reverse()
+    .map(s => ({ ts: s.ts, score: s.score, title: s.title }));
+}
+
+const MODE_LABELS = {
+  flash: 'Flashcards [1–5]', binary: 'Flashcards [✓]', typer: 'First-Letter typing',
+  fade: 'Fade', scramble: 'Scramble', timer: 'Recite ⏱'
+};
+function modeLabel(m) { return MODE_LABELS[m] || m; }
+
+const ST = {MODE_LABELS,allSessions,dailyCounts,ensureStats,logSession,modeLabel,removeSession,scoreSeries,sessionById,sessionId,sessions,summary};
 // Strive — planner: day/week/month/year items, recurring rules
 
 
@@ -3773,6 +3965,7 @@ const VIS = {setVisionKey,visionKey,visionReady,visionScanToc};
 
 
 
+
 load();
 SC.ensureKeys();
 
@@ -4288,12 +4481,21 @@ function dashboard() {
         <div class="muted" style="font-size:12px;margin-top:8px">${fs.totalLogs} logged · ${thisMonth} this month · ${fs.thisYear} this year</div>`;
       })()}
     </div>
+    <div class="card" id="d-stats" style="cursor:pointer">
+      <div class="row"><h3 style="border:none;margin:0;padding:0">Stats</h3>
+      <div class="grow muted" style="font-size:12px;text-align:right;margin-right:4px">${(() => {
+        const s = ST.summary({ from: Date.now() - 30 * 86400000 });
+        return s.count ? s.count + ' session' + (s.count === 1 ? '' : 's') + ' · 30d' + (s.avgScore == null ? '' : ' · ' + s.avgScore + '%') : 'session history';
+      })()}</div>
+      <span class="chev">›</span></div>
+    </div>
     <div class="card" id="d-trends" style="cursor:pointer">
       <div class="row"><h3 style="border:none;margin:0;padding:0">Trends</h3>
       <div class="grow muted" style="font-size:12px;text-align:right;margin-right:4px">8 weeks · week over week</div>
       <span class="chev">›</span></div>
     </div>
   `));
+  main().querySelector('#d-stats').onclick = () => render(statsScreen);   // D-AB: Stats sits ABOVE Trends
   main().querySelector('#d-trends').onclick = () => render(trendsScreen);
   main().querySelector('#d-fitness').onclick = () => { ftMode = 'level'; render(fitnessHome); };   // 7B.1 title→home resets to Level
   { // 7B.2 dashboard-as-hub — Scripture card clickable targets
@@ -4345,6 +4547,139 @@ function dashboard() {
     if (rows.length) rows.forEach(r => r.onclick = () => open(items[Number(r.dataset.i)]));
     else dcur.onclick = () => { if (items.length) open(items[0]); };
   }
+}
+
+// ---------- Stats (D-AB · D-W) — all review/practice history in one place ----------
+// Sits ABOVE Trends on the dashboard. Trends answers "am I keeping at it" (activity, week over
+// week); Stats answers "how did I actually do" — every sitting, expandable to its per-item results,
+// plus the Scripture-Review times/graphs that used to live in their own screen (D-AB folds them in).
+let statsFilter = { mode: null, corpus: null, range: 30 };
+const statsOpen = new Set();   // expanded session ids, kept across a rerender
+
+function statsScreen() {
+  setHeader('Stats', { back: () => switchTab('home') });
+  const wrap = document.createElement('div');
+  const now = Date.now();
+  const from = statsFilter.range ? now - statsFilter.range * 86400000 : 0;
+  const q = { from, mode: statsFilter.mode, corpus: statsFilter.corpus };
+  const sum = ST.summary(q);
+  const list = ST.sessions({ ...q, limit: 200 });
+
+  // ---- range · corpus · mode filters ----
+  const ranges = [[7, '7d'], [30, '30d'], [90, '90d'], [0, 'All']];
+  const rangeRow = h(`<div class="pillrow" style="margin:2px 0 8px">${ranges.map(([v, l]) =>
+    `<button class="pill${statsFilter.range === v ? ' on' : ''}" data-r="${v}" style="padding:5px 11px;font-size:12px">${l}</button>`).join('')}</div>`).firstElementChild;
+  rangeRow.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { statsFilter.range = Number(b.dataset.r); rerender(); });
+  wrap.append(rangeRow);
+
+  const corpora = [[null, 'Everything'], ['scripture', 'Scripture'], ['creeds', 'Creeds']];
+  const corpRow = h(`<div class="pillrow" style="margin-bottom:8px">${corpora.map(([v, l]) =>
+    `<button class="pill${statsFilter.corpus === v ? ' on' : ''}" data-c="${v === null ? '' : v}" style="padding:5px 11px;font-size:12px">${l}</button>`).join('')}</div>`).firstElementChild;
+  corpRow.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { statsFilter.corpus = b.dataset.c || null; rerender(); });
+  wrap.append(corpRow);
+
+  const modes = [[null, 'All modes'], ['flash', 'Cards 1–5'], ['binary', 'Cards ✓'], ['typer', 'Typing'], ['fade', 'Fade'], ['scramble', 'Scramble'], ['timer', 'Recite ⏱']];
+  const modeRow = h(`<div class="pillrow" style="margin-bottom:4px;flex-wrap:wrap">${modes.map(([v, l]) =>
+    `<button class="pill${statsFilter.mode === v ? ' on' : ''}" data-m="${v === null ? '' : v}" style="padding:5px 10px;font-size:12px">${l}</button>`).join('')}</div>`).firstElementChild;
+  modeRow.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { statsFilter.mode = b.dataset.m || null; rerender(); });
+  wrap.append(modeRow);
+
+  if (!ST.allSessions().length) {
+    wrap.append(h(`<div class="empty">No sessions recorded yet.<br>Finish a flashcard, typing, fade, scramble or timed review<br>and it will appear here with its per-question results.</div>`));
+    wrap.append(statsReviewTimesEntry());
+    main().append(wrap);
+    return;
+  }
+
+  // ---- summary ----
+  wrap.append(h(`<div class="card">
+    <div class="row" style="text-align:center">
+      <div class="grow"><div class="big" style="font-size:24px">${sum.count}</div><div class="muted" style="font-size:11px">sessions</div></div>
+      <div class="grow"><div class="big" style="font-size:24px">${sum.items}</div><div class="muted" style="font-size:11px">items done</div></div>
+      <div class="grow"><div class="big" style="font-size:24px">${sum.secs ? SC.fmtSecs(sum.secs) : '—'}</div><div class="muted" style="font-size:11px">time</div></div>
+      <div class="grow"><div class="big" style="font-size:24px">${sum.avgScore == null ? '—' : sum.avgScore + '%'}</div><div class="muted" style="font-size:11px">avg score</div></div>
+    </div>
+    <div class="muted" style="font-size:11px;margin-top:8px">Average score covers the scored modes only — Fade and the timer measure something else, so they never move it.</div>
+  </div>`));
+
+  // ---- per-day strip ----
+  const days = statsFilter.range || 30;
+  const startKey = addDaysKey(todayKey(), -(days - 1));
+  const counts = ST.dailyCounts(startKey, todayKey(), q);
+  const dayKeys = Array.from({ length: Math.min(days, 60) }, (_, i) => addDaysKey(todayKey(), -(Math.min(days, 60) - 1 - i)));
+  const peak = Math.max(1, ...dayKeys.map(k => counts[k] || 0));
+  wrap.append(sectionTitle('Sessions per day'));
+  wrap.append(h(`<div class="card"><div style="display:flex;gap:2px;align-items:flex-end;height:40px">
+    ${dayKeys.map(k => `<div title="${k} · ${counts[k] || 0}" style="flex:1;background:${counts[k] ? 'var(--gold)' : 'var(--track)'};height:${counts[k] ? Math.max(3, Math.round((counts[k] / peak) * 40)) : 1}px"></div>`).join('')}
+  </div><div class="muted" style="font-size:11px;margin-top:6px">${shortDate(dayKeys[0])} → today · peak ${peak}/day</div></div>`));
+
+  // ---- the session log, newest first, each expandable ----
+  wrap.append(sectionTitle(`Sessions (${list.length})`));
+  if (!list.length) wrap.append(h(`<div class="empty">Nothing in this filter — widen the range or pick another mode.</div>`));
+  list.forEach(s => wrap.append(statsSessionRow(s)));
+
+  wrap.append(statsReviewTimesEntry());
+  main().append(wrap);
+}
+
+// One session row. Tap to expand its per-item results in place — the point of the page (D-AB), so
+// the detail lives inline rather than behind another navigation.
+function statsSessionRow(s) {
+  const open = statsOpen.has(s.id);
+  const when = shortDate(todayKey(new Date(s.ts)));
+  const time = new Date(s.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const el = h(`
+    <div class="list-item" style="cursor:pointer;flex-direction:column;align-items:stretch">
+      <div class="row">
+        <div class="grow">
+          <div class="title">${esc(s.title || ST.modeLabel(s.mode))}</div>
+          <div class="sub">${esc(ST.modeLabel(s.mode))}${s.intent === 'review' ? ' · review' : ''} · ${when} ${esc(time)}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-weight:700;font-variant-numeric:tabular-nums">${s.score == null ? (s.secs ? SC.fmtSecs(s.secs) : '—') : s.score + '%'}</div>
+          <div class="muted" style="font-size:11px">${s.done}${s.total && s.total !== s.done ? '/' + s.total : ''} item${s.done === 1 ? '' : 's'}</div>
+        </div>
+        <span class="chev" style="margin-left:6px">${open ? '⌄' : '›'}</span>
+      </div>
+    </div>`);
+  const row = el.querySelector('.list-item');
+  if (open) {
+    const detail = document.createElement('div');
+    detail.style.cssText = 'margin-top:10px;padding-top:8px;border-top:1px solid var(--line)';
+    if (!s.items.length) detail.append(h(`<div class="muted" style="font-size:12px">No per-item detail recorded for this session.</div>`));
+    s.items.forEach(it => detail.append(h(`<div class="row" style="padding:3px 0">
+      <div class="grow" style="font-size:13px">${esc(it.label || ('Q' + it.n))}</div>
+      <div style="font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;color:${statsItemColor(it)}">${esc(statsItemText(it))}</div>
+    </div>`)));
+    if (s.secs) detail.append(h(`<div class="muted" style="font-size:11px;margin-top:8px">Session length ${esc(SC.fmtSecs(s.secs))}</div>`));
+    row.append(detail);
+  }
+  row.onclick = () => { if (statsOpen.has(s.id)) statsOpen.delete(s.id); else statsOpen.add(s.id); rerender(); };
+  return el;
+}
+function statsItemText(it) {
+  if (it.tag === '%') return it.val + '%';
+  if (it.tag === 'rating') return 'rated ' + it.val;
+  if (it.tag === 'peeks') return it.val + ' peek' + (it.val === 1 ? '' : 's');
+  return String(it.val);
+}
+function statsItemColor(it) {
+  if (it.tag === 'miss') return 'var(--danger)';
+  if (it.tag === 'ok') return 'var(--forest)';
+  if (it.tag === '%') return it.val >= 90 ? 'var(--forest)' : it.val >= 70 ? 'var(--gold)' : 'var(--danger)';
+  if (it.tag === 'rating') return it.val >= 4 ? 'var(--forest)' : it.val >= 3 ? 'var(--gold)' : 'var(--danger)';
+  return 'var(--text)';
+}
+// D-AB folds the old Scripture-Review times/trends screen in here. It's a big, self-contained view
+// (manual entry + per-corpus/book/chapter graphs), so it stays its own screen and Stats owns the door.
+function statsReviewTimesEntry() {
+  const el = h(`<div class="card" style="cursor:pointer;margin-top:14px">
+    <div class="row"><h3 style="border:none;margin:0;padding:0">Review times &amp; graphs</h3>
+    <div class="grow muted" style="font-size:12px;text-align:right;margin-right:4px">recitation history</div>
+    <span class="chev">›</span></div>
+  </div>`);
+  el.querySelector('.card').onclick = () => render(reviewArea);
+  return el;
 }
 
 // ---------- Trends (Phase 5 · F5) ----------
@@ -5850,17 +6185,74 @@ const CADENCE_PRESETS = [['off', 'Off'], ['i7', 'Every 7d'], ['i14', 'Every 14d'
 function cadenceKeyOf(a) { if (!a) return 'off'; const c = RV.normCadence(a.cadence); if (c.type === 'weekly') return 'weekly'; if (c.type === 'monthly') return 'monthly'; return 'i' + c.days; }
 function cadenceFromKey(k) { if (k === 'off') return null; if (k === 'weekly') return { type: 'weekly' }; if (k === 'monthly') return { type: 'monthly' }; return { type: 'interval', days: Number(k.slice(1)) }; }
 // Shared cadence sheet. `current` = the assignment (or null); onApply(cadence|null).
+// Picking Weekly or Monthly reveals a PIN row (D-M3 "specific weekday" / day-of-month) plus an
+// every-other toggle. The pin defaults to today's weekday / today's date — the day you're setting it
+// is the most likely day you mean, and it also reproduces the old unpinned behaviour's first due date.
 function reviewCadenceSheet(name, current, onApply) {
   openSheet('Review cadence', (body, close) => {
-    const sel = cadenceKeyOf(current);
-    const card = h(`<div>
-      <div class="muted" style="font-size:12px;margin-bottom:8px">How often <b>${esc(name)}</b> comes due for review. Reviewed verses fade white→black as the next review nears; at due they're black again.</div>
-      <div class="pillrow" style="margin-bottom:8px">
+    let sel = cadenceKeyOf(current);
+    let cad = current ? RV.normCadence(current.cadence) : null;
+    const today = new Date();
+
+    const card = document.createElement('div');
+    const draw = () => {
+      card.innerHTML = '';
+      card.append(h(`<div class="muted" style="font-size:12px;margin-bottom:8px">How often <b>${esc(name)}</b> comes due for review. Reviewed verses fade white→black as the next review nears; at due they're black again.</div>`));
+
+      const presets = h(`<div class="pillrow" style="margin-bottom:8px">
         ${CADENCE_PRESETS.map(([k, l]) => `<button class="pill ${sel === k ? 'on' : ''}" data-k="${k}">${l}</button>`).join('')}
-      </div>
-      <div class="muted" style="font-size:12px">${current ? 'Interval cadences (Every Nd) float from your first review each cycle; Weekly / Monthly are a fixed rhythm.' : 'Off — this material never comes due for review.'}</div>
-    </div>`).firstElementChild;
-    card.querySelectorAll('[data-k]').forEach(btn => btn.onclick = () => { onApply(cadenceFromKey(btn.dataset.k)); close(); rerender(); });
+      </div>`).firstElementChild;
+      presets.querySelectorAll('[data-k]').forEach(btn => btn.onclick = () => {
+        sel = btn.dataset.k;
+        if (sel === 'off') { cad = null; apply(); return; }
+        const base = cadenceFromKey(sel);
+        if (base.type === 'weekly') base.dow = cad && cad.dow != null ? cad.dow : today.getDay();
+        if (base.type === 'monthly') base.dom = cad && cad.dom != null ? cad.dom : today.getDate();
+        if (cad && cad.every === 2 && base.type !== 'interval') base.every = 2;
+        cad = RV.normCadence(base);
+        if (base.type === 'interval') apply(); else draw();   // interval has nothing to pin
+      });
+      card.append(presets);
+
+      // ---- the pin row (calendar cadences only) ----
+      if (cad && cad.type === 'weekly') {
+        card.append(h(`<div class="muted" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin:10px 2px 5px">Which day</div>`));
+        const row = h(`<div class="pillrow" style="margin-bottom:8px">${[0, 1, 2, 3, 4, 5, 6].map(d =>
+          `<button class="pill ${cad.dow === d ? 'on' : ''}" data-d="${d}" style="padding:5px 9px;font-size:12px">${RV.dowShort(d)}</button>`).join('')}</div>`).firstElementChild;
+        row.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { cad = RV.normCadence({ ...cad, dow: Number(b.dataset.d) }); draw(); });
+        card.append(row);
+      }
+      if (cad && cad.type === 'monthly') {
+        card.append(h(`<div class="muted" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin:10px 2px 5px">Which date</div>`));
+        const row = h(`<div class="pillrow" style="margin-bottom:6px;flex-wrap:wrap">${Array.from({ length: 31 }, (_, i) => i + 1).map(d =>
+          `<button class="pill ${cad.dom === d ? 'on' : ''}" data-dm="${d}" style="padding:4px 8px;font-size:12px;min-width:32px">${d}</button>`).join('')}</div>`).firstElementChild;
+        row.querySelectorAll('[data-dm]').forEach(b => b.onclick = () => { cad = RV.normCadence({ ...cad, dom: Number(b.dataset.dm) }); draw(); });
+        card.append(row);
+        if (cad.dom > 28) card.append(h(`<div class="muted" style="font-size:11px;margin:0 2px 8px">In shorter months this falls on the last day.</div>`));
+      }
+      if (cad && cad.type !== 'interval') {
+        const alt = h(`<div class="pillrow" style="margin-bottom:8px">
+          <button class="pill ${cad.every !== 2 ? 'on' : ''}" data-e="1" style="padding:5px 11px;font-size:12px">Every ${cad.type === 'weekly' ? 'week' : 'month'}</button>
+          <button class="pill ${cad.every === 2 ? 'on' : ''}" data-e="2" style="padding:5px 11px;font-size:12px">Every other</button>
+        </div>`).firstElementChild;
+        alt.querySelectorAll('[data-e]').forEach(b => b.onclick = () => { cad = RV.normCadence({ ...cad, every: Number(b.dataset.e) }); draw(); });
+        card.append(alt);
+      }
+
+      card.append(h(`<div class="muted" style="font-size:12px">${!cad
+        ? 'Off — this material never comes due for review.'
+        : cad.type === 'interval'
+          ? 'Interval cadences float from your first review each cycle.'
+          : `<b>${esc(RV.cadenceLabel(cad))}</b> — a fixed rhythm. Miss one and it flags late, but the next stays on the calendar.`}</div>`));
+
+      if (cad && cad.type !== 'interval') {
+        const save = h(`<button class="btn" style="margin-top:10px">Set ${esc(RV.cadenceLabel(cad))}</button>`);
+        save.firstChild.onclick = apply;
+        card.append(save);
+      }
+    };
+    const apply = () => { onApply(cad); close(); rerender(); };
+    draw();
     body.append(card);
   });
 }
@@ -6962,6 +7354,15 @@ function reviewTimer(b, presetScope = null, scopeName = null) {
     }
     sw.stop();
     SC.logReviewTime(b.name, theSecs, { scope });
+    // a timed recitation is a sitting too — it belongs in Stats beside the card modes (D-AB).
+    // No score: the timer measures duration, not accuracy (D-AE keeps it out of the ring for the
+    // same reason), so it contributes to counts and time but never to the average score.
+    ST.logSession({
+      id: ST.sessionId('timer', 'bible:' + b.name, Date.now() - theSecs * 1000),
+      mode: 'timer', intent: 'review', title: scopeName || b.name, docId: 'bible:' + b.name,
+      ts: Date.now() - theSecs * 1000, secs: theSecs, total: 1, done: 1, score: null,
+      items: [{ n: 1, label: scopeName || (scope ? SC.scopeLabel(scope) : b.name), val: SC.fmtSecs(theSecs), tag: 'time' }]
+    });
     toast('Review logged — ' + SC.fmtSecs(theSecs) + (scope ? ' · ' + SC.scopeLabel(scope) : ''));
     goBack();
   };
@@ -8312,6 +8713,34 @@ let prSetup = { mode: 'fade', sel: 'all', from: 1, to: 10, lds: {}, picked: {}, 
 
 // SM5 — combined (multi-chapter) docs carry per-section docId/vn so every verse's
 // mastery lives with its own chapter doc, shared with single-chapter practice.
+// ---- Stats session logging (D-AB) ----
+// One record per SITTING, written when a mode reaches its summary. The id is minted ONCE on a
+// carrier that survives the session's recursion (the session object, or the `exit`/`results`
+// accumulator the queue screens already thread through), then reused — so a scorecard that
+// re-renders upserts the same record instead of logging the sitting twice. `_ts` doubles as the
+// session's start, which is where `secs` comes from.
+// NOTE the non-enumerable defineProperty: one of the carriers is the flashcards `exit` map, whose
+// OWN KEYS are the rated card numbers (`Object.keys(exit)` = "which cards were touched"). Plain
+// assignment would smuggle _sid/_ts into that list and corrupt every rating readout downstream.
+function statsStamp(carrier, mode, docId, atTs) {
+  if (carrier && !carrier._sid) {
+    const ts = atTs || Date.now();
+    Object.defineProperty(carrier, '_ts', { value: ts, enumerable: false, writable: true, configurable: true });
+    Object.defineProperty(carrier, '_sid', { value: ST.sessionId(mode, docId, ts), enumerable: false, writable: true, configurable: true });
+  }
+  return carrier;
+}
+function logStatsSession(carrier, d, { mode, intent = 'practice', items = [], score = null, total = 0, done = 0, secs = null }) {
+  const start = (carrier && carrier._ts) || Date.now();
+  ST.logSession({
+    id: carrier && carrier._sid, mode, intent,
+    title: d ? (d.name || '') : '', docId: d ? (d.id || '') : '',
+    ts: start, secs: secs == null ? Math.round((Date.now() - start) / 1000) : secs,
+    total, done, score, items
+  });
+}
+const avgOf = arr => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null;
+
 const prDocId = (d, x) => x.docId || d.id;
 const prN = x => x.vn != null ? x.vn : x.n;
 
@@ -8544,7 +8973,14 @@ const FADE_STAGES = [
 
 function fadeScreen(d, queue, qi, stage, results) {
   const item = queue[qi];
-  if (!item) { practiceSummary(d, 'Fade', results.map(r => `Q${r.n} — ${r.peeks} peek${r.peeks === 1 ? '' : 's'}`), queue.length); return; }
+  statsStamp(results, 'fade', d.id);
+  if (!item) {
+    practiceSummary(d, 'Fade', results.map(r => `Q${r.n} — ${r.peeks} peek${r.peeks === 1 ? '' : 's'}`), queue.length, {
+      carrier: results, mode: 'fade', score: null,   // fade yields no accuracy signal (D-AE) — peeks only
+      items: results.map(r => ({ n: r.n, label: 'Q' + r.n, val: r.peeks, tag: 'peeks' }))
+    });
+    return;
+  }
   const [label, pct, hints] = FADE_STAGES[stage];
   setHeader(`Fade · Q${item.n}`, { back: true });
   if (!item._peeks) item._peeks = 0;
@@ -8604,7 +9040,15 @@ function fadeScreen(d, queue, qi, stage, results) {
 // ---- First-Letter typer ----
 function typerScreen(d, queue, qi, results, intent = 'practice') {
   const item = queue[qi];
-  if (!item) { practiceSummary(d, 'First-Letter', results.map(r => `Q${r.n} — ${r.acc}% (${r.missed.length ? 'missed: ' + r.missed.join(', ') : 'perfect'})`), queue.length); return; }
+  statsStamp(results, 'typer', d.id);
+  if (!item) {
+    practiceSummary(d, 'First-Letter', results.map(r => `Q${r.n} — ${r.acc}% (${r.missed.length ? 'missed: ' + r.missed.join(', ') : 'perfect'})`), queue.length, {
+      carrier: results, mode: 'typer', intent,
+      score: avgOf(results.map(r => r.acc)),
+      items: results.map(r => ({ n: r.n, label: 'Q' + r.n, val: r.acc, tag: '%' }))
+    });
+    return;
+  }
   setHeader(`First-Letter · Q${item.n}`, { back: true });
 
   const words = tokenize(item.a).flatMap((line, li) => [...line.map(w => ({ ...w, li })), { raw: '\n', key: null, br: true, li }]);
@@ -8704,7 +9148,15 @@ function typerScreen(d, queue, qi, results, intent = 'practice') {
 // ---- Scramble: rebuild the text by tapping pieces in order ----
 function scrambleScreen(d, queue, qi, results) {
   const item = queue[qi];
-  if (!item) { practiceSummary(d, 'Scramble', results.map(r => `Q${r.n} — ${r.acc}%${r.hints ? ' (' + r.hints + ' hint' + (r.hints === 1 ? '' : 's') + ')' : ''}`), queue.length); return; }
+  statsStamp(results, 'scramble', d.id);
+  if (!item) {
+    practiceSummary(d, 'Scramble', results.map(r => `Q${r.n} — ${r.acc}%${r.hints ? ' (' + r.hints + ' hint' + (r.hints === 1 ? '' : 's') + ')' : ''}`), queue.length, {
+      carrier: results, mode: 'scramble',
+      score: avgOf(results.map(r => r.acc)),
+      items: results.map(r => ({ n: r.n, label: 'Q' + r.n, val: r.acc, tag: '%' }))
+    });
+    return;
+  }
   setHeader(`Scramble · Q${item.n}`, { back: true });
 
   const flat = tokenize(item.a).flat().filter(w => w.raw && w.raw.trim());
@@ -8841,6 +9293,7 @@ function flashSession(d, queue, budget, order = 'adaptive', intent = 'practice')
     active: [], shown: [], ratings: {}, exit: {}, reps: 0, budget, intent,
     seed: order === 'seq' ? 1 : 3
   };
+  statsStamp(session, 'flash', d.id);
   flashIntroduce(session);
   flashCard(d, session);
 }
@@ -8848,6 +9301,11 @@ function flashSession(d, queue, budget, order = 'adaptive', intent = 'practice')
 function flashEnd(d, session) {
   const touched = Object.keys(session.exit);
   touched.forEach(n => { const it = session.byN[n] || { n: Number(n) }; CR.logPractice(prDocId(d, it), prN(it), 'flash', session.exit[n] * 20); });
+  logStatsSession(session, d, {
+    mode: 'flash', intent: session.intent, total: session.reps, done: touched.length,
+    score: avgOf(touched.map(n => session.exit[n] * 20)),
+    items: touched.map(n => ({ n: Number(n), label: (session.byN[n] && session.byN[n].q) || ('Q' + n), val: session.exit[n], tag: 'rating' }))
+  });
   const dist = [1, 2, 3, 4, 5].map(r => `${r}: ${touched.filter(n => session.exit[n] === r).length}`).join('  ·  ');
   practiceSummary(d, 'Flashcards', [
     `${session.reps} card${session.reps === 1 ? '' : 's'} studied · ${touched.length} question${touched.length === 1 ? '' : 's'} touched`,
@@ -8919,9 +9377,15 @@ function flashCard(d, session) {
 // back. No adaptive reordering. Ratings feed mastery just like the adaptive deck
 // (rating × 20), one entry per card. `exit` accumulates ratings across the recursion.
 function orderedFlashCard(d, queue, idx, exit, intent = 'practice') {
+  statsStamp(exit, 'flash', d.id);   // `exit` is threaded through the whole pass — the natural carrier
   if (idx >= queue.length) {
     const touched = Object.keys(exit);
     const dist = [1, 2, 3, 4, 5].map(r => `${r}: ${touched.filter(n => exit[n] === r).length}`).join('  ·  ');
+    logStatsSession(exit, d, {
+      mode: 'flash', intent, total: queue.length, done: touched.length,
+      score: avgOf(touched.map(n => exit[n] * 20)),
+      items: touched.map(n => ({ n: Number(n), label: 'Q' + n, val: exit[n], tag: 'rating' }))
+    });
     practiceSummary(d, 'Flashcards (in order)', [
       `${touched.length} of ${queue.length} card${queue.length === 1 ? '' : 's'} rated`,
       ...(touched.length ? [`Exit ratings — ${dist}`] : [])
@@ -9109,6 +9573,16 @@ function binaryScorecard(d, session) {
   const secs = Math.round((Date.now() - s.startTs) / 1000);
   const left = s.total - s.cleared - s.memorized;
   const firstTry = s.firstTryNs.size, repeated = s.cleared - firstTry;
+  statsStamp(s, 'binary', d.id, s.startTs);   // the binary session already tracks its own start
+  logStatsSession(s, d, {
+    mode: 'binary', intent: s.opts.intent, total: s.total, done: s.cleared, secs,
+    score: s.total ? Math.round(s.cleared / s.total * 100) : null,
+    items: [...new Set([...s.firstTryNs, ...s.missedNs])].sort((a, b) => a - b).map(n => ({
+      n, label: 'Q' + n,
+      val: s.firstTryNs.has(n) ? 'first try' : 'needed another pass',
+      tag: s.firstTryNs.has(n) ? 'ok' : 'miss'
+    }))
+  });
   const wrap = document.createElement('div');
   wrap.append(h(`<div class="card" style="text-align:center;padding:24px 16px">
     <div class="big">${s.cleared}/${s.total}</div>
@@ -9125,7 +9599,17 @@ function binaryScorecard(d, session) {
   main().append(wrap);
 }
 
-function practiceSummary(d, mode, lines, count) {
+// `stats` (optional) = { carrier, mode, intent, items, score } — the structured record for the Stats
+// page. `lines` stays the human-readable display; the two are deliberately separate so the summary's
+// wording can change without disturbing what's logged.
+function practiceSummary(d, mode, lines, count, stats = null) {
+  if (stats && stats.carrier) {
+    logStatsSession(stats.carrier, d, {
+      mode: stats.mode, intent: stats.intent || 'practice',
+      total: count, done: (stats.items || []).length, score: stats.score == null ? null : stats.score,
+      items: stats.items || []
+    });
+  }
   setHeader('Practice complete', { back: true });
   const wrap = document.createElement('div');
   wrap.append(h(`
