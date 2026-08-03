@@ -2010,12 +2010,17 @@ function setCategory(p, category) { p.category = category; save(); }
 
 function all() { state.pathways.forEach(migrate); return state.pathways; }
 
-function create(name, category = 'general') {
+// `bookId` links a pathway to a reading book (Phase 9.6 / D-N). The link is one-to-one and the BOOK
+// stays the source of truth for pages and the due date — the pathway only schedules. Additive, so
+// every existing pathway simply has no bookId.
+function create(name, category = 'general', bookId = null) {
   const p = { id: uid(), name, category, milestones: [{ id: uid(), name: 'Milestone 1', steps: [] }] };
+  if (bookId) p.bookId = bookId;
   state.pathways.push(p);
   save();
   return p;
 }
+function forBook(bookId) { return bookId ? (all().find(p => p.bookId === bookId) || null) : null; }
 
 function remove(id) {
   state.pathways = state.pathways.filter(p => p.id !== id);
@@ -2148,7 +2153,7 @@ function stats(p) {
 }
 function isComplete(p) { const st = stats(p); return st.totalSteps > 0 && st.doneSteps === st.totalSteps; }
 
-const PW = {addMilestone,addStep,all,applyOrder,completeNext,completeStep,create,currentMilestone,flatSteps,isComplete,isTimed,milestoneComplete,milestoneStats,nextStep,remove,removeMilestone,removeStep,renameMilestone,renameStep,scheduledSteps,setCategory,setStepDate,setStepWeight,stats,stepWeight,uncomplete};
+const PW = {addMilestone,addStep,all,applyOrder,completeNext,completeStep,create,currentMilestone,flatSteps,forBook,isComplete,isTimed,milestoneComplete,milestoneStats,nextStep,remove,removeMilestone,removeStep,renameMilestone,renameStep,scheduledSteps,setCategory,setStepDate,setStepWeight,stats,stepWeight,uncomplete};
 // Strive — Reading domain: library → up next (cap 5) → reading → finished,
 // pace-based estimates, structured notes, Library Level + lifetime counters.
 
@@ -2358,6 +2363,127 @@ function currentChapter(b) {
   return cur;
 }
 
+// ================= Phase 9.6 — book-pathway scope keys =================
+// The reading analogue of D-AG's scripture `ref`. A pathway step references a slice of a book by a
+// STABLE key and reads its done-state back from here, rather than storing a second copy — D-N: the
+// pace engine owns pages, the pathway only schedules. Key forms:
+//   read:<bookId>            the whole book
+//   read:<bookId>:ch<n>      numbered chapter n (1-based, matching numberedChapters())
+//   read:<bookId>:sum<n>     "write a summary" for chapter n
+//   read:<bookId>:quotes<n>  "log quotes" for chapter n
+// Everything sits under a `read:` prefix so an unrecognized key is TELLABLE from a scripture one.
+// That matters: before this namespace existed, `read:...` fell through app.js's parseScopeKey to
+// {kind:'book'} carrying a name no scripture book matches, which resolved to an empty scope and
+// reported not-done forever — silently. Same create-only shape as D-AH, not a visible crash.
+// uid() is base36 with no colons, so lastIndexOf(':') splits the key unambiguously.
+const READ_PREFIX = 'read:';
+
+function readScopeKey(bookId, kind = 'book', n = 0) {
+  if (!bookId) return null;
+  if (kind === 'book') return READ_PREFIX + bookId;
+  const tag = kind === 'chapter' ? 'ch' : kind === 'summary' ? 'sum' : kind === 'quotes' ? 'quotes' : null;
+  return tag && n >= 1 ? READ_PREFIX + bookId + ':' + tag + n : null;
+}
+
+function parseReadKey(key) {
+  if (typeof key !== 'string' || !key.startsWith(READ_PREFIX)) return null;
+  const body = key.slice(READ_PREFIX.length);
+  if (!body) return null;
+  const c = body.lastIndexOf(':');
+  if (c < 0) return { bookId: body, kind: 'book', n: 0 };
+  const bookId = body.slice(0, c), m = /^(ch|sum|quotes)(\d+)$/.exec(body.slice(c + 1));
+  if (!bookId || !m) return null;
+  const n = Number(m[2]);
+  if (!(n >= 1)) return null;
+  return { bookId, kind: m[1] === 'ch' ? 'chapter' : m[1] === 'sum' ? 'summary' : 'quotes', n };
+}
+
+// Page span of numbered chapter n. The END boundary is the next row in the FULL chapterList by page,
+// NOT the next numbered one — an intro or conclusion row sits between chapters and still ends the one
+// before it. Rows without a page can't define a boundary, so they're dropped first. Returns null when
+// the list simply can't answer (no rows, no pages, or a degenerate range), which callers treat as
+// "no opinion" rather than "not done".
+function chapterRange(b, n) {
+  const rows = (b.chapterList || []).filter(r => Number(r.page) > 0).slice().sort((x, y) => x.page - y.page);
+  if (!rows.length) return null;
+  let seen = 0, i = -1;
+  for (let k = 0; k < rows.length; k++) {
+    const r = rows[k];
+    if (!r.role || r.role === 'chapter') { seen++; if (seen === n) { i = k; break; } }
+  }
+  if (i < 0) return null;
+  const start = Number(rows[i].page);
+  const end = i + 1 < rows.length ? Number(rows[i + 1].page) - 1 : (Number(b.pages) > 0 ? Number(b.pages) : null);
+  return end === null || end < start ? null : { start, end };
+}
+
+// Can this book's chapter steps derive their own done-state? Checks the FIRST and LAST numbered
+// chapter, which catches both failure modes: no page numbers at all, and no book total (which leaves
+// the final chapter with no end). Baruch's call: a book that fails this still GETS a pathway — its
+// steps are just manual, and the screen says why.
+function canDeriveChapters(b) {
+  const total = numberedChapters(b).length;
+  return total > 0 && chapterRange(b, 1) !== null && chapterRange(b, total) !== null;
+}
+
+// Has reading passed through numbered chapter n? currentPage is a COMPLETED-pages position — pct()
+// treats it that way too — so the chapter is done once currentPage reaches its last page.
+function chapterStepDone(b, n) {
+  const r = chapterRange(b, n);
+  return r ? (Number(b.currentPage) || 0) >= r.end : null;
+}
+
+// Whole-book step. `finished` wins outright; otherwise read through the last page.
+function bookStepDone(b) {
+  if (b.status === 'finished') return true;
+  const total = Number(b.pages) || 0;
+  return total ? (Number(b.currentPage) || 0) >= total : null;
+}
+
+// One summary per chapter — it exists or it doesn't, so this is a clean completion signal.
+function summaryStepDone(b, n) {
+  const t = (b.summaries || {})[n];
+  return typeof t === 'string' && t.trim().length > 0;
+}
+
+// Which numbered chapter contains a page. A quote records only its PAGE (Baruch, Aug 3) — the chapter
+// is DERIVED, because the chapter list already knows where each one starts. One less field to type,
+// and it can't drift out of agreement with the page the way a hand-typed chapter number could.
+function chapterForPage(b, page) {
+  const p = Number(page) || 0;
+  if (!(p > 0)) return null;
+  const total = numberedChapters(b).length;
+  for (let n = 1; n <= total; n++) { const r = chapterRange(b, n); if (r && p >= r.start && p <= r.end) return n; }
+  return null;
+}
+
+// Quotes belonging to chapter n, resolved through the page. Deliberately NOT a completion signal
+// (Baruch, Aug 3): the app can count quotes but cannot know whether more are coming, so
+// first-quote-means-done would tick the step while he's still ten quotes from finished. A quotes step
+// is manual; this only feeds its live count.
+// Quotes entered before the page-only form carry a free-text `ch` ("7", "Ch 7", blank) — those fall
+// back to a lenient digit match, compared whole so "Ch 17" doesn't count toward chapter 7. Nothing
+// already entered is lost, and no migration was needed.
+function inChapter(b, item, n) {
+  const viaPage = chapterForPage(b, item.page);
+  if (viaPage !== null) return viaPage === n;
+  const m = /(\d+)/.exec(String(item.ch == null ? '' : item.ch).trim());
+  return m ? Number(m[1]) === n : false;
+}
+function quotesForChapter(b, n) { return (b.quotes || []).filter(q => inChapter(b, q, n)); }
+function questionsForChapter(b, n) { return (b.questions || []).filter(q => inChapter(b, q, n)); }
+
+// Resolve any read: key against its book. true/false, or NULL = "the engine has no opinion":
+// an unresolvable range, or a quotes step, which is manual by design. The sync MUST treat null as
+// leave-the-user's-value-alone.
+function readStepDone(b, pk) {
+  if (!b || !pk) return null;
+  if (pk.kind === 'book') return bookStepDone(b);
+  if (pk.kind === 'chapter') return chapterStepDone(b, pk.n);
+  if (pk.kind === 'summary') return summaryStepDone(b, pk.n);
+  return null;   // quotes — counted, never auto-completed
+}
+
 // ---- structured notes ----
 function setSummary(b, ch, text) {
   if (text.trim()) b.summaries[ch] = text.trim();
@@ -2366,7 +2492,9 @@ function setSummary(b, ch, text) {
 }
 function addQuote(b, { ch = '', page = '', text, tags = [] }) { b.quotes.push({ id: uid(), ch, page, text, tags, ts: Date.now() }); save(); }
 function removeQuote(b, id) { b.quotes = b.quotes.filter(q => q.id !== id); save(); }
-function addQuestion(b, { ch = '', text, tags = [] }) { b.questions.push({ id: uid(), ch, text, tags, ts: Date.now() }); save(); }
+// Questions take a PAGE too (Baruch, Aug 3) — same shape as a quote, chapter derived, `ch` kept only
+// so questions entered under the old chapter-only form still resolve.
+function addQuestion(b, { ch = '', page = '', text, tags = [] }) { b.questions.push({ id: uid(), ch, page, text, tags, ts: Date.now() }); save(); }
 function removeQuestion(b, id) { b.questions = b.questions.filter(q => q.id !== id); save(); }
 
 // ---- categories & tags (R5/R7 — managed lists; UI lands in Phase 6) ----
@@ -2395,7 +2523,7 @@ function removeTag(name) {
   save();
 }
 
-const RD = {QUEUE_CAP,addBook,addCategory,addQuestion,addQuote,addTag,allSorted,authorLastName,books,byStatus,chapterInfo,currentChapter,estimate,get,libraryLevel,lifetime,logPage,logPreface,moveInQueue,numberedChapters,pace,pagesBetween,pagesLeft,pagesOn,pct,removeBook,removeCategory,removeQuestion,removeQuote,removeTag,setBookCategory,setBookDue,setChapterList,setPrefacePages,setStatus,setSummary};
+const RD = {QUEUE_CAP,READ_PREFIX,addBook,addCategory,addQuestion,addQuote,addTag,allSorted,authorLastName,bookStepDone,books,byStatus,canDeriveChapters,chapterForPage,chapterInfo,chapterRange,chapterStepDone,currentChapter,estimate,get,libraryLevel,lifetime,logPage,logPreface,moveInQueue,numberedChapters,pace,pagesBetween,pagesLeft,pagesOn,parseReadKey,pct,questionsForChapter,quotesForChapter,readScopeKey,readStepDone,removeBook,removeCategory,removeQuestion,removeQuote,removeTag,setBookCategory,setBookDue,setChapterList,setPrefacePages,setStatus,setSummary,summaryStepDone};
 // Strive — Creeds, Catechisms & Confessions domain.
 // Static texts from the Van Dixhoorn edition; per-document track (read/memorize) and section progress.
 
@@ -5534,7 +5662,9 @@ function buildPathwayBody(wrap, p) {
             <div class="row">
               <div class="grow" style="font-size:14px;font-weight:600;${s.done ? 'text-decoration:line-through' : ''}">${esc(s.label)}
                 ${!pwEditMode && PW.stepWeight(s) > 1 ? ` <span style="font-size:11px;font-weight:700;color:var(--gold)">×${PW.stepWeight(s)}</span>` : ''}</div>
-              ${s.ref && !s.done && !pwEditMode ? `<button class="pill" data-a="refgo" style="padding:5px 12px;font-size:12px">${refPillLabel(s.ref.intent)}</button>${s.ref.intent !== 'memorize' ? `<button class="pill" data-a="refmodes" title="Choose mode" style="padding:5px 8px;font-size:12px">▾</button>` : ''}`
+              ${s.ref && !s.done && !pwEditMode ? (isReadStep(s)
+                ? `<button class="pill" data-a="refgo" style="padding:5px 12px;font-size:12px">▸ Open</button><button class="pill" data-a="refman" title="Mark by hand" style="padding:5px 9px;font-size:12px">✓</button>`
+                : `<button class="pill" data-a="refgo" style="padding:5px 12px;font-size:12px">${refPillLabel(s.ref.intent)}</button>${s.ref.intent !== 'memorize' ? `<button class="pill" data-a="refmodes" title="Choose mode" style="padding:5px 8px;font-size:12px">▾</button>` : ''}`)
                 : isNext && !pwEditMode && !locked ? `<button class="pill on" data-a="go" style="padding:5px 12px;font-size:12px">Done</button>` +
                 (PW.isTimed(p) ? `<button class="pill" data-a="time" style="padding:5px 9px;font-size:13px">⏱</button>` : '') : ''}
               ${!s.done && !pwEditMode ? `<button class="pill pw-datechip ${s.date ? 'on' : ''}" data-a="date" style="padding:5px 9px;font-size:12px">${s.date ? '📅 ' + shortDate(s.date) : '📅'}</button>` : ''}
@@ -5545,6 +5675,7 @@ function buildPathwayBody(wrap, p) {
                 <button data-a="del" style="border:none;background:none;color:var(--danger);font-size:16px;cursor:pointer">✕</button>` : ''}
             </div>
             ${s.done && s.doneTs ? `<div class="sub" style="margin-top:2px">done ${new Date(s.doneTs).toLocaleDateString()}${s.secs != null ? ' · ' + SC.fmtSecs(s.secs) : ''}</div>` : ''}
+            ${isReadStep(s) ? (() => { const sub = readStepSub(s); return sub ? `<div class="sub" style="margin-top:2px">${esc(sub)}${s.manualDone !== undefined ? ' · set by hand' : ''}</div>` : (s.manualDone !== undefined ? `<div class="sub" style="margin-top:2px">set by hand</div>` : ''); })() : ''}
             <div data-slot="timebox"></div>
             <div data-slot="datebox"></div>
           </div>
@@ -5555,6 +5686,11 @@ function buildPathwayBody(wrap, p) {
       if (refgo) refgo.onclick = () => launchRefStep(s, refgo);   // one-tap remembered mode (memorize → open the scope)
       const refmodes = stone.querySelector('[data-a=refmodes]');
       if (refmodes) refmodes.onclick = () => refStepSheet(s);   // ▾ → choose mode/scope
+      const refman = stone.querySelector('[data-a=refman]');    // reading: ✓ asserts by hand, long-press → back to the engine
+      if (refman) {
+        refman.onclick = () => { toggleReadStepManual(s); drawPathway(p); };
+        attachLongPress(refman, () => { setRefStepManual(s, null); toast('Back to following your reading'); drawPathway(p); });
+      }
       const time = stone.querySelector('[data-a=time]');
       const timebox = stone.querySelector('[data-slot=timebox]');
       if (time) time.onclick = () => openTimeBox(p, timebox);
@@ -5562,7 +5698,9 @@ function buildPathwayBody(wrap, p) {
       const datebox = stone.querySelector('[data-slot=datebox]');
       if (datebtn) datebtn.onclick = () => openDateBox(p, s, datebox);
       const undo = stone.querySelector('[data-a=undo]');
-      if (undo) undo.onclick = () => { PW.uncomplete(p, s.id); drawPathway(p); };
+      // A reading step's done is DERIVED, so a plain uncomplete would be re-derived away on the next
+      // render — reopening one has to be the persisted force-open, not a cleared flag.
+      if (undo) undo.onclick = () => { if (isReadStep(s)) setRefStepManual(s, false); else PW.uncomplete(p, s.id); drawPathway(p); };
       const del = stone.querySelector('[data-a=del]');
       if (del) del.onclick = () => { PW.removeStep(p, s.id); drawPathway(p); };
       const wminus = stone.querySelector('[data-a=wminus]');
@@ -5583,6 +5721,12 @@ function buildPathwayBody(wrap, p) {
   const sciBtn = h(`<button class="pill" style="display:block;width:100%;margin-top:8px;padding:10px">＋ Scripture step — practice / review a passage</button>`).firstChild;
   sciBtn.onclick = () => scopeAssignPicker(({ key, intent, label }) => { PW.addStep(p, label, lastMid, { key, intent }); toast('Added ' + label); drawPathway(p); });
   wrap.append(sciBtn);
+  const rdBook = RD.get(p.bookId);   // 9.6 — book pathways can slot summary/quotes steps between chapters
+  if (rdBook) {
+    const rdBtn = h(`<button class="pill" style="display:block;width:100%;margin-top:8px;padding:10px">＋ Reading step — a summary or quotes for a chapter</button>`).firstChild;
+    rdBtn.onclick = () => readStepPicker(p, rdBook, lastMid, () => drawPathway(p));
+    wrap.append(rdBtn);
+  }
   const msBtn = h(`<button class="btn secondary" style="margin-top:10px">Start a new milestone</button>`);
   msBtn.firstChild.onclick = () => { PW.addMilestone(p); drawPathway(p); };
   wrap.append(msBtn);
@@ -5645,6 +5789,7 @@ function buildPathwayEdit(wrap, p) {
         <button class="pill on" id="pw-addstep" style="padding:10px 16px">Add</button>
       </div>
       <button class="pill" id="pw-addscripture" style="display:block;width:100%;margin-top:8px;padding:10px">＋ Scripture step — practice / review a passage</button>
+      ${RD.get(p.bookId) ? `<button class="pill" id="pw-addreading" style="display:block;width:100%;margin-top:8px;padding:10px">＋ Reading step — a summary or quotes for a chapter</button>` : ''}
     </div>`).firstElementChild;
   const pills = addCard.querySelector('#pw-target');
   const renderPills = () => {
@@ -5662,6 +5807,8 @@ function buildPathwayEdit(wrap, p) {
   inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); doAdd(); } };
   // D-AG: build an assignment step (scope + intent) — auto-completes from the engine, launchable from Today/pathway
   addCard.querySelector('#pw-addscripture').onclick = () => scopeAssignPicker(({ key, intent, label }) => { PW.addStep(p, label, targetMid, { key, intent }); toast('Added ' + label); drawPathway(p); });
+  const addReading = addCard.querySelector('#pw-addreading');
+  if (addReading) addReading.onclick = () => readStepPicker(p, RD.get(p.bookId), targetMid, () => drawPathway(p));
   wrap.append(addCard);
 
   const msBtn = h(`<button class="btn secondary" style="margin-top:10px">Start a new milestone</button>`).firstElementChild;
@@ -6385,23 +6532,162 @@ function scopeReviewAssign(sc, key) {
   const u = RV.getUnit(key); return u && u.review ? u.review : null;
 }
 // Derived completion of an assignment-step (single source of truth — D-AG).
+// Returns true/false, or NULL meaning "the engine has no opinion" — an unrecognized key namespace,
+// a reading step whose page range can't be resolved, or a quotes step (manual by design).
+// A null MUST leave s.done alone. This guard is load-bearing: parseScopeKey understands only
+// `bible:` and `mod:`, and anything else fell through to {kind:'book'} with a name no scripture book
+// matches, resolving to an empty scope that reported not-done FOREVER — silent, not a crash, which
+// is the same create-only failure shape as D-AH.
 function refStepDone(step) {
-  const { key, intent } = step.ref, sc = parseScopeKey(key);
+  const { key, intent } = step.ref;
+  if (typeof key !== 'string') return null;
+  if (key.startsWith(RD.READ_PREFIX)) {          // Phase 9.6 — reading steps resolve in RD (pure/testable)
+    const pk = RD.parseReadKey(key); if (!pk) return null;
+    const rb = RD.get(pk.bookId); if (!rb) return null;
+    return RD.readStepDone(rb, pk);
+  }
+  if (!key.startsWith('bible:') && !key.startsWith('mod:')) return null;
+  const sc = parseScopeKey(key);
   if (intent === 'memorize') { const all = scopeVerses(sc, false); return all.length > 0 && all.every(([bn, ci, v]) => { const b = allBooks.find(x => x.name === bn); return b && SC.verseDone(b, ci, v); }); }
   const memKeys = scopeCoverageKeys(sc);
   if (!memKeys.length) return false;
   if (intent === 'review') { const a = scopeReviewAssign(sc, key), since = a ? a.cycleStart : 0; return memKeys.every(k => RV.isCovered(k, since)); }
   return practiceScopeDone(sc, practiceCycleStart(key));   // practice: every memorized verse practiced since the cycle start (or ever)
 }
+// s.manualDone is a deliberate TRI-STATE (Baruch, Aug 3): true = force done, false = force open,
+// null/undefined = let the engine decide. It has to be PERSISTED on the step, because this sync runs
+// at the top of both today() and drawPathway() — without it, hand-checking a step (you wrote the
+// summary in a notebook) would be silently undone on the very next render. Set-then-revert is exactly
+// the D-AH shape, and it's the reason a plain boolean isn't enough: force-OPEN has to be expressible
+// too, or a step whose artifact already exists can never be reopened.
 function syncPathwayRefSteps() {
   let dirty = false;
   PW.all().forEach(p => p.milestones.forEach(m => m.steps.forEach(s => {
-    if (!s.ref) return; const d = refStepDone(s);
+    if (!s.ref) return;
+    const d = (s.manualDone === true || s.manualDone === false) ? s.manualDone : refStepDone(s);
+    if (d === null || d === undefined) return;   // no opinion — never overwrite the user's own value
     if (d !== !!s.done) { s.done = d; s.doneTs = d ? Date.now() : null; dirty = true; }
   })));
   if (dirty) save();
 }
+// Force a ref-step done/open by hand, or hand it back to the engine (null).
+function setRefStepManual(step, v) {
+  if (v === null) delete step.manualDone; else step.manualDone = v;
+  save();
+}
+
+// ===== Phase 9.6 — book pathways (D-N) =====
+// A reading step's key lives in the `read:` namespace, so it must route around EVERY scripture path:
+// stepScopeTarget/launchScoped/scopeModeSheet all assume verses and would resolve to nothing.
+function isReadStep(s) { return !!(s && s.ref && typeof s.ref.key === 'string' && s.ref.key.startsWith(RD.READ_PREFIX)); }
+// Tap the ✓ on a reading step: assert the opposite of where it stands now. Long-press hands it back
+// to the engine. Needed for two cases — a book with no chapter page numbers (nothing to derive from)
+// and quotes steps (manual by design) — and it doubles as the override for the derivable ones.
+function toggleReadStepManual(s) { setRefStepManual(s, !s.done); }
+// Build a pathway from a book: one step per chapter, in order (D-N create-flow, locked).
+// Deliberately NOT offering the saved-Unit-scheme alternative yet — that ties to D-V, still an open
+// design lock, and per-chapter keeps 9.6 unblocked.
+function makeBookPathway(b) {
+  const rows = RD.numberedChapters(b);
+  const total = rows.length || Number(b.chapters) || 0;
+  if (!total) return null;
+  const p = PW.create(b.title, 'reading', b.id);
+  p.milestones[0].name = b.title;
+  for (let n = 1; n <= total; n++) {
+    const row = rows[n - 1];
+    PW.addStep(p, row && row.title ? n + ' · ' + row.title : 'Chapter ' + n,
+               p.milestones[0].id, { key: RD.readScopeKey(b.id, 'chapter', n), intent: 'read' });
+  }
+  b.pathwayId = p.id; b.updated = Date.now();
+  save();
+  return p;
+}
+// ---- chunk 3: custom steps slotted between chapters (D-N preset types, locked) ----
+// Summary auto-completes (one artifact per chapter — it exists or it doesn't). Quotes NEVER does:
+// a chapter may take dozens and the app cannot know when more are coming, so it carries a live
+// COUNT and is checked by hand. Freeform is a plain step with no ref at all.
+const READ_STEP_KINDS = [
+  { kind: 'summary', label: 'Write a summary', sub: 'Ticks itself off when the summary exists' },
+  { kind: 'quotes',  label: 'Log quotes',      sub: 'Shows how many you\'ve logged — you check it off' },
+];
+// The live sub-line under a reading step. Quotes steps are the reason this exists.
+function readStepSub(s) {
+  const pk = RD.parseReadKey(s.ref.key); if (!pk) return '';
+  const b = RD.get(pk.bookId); if (!b) return '';
+  if (pk.kind === 'quotes') {
+    const c = RD.quotesForChapter(b, pk.n).length;
+    return c ? c + (c === 1 ? ' quote logged' : ' quotes logged') : 'no quotes yet';
+  }
+  if (pk.kind === 'chapter' && !RD.canDeriveChapters(b)) return 'check by hand — no chapter page numbers';
+  if (pk.kind === 'summary') return RD.summaryStepDone(b, pk.n) ? 'summary written' : 'no summary yet';
+  return '';
+}
+// Add a custom step to a book-linked pathway: pick the kind, then the chapter.
+function readStepPicker(p, b, mid, onDone) {
+  const chapters = RD.numberedChapters(b).length || Number(b.chapters) || 0;
+  openSheet('Add a step · ' + b.title, (body, close) => {
+    const pick = (kind) => {
+      if (!chapters) { toast('No chapters recorded for this book'); return; }
+      body.innerHTML = '';
+      body.append(h(`<div class="muted" style="font-size:12px;margin:0 2px 8px">Which chapter?</div>`));
+      const row = h(`<div class="pillrow" style="margin:0"></div>`).firstElementChild;
+      for (let n = 1; n <= chapters; n++) {
+        const cell = h(`<button class="pill" style="padding:7px 13px">${n}</button>`).firstChild;
+        cell.onclick = () => {
+          const label = (kind === 'summary' ? 'Summary — ch. ' : 'Quotes — ch. ') + n;
+          PW.addStep(p, label, mid, { key: RD.readScopeKey(b.id, kind, n), intent: 'read' });
+          close(); toast('Added ' + label); onDone();
+        };
+        row.append(cell);
+      }
+      body.append(row);
+    };
+    READ_STEP_KINDS.forEach(k => {
+      const btn = h(`<button class="pill" style="display:block;width:100%;text-align:left;margin-bottom:8px;padding:11px 13px">
+        <div style="font-weight:700">${k.label}</div><div class="muted" style="font-size:11.5px;margin-top:2px">${k.sub}</div></button>`).firstChild;
+      btn.onclick = () => pick(k.kind);
+      body.append(btn);
+    });
+    const free = h(`<button class="pill" style="display:block;width:100%;text-align:left;padding:11px 13px">
+      <div style="font-weight:700">Something else</div><div class="muted" style="font-size:11.5px;margin-top:2px">A plain step you write and check off yourself</div></button>`).firstChild;
+    free.onclick = () => { close(); toast('Use “Add step” below for a freeform step'); };
+    body.append(free);
+  });
+}
+function bookPathwaySheet(b) {
+  const existing = PW.forBook(b.id);
+  if (existing) { render(() => drawPathway(existing)); return; }
+  const total = RD.numberedChapters(b).length || Number(b.chapters) || 0;
+  const derivable = RD.canDeriveChapters(b);
+  openSheet('Make into a pathway', (body, close) => {
+    body.append(h(`<div class="muted" style="font-size:12.5px;line-height:1.6;margin:0 2px 14px">
+      ${total ? `Creates <b>${total} steps</b>, one per chapter, in order.` : 'This book has no chapters recorded yet — add a chapter count or scan its table of contents first.'}
+      ${total ? (derivable
+        ? ' They tick themselves off as your page number passes through each chapter, so your reading progress stays the single source of truth — there\'s no second place to update.'
+        : ' This book has no chapter <b>page numbers</b>, so the steps can\'t follow your progress on their own — you check them off by hand (tap the ✓). Scan or enter the table of contents and they start doing it themselves.') : ''}
+    </div>`));
+    if (!total) return;
+    const go = h(`<button class="btn">Create the pathway</button>`).firstChild;
+    go.onclick = () => {
+      const p = makeBookPathway(b);
+      close();
+      if (!p) { toast('Could not build the pathway'); return; }
+      toast('Pathway created — ' + total + ' steps');
+      render(() => drawPathway(p));   // straight into edit-capable view to slot custom steps in
+    };
+    body.append(go);
+  });
+}
 function refStepLaunch(step) {
+  // Phase 9.6 — a reading step opens its book, landing on the surface where the work actually happens:
+  // a summary or quotes step goes straight to that tab in Notes, not to the book's front page.
+  const pk = RD.parseReadKey(step.ref.key);
+  if (pk) {
+    const rb = RD.get(pk.bookId); if (!rb) return;
+    if (pk.kind === 'summary' || pk.kind === 'quotes') { rdNoteMode = pk.kind === 'summary' ? 'summaries' : 'quotes'; render(() => bookNotes(rb)); }
+    else render(() => bookDetail(rb));
+    return;
+  }
   const sc = parseScopeKey(step.ref.key);
   if (sc.kind === 'module') { const r = scopeModule(sc); if (r) { const b = allBooks.find(x => x.name === r[0]); render(() => moduleScreen(b, r[1])); } return; }
   const b = allBooks.find(x => x.name === sc.book); if (!b) return;
@@ -6687,6 +6973,7 @@ function refStepSheet(s) {
 }
 // A ref-step's launch action: review/practice → one-tap remembered mode (else sheet); memorize → open the scope.
 function launchRefStep(s, btn) {
+  if (isReadStep(s)) return refStepLaunch(s);   // reading → open the book; there is no "mode" to pick
   if (s.ref.intent === 'memorize') return refStepLaunch(s);
   const t = stepScopeTarget(s);
   if (!t) { toast('Could not resolve this step’s scope'); return; }
@@ -6696,6 +6983,17 @@ function launchRefStep(s, btn) {
 // primary (remembered mode, shown in the label) + a ▾ to change mode/scope; memorize is a single pill.
 function refLaunchPill(s) {
   if (!s || !s.ref) return null;
+  if (isReadStep(s)) {   // reading: open the book + a ✓ to assert it by hand (long-press → back to the engine)
+    const wrap = h(`<span style="display:inline-flex;gap:4px;flex-shrink:0">
+      <button class="pill" data-a="go" style="padding:5px 11px;font-size:12px">▸ Open</button>
+      <button class="pill" data-a="man" title="Mark by hand" style="padding:5px 9px;font-size:12px">✓</button></span>`).firstChild;
+    const go = wrap.querySelector('[data-a=go]');
+    go.onclick = e => { e.stopPropagation(); refStepLaunch(s); };
+    const man = wrap.querySelector('[data-a=man]');
+    man.onclick = e => { e.stopPropagation(); toggleReadStepManual(s); rerender(); };
+    attachLongPress(man, () => { setRefStepManual(s, null); toast('Back to following your reading'); rerender(); });
+    return wrap;
+  }
   if (s.ref.intent === 'memorize') {
     const b = h(`<button class="pill" style="padding:5px 11px;font-size:12px">▸ Memorize</button>`).firstChild;
     b.onclick = e => { e.stopPropagation(); launchRefStep(s, b); };
@@ -7795,6 +8093,7 @@ function bookDetail(b) {
     <button class="pill" data-s="notes">Notes</button>
     <button class="pill" data-s="details">Details</button>
     <button class="pill" data-s="chapters">${b.chapterList && b.chapterList.length ? 'Chapters (' + b.chapterList.length + ')' : 'Chapters'}</button>
+    <button class="pill ${PW.forBook(b.id) ? 'on' : ''}" data-s="pathway">${PW.forBook(b.id) ? 'Pathway' : 'Make a pathway'}</button>
     <button class="pill" data-s="status">Status</button>
     <button class="pill" data-s="remove" style="color:var(--danger)">Remove</button>
   </div>`);
@@ -7802,6 +8101,7 @@ function bookDetail(b) {
   pills.querySelector('[data-s=notes]').onclick = () => render(() => bookNotes(b));
   pills.querySelector('[data-s=details]').onclick = () => bookDetailsSheet(b);
   pills.querySelector('[data-s=chapters]').onclick = () => render(() => chapterEditor(b));
+  pills.querySelector('[data-s=pathway]').onclick = () => bookPathwaySheet(b);
   pills.querySelector('[data-s=status]').onclick = () => bookStatusSheet(b);
   pills.querySelector('[data-s=remove]').onclick = () => bookRemoveSheet(b);
   wrap.append(pills);
@@ -8124,6 +8424,19 @@ function parseTagInput(v) {
   tags.forEach(t => RD.addTag(t));
   return tags;
 }
+// A quote/question records its PAGE; the chapter is DERIVED from it (Baruch, Aug 3). Both of these
+// are shared by the quotes and questions forms so the two can't drift apart.
+function refLine(b, q) {
+  const dch = RD.chapterForPage(b, q.page);
+  const legacy = dch === null && q.ch ? String(q.ch) : '';   // entered before the page-only form
+  const chBit = dch !== null ? 'ch. ' + dch : legacy ? 'ch. ' + esc(legacy) : '';
+  return `${q.page ? 'p. ' + esc(q.page) : ''}${chBit ? (q.page ? ' · ' : '') + chBit : ''}`;
+}
+function derivedChapterHint(b, pageVal) {
+  const n = RD.chapterForPage(b, pageVal);
+  if (n !== null) return 'Chapter ' + n;
+  return String(pageVal || '').trim() && RD.numberedChapters(b).length ? 'No chapter matches that page' : '';
+}
 function tagInputRow(id) {
   return `<input data-a="tags" list="${id}" placeholder="Tags — comma-separated (e.g. prayer, providence)" autocapitalize="off" style="width:100%;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:13px;margin-bottom:8px">
     <datalist id="${id}">${(state.reading.tags || []).map(t => `<option value="${esc(t)}">`).join('')}</datalist>`;
@@ -8136,28 +8449,33 @@ function renderQuotes(body, b) {
         <div style="font-size:14px;line-height:1.5">“${esc(q.text)}”</div>
         ${tagChips(q.tags)}
         <div class="row" style="margin-top:6px">
-          <div class="grow muted" style="font-size:12px">${q.ch ? 'ch. ' + esc(q.ch) : ''}${q.page ? (q.ch ? ' · ' : '') + 'p. ' + esc(q.page) : ''}</div>
+          <div class="grow muted" style="font-size:12px">${refLine(b, q)}</div>
           <button style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button>
         </div>
       </div>`).firstElementChild;
     row.querySelector('button').onclick = () => { RD.removeQuote(b, q.id); rerender(); };
     body.append(row);
   });
-  if (!b.quotes.length) body.append(h(`<div class="empty">Quotes to remember, tagged to chapter and page.</div>`));
+  if (!b.quotes.length) body.append(h(`<div class="empty">Quotes to remember — the quote, its page, and as many tags as you like.</div>`));
+  // A quote is: the text · the PAGE · as many tags as you want (Baruch, Aug 3). No chapter field —
+  // the chapter list already knows where each chapter starts, so it's derived from the page instead
+  // of typed a second time, and the two can never disagree.
   const add = h(`
     <div class="card"><h3>Add quote</h3>
       <textarea data-a="text" rows="3" placeholder="The quote…" style="width:100%;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;font-family:inherit;margin-bottom:8px;resize:vertical"></textarea>
       ${tagInputRow('rd-tags-q')}
       <div class="row">
-        <input data-a="ch" placeholder="Ch." inputmode="numeric" style="width:60px;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
-        <input data-a="page" placeholder="Page" inputmode="numeric" style="width:70px;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
+        <input data-a="page" placeholder="Page" inputmode="numeric" style="width:82px;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
         <button class="pill on" data-a="add" style="flex:1;padding:10px">Add quote</button>
       </div>
+      <div data-slot="chhint" class="muted" style="font-size:11.5px;margin-top:6px"></div>
     </div>`).firstElementChild;
+  const pageIn = add.querySelector('[data-a=page]'), chHint = add.querySelector('[data-slot=chhint]');
+  pageIn.addEventListener('input', () => { chHint.textContent = derivedChapterHint(b, pageIn.value); });
   add.querySelector('[data-a=add]').onclick = () => {
     const text = add.querySelector('[data-a=text]').value.trim();
     if (!text) { toast('Write the quote first'); return; }
-    RD.addQuote(b, { ch: add.querySelector('[data-a=ch]').value.trim(), page: add.querySelector('[data-a=page]').value.trim(), text, tags: parseTagInput(add.querySelector('[data-a=tags]').value) });
+    RD.addQuote(b, { page: pageIn.value.trim(), text, tags: parseTagInput(add.querySelector('[data-a=tags]').value) });
     rerender();
   };
   body.append(add);
@@ -8170,27 +8488,31 @@ function renderQuestions(body, b) {
         <div style="font-size:14px;line-height:1.5">${esc(q.text)}</div>
         ${tagChips(q.tags)}
         <div class="row" style="margin-top:6px">
-          <div class="grow muted" style="font-size:12px">${q.ch ? 'ch. ' + esc(q.ch) : ''}</div>
+          <div class="grow muted" style="font-size:12px">${refLine(b, q)}</div>
           <button style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button>
         </div>
       </div>`).firstElementChild;
     row.querySelector('button').onclick = () => { RD.removeQuestion(b, q.id); rerender(); };
     body.append(row);
   });
-  if (!b.questions.length) body.append(h(`<div class="empty">Discussion questions as they come to you, tagged to chapter.</div>`));
+  if (!b.questions.length) body.append(h(`<div class="empty">Discussion questions as they come to you — the question, its page, and as many tags as you like.</div>`));
+  // Same shape as a quote (Baruch, Aug 3): text · PAGE · tags, chapter derived from the page.
   const add = h(`
     <div class="card"><h3>Add question</h3>
       <textarea data-a="text" rows="3" placeholder="The question…" style="width:100%;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;font-family:inherit;margin-bottom:8px;resize:vertical"></textarea>
       ${tagInputRow('rd-tags-qs')}
       <div class="row">
-        <input data-a="ch" placeholder="Ch." inputmode="numeric" style="width:60px;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
+        <input data-a="page" placeholder="Page" inputmode="numeric" style="width:82px;padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
         <button class="pill on" data-a="add" style="flex:1;padding:10px">Add question</button>
       </div>
+      <div data-slot="chhint" class="muted" style="font-size:11.5px;margin-top:6px"></div>
     </div>`).firstElementChild;
+  const qPageIn = add.querySelector('[data-a=page]');
+  qPageIn.addEventListener('input', () => { add.querySelector('[data-slot=chhint]').textContent = derivedChapterHint(b, qPageIn.value); });
   add.querySelector('[data-a=add]').onclick = () => {
     const text = add.querySelector('[data-a=text]').value.trim();
     if (!text) { toast('Write the question first'); return; }
-    RD.addQuestion(b, { ch: add.querySelector('[data-a=ch]').value.trim(), text, tags: parseTagInput(add.querySelector('[data-a=tags]').value) });
+    RD.addQuestion(b, { page: qPageIn.value.trim(), text, tags: parseTagInput(add.querySelector('[data-a=tags]').value) });
     rerender();
   };
   body.append(add);
