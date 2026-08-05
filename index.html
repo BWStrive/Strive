@@ -573,7 +573,10 @@ function defaultState() {
       targets: []          // (Phase 9.5) standing quotas: {id, domain, unit, amount, period:'day'|'week'|'month', dows:[0-6], scope:null|{...}}
     },
     pathways: [],          // {id, name, domain, milestones:[{id, name, steps:[{id, label, done, doneTs, secs}]}]}
-    modules: {},           // (D-AB) modules[bookName] = [{id, name, verses:{ci:[v,...]}, created}] — review chunks, verse-level
+    modules: {},           // (D-AB) modules[bookName] = [{id, name, verses:{ci:[v,...]}, created, schemeId?}] — review chunks, verse-level
+    schemes: {},           // (D-V) schemes[bookName] = [{id, name, created}] — named groupings of modules. A module's
+                           // optional schemeId picks one; absent = the implicit default scheme, which is what every
+                           // pre-D-V module is, so nothing migrates. There is NO "active" scheme: several run at once.
     review: { covered: {}, books: {} },  // (D-AB) covered['docId#n']=ts sticky dots · books[name]=whole-book cadence assignment (layer 3)
     // scopeLaunch (one-tap review/practice): remembered mode per intent + the review cycle/whole choice.
     // null mode = no default yet → the ▸ pill opens the mode sheet the first time, then remembers your pick.
@@ -643,6 +646,27 @@ function diffDaysKeys(a, b) {   // b - a in whole days
   const [ay, am, ad] = a.split('-').map(Number), [by, bm, bd] = b.split('-').map(Number);
   return Math.round((Date.UTC(by, bm - 1, bd, 12) - Date.UTC(ay, am - 1, ad, 12)) / 86400000);
 }
+
+// ---- Calendar hardening: the real millisecond span of a local day ----
+// A local day is NOT always 86400000 ms. On the spring-forward date it is 23 hours and on the
+// fall-back date it is 25, so `midnight + 86400000` overshoots into the next day in spring and stops
+// an hour short in autumn. Anything filtering timestamps into a day-bucket with that arithmetic
+// mis-files real activity twice a year: a page logged at 00:30 the morning after the spring change
+// gets counted toward the previous day, and an hour of the autumn fall-back day is dropped entirely.
+// It is silent, self-correcting the following week, and therefore almost impossible to notice — the
+// same failure shape as the D-M3 pinning drift, which is why that one was fixed the same way.
+//
+// The END of a day is the START of the next day, derived from date components. Returns [start, end)
+// — half-open, so `ts >= start && ts < end` files every instant exactly once with no lost millisecond.
+function dayBounds(dk) {
+  const [y, m, d] = dk.split('-').map(Number);
+  return [new Date(y, m - 1, d).getTime(), new Date(y, m - 1, d + 1).getTime()];
+}
+// Span covering [fromKey, toKey] inclusive, as a half-open [start, end) range.
+function daySpan(fromKey, toKey) { return [dayBounds(fromKey)[0], dayBounds(toKey)[1]]; }
+// Which local day-key a timestamp belongs to. Trivial, but naming it keeps callers from reaching for
+// ms arithmetic to answer the same question.
+function keyForTs(ts) { return todayKey(new Date(ts)); }
 // legacy 'Fri Jul 17 2026' (toDateString) → day-key; passes day-keys through untouched
 function legacyDayToKey(s) {
   if (!s) return null;
@@ -734,7 +758,6 @@ function migrateState() {
 
   // reading: new per-book fields
   (state.reading.books || []).forEach(b => {
-    if (b.category === undefined) b.category = null;
     if (!b.prefacePages) b.prefacePages = 0;
     if (!b.prefaceRead) b.prefaceRead = 0;
     (b.chapterList || []).forEach(r => { if (!r.role) r.role = 'chapter'; });
@@ -763,6 +786,16 @@ function ensureShapes() {
   if (!Array.isArray(state.scripture.currentItems)) state.scripture.currentItems = [];
   if (!Array.isArray(state.reading.categories)) state.reading.categories = [];
   if (!Array.isArray(state.reading.tags)) state.reading.tags = [];
+  // Phase 10.1 — single `category` string → `categories` array. This lives in ensureShapes and NOT in
+  // migrateState on purpose: migrateState returns early for anyone already stamped at the current
+  // schema, which is every existing install, so a migration placed there would never run for the one
+  // person who has data. ensureShapes runs on every load, and this is idempotent (the array shape is
+  // its own guard). One-way: the scalar is dropped rather than maintained alongside the array, so the
+  // two can never disagree.
+  (state.reading.books || []).forEach(b => {
+    if (!Array.isArray(b.categories)) b.categories = b.category ? [b.category] : [];
+    if (b.category !== undefined) delete b.category;
+  });
   if (!Array.isArray(state.sermons)) state.sermons = [];
   if (!state.planner) state.planner = def.planner;
   if (!Array.isArray(state.planner.targets)) state.planner.targets = [];   // Phase 9.5 (additive)
@@ -1250,31 +1283,63 @@ function abbr(name) { return ABBR[name] || name.slice(0, 3); }
 const SC = {BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookStats,bookXP,chapterStats,corpusStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,lifetimeVersesMarked,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,parseDuration,parseScopeInput,removeCurrentItem,removeReviewTime,resetBook,resetCorpus,restoreBookProgress,reviewHistory,reviewIntervalDays,reviewSecsBetween,scopeLabel,setChapter,setCurrentBook,setItemDue,setReviewInterval,toggleVerse,totalVerses,verseDone,versesLeft,versesMarked,versesMarkedToday};
 // Strive — Modules (Phase 11 foundation, D-AB). A "Module" = one named chunk of ONE book,
 // stored at the VERSE level so coverage carries even if the book is later re-sliced.
-// Single-scheme-first: a book holds a flat list of modules; multiple concurrent named
-// schemes (D-V) are a later generalization. Additive + sync-safe (whole-state blob).
+// Additive + sync-safe (whole-state blob).
 //
-// Storage: state.modules[bookName] = [{ id, name, verses:{ [ci]:[v,...] }, created }]
+// Storage: state.modules[bookName] = [{ id, name, verses:{ [ci]:[v,...] }, created, schemeId? }]
 //   ci = 0-based chapter index (matches scripture progress keys 'ci_v'); v = 1-based.
 // Naming avoids collisions with the flattened build (SC already exports toggleVerse/setChapter).
+//
+// ==== SCHEMES (D-V, locked Aug 3 2026) ====
+// A "scheme" is a NAMED GROUP OF MODULES — nothing more. There is deliberately no "active" scheme.
+// Because review coverage is verse-level, timestamped and never deleted, and because each module
+// carries its own independent assignment (cadence + cycleStart + derived anchor), two schemes over
+// the same book already run CONCURRENTLY with no conflict: {1–4|5–8|9–13} @30d and {1–2|3–4|…} @10d
+// read the same verse timestamps and roll their own cycles (D-M5 — one covering event counts for
+// every containing assignment, each reading its own watermark). So a scheme only ever needs to
+// answer "which units do I show together" and "set a cadence across all of these at once."
+//
+// Back-compat is the whole design: a module with NO schemeId belongs to the implicit DEFAULT scheme,
+// which is exactly what every pre-D-V module is. Nothing migrates, and `modulesFor()` still returns
+// every module in a book so no existing caller changes behaviour.
 
 
 function MB() {
   if (!state.modules || typeof state.modules !== 'object' || Array.isArray(state.modules)) state.modules = {};
   return state.modules;
 }
-function ensureModules() { MB(); }
+function SCHB() {
+  if (!state.schemes || typeof state.schemes !== 'object' || Array.isArray(state.schemes)) state.schemes = {};
+  return state.schemes;
+}
+function ensureModules() { MB(); SCHB(); }
+
+// Fields that live on a stored module but are NOT part of its editable draft. They must survive a
+// commit, because the editor round-trips a module through copyModule() → commitModule() and both
+// used to rebuild the object from four fields only — silently destroying the unit's cadence and
+// cycleStart on every edit (found Aug 3 2026 while locking D-V). Losing cycleStart is not cosmetic:
+// it is the watermark the entire cadence engine reads.
+const MOD_CARRIED_FIELDS = ['review', 'practice', 'memBy', 'schemeId'];
 
 // ---- store ops ----
 function modulesFor(bookName) { const m = MB(); return Array.isArray(m[bookName]) ? m[bookName] : []; }
 function getModule(bookName, id) { return modulesFor(bookName).find(x => x.id === id) || null; }
 function moduleCount(bookName) { return modulesFor(bookName).length; }
 
-// Upsert a working module into a book's list (create if id unseen). Strips transient fields.
+// Upsert a working module into a book's list (create if id unseen). Normalises the editable fields
+// and CARRIES the rest (see MOD_CARRIED_FIELDS) rather than dropping them: an edit must never
+// silently destroy the unit's assignment. Value on the incoming draft wins; otherwise the stored
+// one is preserved. This is belt-and-braces with copyModule() below — either alone would fix the
+// data loss, and they fail independently, which is why both are here and both are tested.
 function commitModule(bookName, mod) {
   const m = MB();
   if (!Array.isArray(m[bookName])) m[bookName] = [];
   const clean = { id: mod.id || uid(), name: (mod.name || '').trim(), verses: normVerses(mod.verses), created: mod.created || Date.now() };
   const i = m[bookName].findIndex(x => x.id === clean.id);
+  const prev = i >= 0 ? m[bookName][i] : null;
+  for (const f of MOD_CARRIED_FIELDS) {
+    const v = mod[f] !== undefined ? mod[f] : (prev ? prev[f] : undefined);
+    if (v !== undefined && v !== null) clean[f] = v;
+  }
   if (i >= 0) m[bookName][i] = clean; else m[bookName].push(clean);
   save();
   return clean;
@@ -1287,9 +1352,84 @@ function deleteModule(bookName, id) {
   save();
 }
 
+// ---- schemes (D-V) — named groups of modules. No "active" scheme; several run at once. ----
+// A book with no explicit schemes behaves exactly as it always has: every module sits in the
+// implicit default scheme (schemeId absent), and the UI shows no scheme affordance at all until a
+// second scheme exists. That is the point of decision 3 — the common case pays nothing.
+function schemesFor(bookName) { const s = SCHB(); return Array.isArray(s[bookName]) ? s[bookName] : []; }
+function schemeCount(bookName) { return schemesFor(bookName).length; }
+function getScheme(bookName, id) { return schemesFor(bookName).find(x => x.id === id) || null; }
+
+function createScheme(bookName, name) {
+  const s = SCHB();
+  if (!Array.isArray(s[bookName])) s[bookName] = [];
+  const sc = { id: uid(), name: (name || '').trim(), created: Date.now() };
+  s[bookName].push(sc);
+  save();
+  return sc;
+}
+function renameScheme(bookName, id, name) {
+  const sc = getScheme(bookName, id);
+  if (!sc) return null;
+  sc.name = (name || '').trim(); save();
+  return sc;
+}
+// Deleting a scheme is DELIBERATELY NON-DESTRUCTIVE: its modules fall back to the default scheme
+// rather than being deleted with it. A scheme is only a grouping, but its modules carry live
+// assignments with running cycles — throwing those away because a grouping was renamed out of
+// existence is exactly the silent data loss this chunk exists to remove. Pass {deleteModules:true}
+// to opt into the destructive version explicitly.
+function deleteScheme(bookName, id, { deleteModules = false } = {}) {
+  const s = SCHB();
+  if (Array.isArray(s[bookName])) {
+    s[bookName] = s[bookName].filter(x => x.id !== id);
+    if (!s[bookName].length) delete s[bookName];
+  }
+  const m = MB();
+  if (Array.isArray(m[bookName])) {
+    if (deleteModules) {
+      m[bookName] = m[bookName].filter(x => x.schemeId !== id);
+      if (!m[bookName].length) delete m[bookName];
+    } else {
+      m[bookName].forEach(x => { if (x.schemeId === id) delete x.schemeId; });
+    }
+  }
+  save();
+}
+
+// null/undefined schemeId = the implicit default scheme (modules with no schemeId).
+function moduleSchemeId(mod) { return mod && mod.schemeId ? mod.schemeId : null; }
+function modulesInScheme(bookName, schemeId = null) {
+  return modulesFor(bookName).filter(m => moduleSchemeId(m) === (schemeId || null));
+}
+function setModuleScheme(bookName, id, schemeId) {
+  const mod = getModule(bookName, id);
+  if (!mod) return null;
+  if (schemeId) mod.schemeId = schemeId; else delete mod.schemeId;
+  save();
+  return mod;
+}
+// Every scheme a book actually uses, default first. `id: null` IS the default scheme — callers that
+// render a selector can treat this list uniformly instead of special-casing "no scheme".
+function schemeList(bookName, defaultName = 'Default') {
+  const out = [{ id: null, name: defaultName, count: modulesInScheme(bookName, null).length }];
+  schemesFor(bookName).forEach(sc => out.push({ id: sc.id, name: sc.name, count: modulesInScheme(bookName, sc.id).length }));
+  return out;
+}
+
 // ---- working-object helpers (pure; operate on a draft not yet in state) ----
-function blankModule() { return { id: uid(), name: '', verses: {}, created: Date.now() }; }
-function copyModule(mod) { return { id: mod.id, name: mod.name, verses: normVerses(mod.verses), created: mod.created }; }
+function blankModule(schemeId = null) {
+  const m = { id: uid(), name: '', verses: {}, created: Date.now() };
+  if (schemeId) m.schemeId = schemeId;
+  return m;
+}
+// Carries the non-editable fields through the draft so a round-trip through the editor cannot lose
+// them (see MOD_CARRIED_FIELDS). The editor mutates verses/name only; everything else rides along.
+function copyModule(mod) {
+  const c = { id: mod.id, name: mod.name, verses: normVerses(mod.verses), created: mod.created };
+  for (const f of MOD_CARRIED_FIELDS) if (mod[f] !== undefined && mod[f] !== null) c[f] = mod[f];
+  return c;
+}
 
 // book.verses is the canon array (verses-per-chapter); book passed in so this module needs no bible import.
 function moduleChapterState(mod, book, ci) {
@@ -1322,6 +1462,72 @@ function moduleVerseKeys(mod) {
   const out = [];
   for (const ci in (mod.verses || {})) for (const v of mod.verses[ci]) out.push(ci + '_' + v);
   return out;
+}
+
+// ---- explicit assignment set/clear ----
+// ⚑ MOD_CARRIED_FIELDS deliberately falls back to the stored value when a draft omits a field — that
+// is what stops the editor destroying a cadence. The cost is that commitModule CANNOT EXPRESS
+// "remove this assignment": an absent `review` means "keep whatever was there", which is exactly the
+// opposite of what a clear needs. Deleting the key off a live stored object happens to work only
+// because the draft and the stored object are then the same reference — an accident, not a contract,
+// and one that breaks the moment a caller passes a copy. So clearing gets its own function.
+// intent: 'review' | 'practice'. Pass null to clear.
+function setModuleAssignment(bookName, id, intent, assignment) {
+  const mod = getModule(bookName, id);
+  if (!mod) return null;
+  if (assignment) mod[intent] = assignment; else delete mod[intent];
+  save();
+  return mod;
+}
+function setModuleMemBy(bookName, id, dateKey) {
+  const mod = getModule(bookName, id);
+  if (!mod) return null;
+  if (dateKey) mod.memBy = dateKey; else delete mod.memBy;
+  save();
+  return mod;
+}
+
+// ---- assignment-loss audit (one-off, Aug 2026) ----
+// Until MOD_CARRIED_FIELDS landed, editing OR MERELY RENAMING a module rebuilt it from four fields
+// and silently dropped review/practice/memBy — including cycleStart. The damage is already done in
+// any state that predates the fix, and it is worth being honest about what can and cannot be
+// recovered: a wiped module is byte-for-byte identical to one that never had a cadence, because the
+// wipe removed the only evidence. So this does NOT detect the bug. What it detects is the one
+// surviving circumstantial signal —
+//
+//   the module has NO review assignment, yet its verses carry coverage timestamps.
+//
+// Coverage means the verses were actually reviewed, and reviewing a unit is overwhelmingly something
+// you do because it was assigned. That makes "covered but unassigned" a short, human-checkable list
+// of candidates, not a verdict. `coverageTsOf` is injected so this stays pure and headless-testable
+// and so modules.js keeps its single import.
+function auditModuleAssignments(bookName, coverageTsOf) {
+  return modulesFor(bookName).map(mod => {
+    const keys = moduleVerseKeys(mod).map(k => {
+      const [ci, v] = k.split('_');
+      return 'bible:' + bookName + ':' + (Number(ci) + 1) + '#' + v;
+    });
+    let covered = 0, last = 0;
+    for (const k of keys) {
+      const ts = coverageTsOf(k) || 0;
+      if (ts > 0) { covered++; if (ts > last) last = ts; }
+    }
+    const hasReview = !!(mod.review && mod.review.cadence);
+    return {
+      id: mod.id, name: mod.name, schemeId: moduleSchemeId(mod),
+      verses: keys.length, covered, lastCoveredTs: last,
+      hasReview, hasPractice: !!(mod.practice && mod.practice.cadence), hasMemBy: !!mod.memBy,
+      // the whole point of the audit: reviewed, but nothing is scheduling it any more
+      suspect: !hasReview && covered > 0
+    };
+  });
+}
+// Just the suspects, most-recently-reviewed first — that ordering matters because the module you
+// reviewed last week is the one you are most likely to remember having assigned.
+function suspectModules(bookName, coverageTsOf) {
+  return auditModuleAssignments(bookName, coverageTsOf)
+    .filter(r => r.suspect)
+    .sort((a, b) => b.lastCoveredTs - a.lastCoveredTs);
 }
 
 // ---- labels ----
@@ -1397,7 +1603,7 @@ function joinRanges(nums) {
   return runs.map(([a, b]) => a === b ? String(a) : a + '–' + b).join(', ');
 }
 
-const MOD = {blankModule,commitModule,copyModule,deleteModule,ensureModules,getModule,moduleAutoName,moduleChapterState,moduleChapters,moduleCount,moduleCoverage,moduleHasVerse,moduleIsEmpty,moduleParts,moduleReviewScope,moduleVerseCount,moduleVerseKeys,modulesFor,setModuleChapter,toggleModuleChapter,toggleModuleVerse};
+const MOD = {auditModuleAssignments,blankModule,commitModule,copyModule,createScheme,deleteModule,deleteScheme,ensureModules,getModule,getScheme,moduleAutoName,moduleChapterState,moduleChapters,moduleCount,moduleCoverage,moduleHasVerse,moduleIsEmpty,moduleParts,moduleReviewScope,moduleSchemeId,moduleVerseCount,moduleVerseKeys,modulesFor,modulesInScheme,renameScheme,schemeCount,schemeList,schemesFor,setModuleAssignment,setModuleChapter,setModuleMemBy,setModuleScheme,suspectModules,toggleModuleChapter,toggleModuleVerse};
 // Strive — Review coverage (Phase 11, D-AB layer 2) + binary-flashcard deck helpers.
 // A verse's "reviewed dot" is STICKY and PER-VERSE, shared across scopes (D-M5): it's keyed by the
 // same docId#n that a practice card already carries, so any scope containing the verse reads/writes
@@ -1691,12 +1897,27 @@ function syncPracticeCycle(a, complete, now = Date.now()) {
 // it > whole book. Returns null if nothing governs the verse (→ neutral fill). moduleReviews = the
 // review assignments of any modules containing this verse (app supplies them — modules live in
 // state.modules, kept out of review.js). Fixes chunk 3's "whole-book cadence only" interim.
+//
+// ⚑ MODULE TIER: SHORTEST INTERVAL WINS (D-V decision 1, Aug 3 2026). This used to `return` the
+// FIRST entry in moduleReviews. Under a single scheme a verse belongs to exactly one module, so
+// "first" was never ambiguous and the old read was correct. The moment two schemes are live the
+// verse belongs to a module in each, and first-wins made the decay fill depend on INSERTION ORDER
+// in state.modules[bookName] — silently, with no error anywhere. Same shape as D-AH: correct until
+// a second writer exists, then quietly wrong. Taking the minimum is order-independent (that is the
+// actual fix) and it is also the honest answer: if any live assignment on this verse says every 10
+// days, the fill must not read fresh on day 11 while that assignment is overdue.
 function governingReviewInterval(bookName, ci, v, moduleReviews = []) {
   const uv = ASG()[verseScopeKey(bookName, ci, v)];
   if (uv && uv.review) return cadenceIntervalMs(uv.review.cadence);
   const uc = ASG()[chapterScopeKey(bookName, ci)];
   if (uc && uc.review) return cadenceIntervalMs(uc.review.cadence);
-  for (const a of moduleReviews) if (a && a.cadence) return cadenceIntervalMs(a.cadence);
+  let shortest = null;
+  for (const a of moduleReviews) {
+    if (!a || !a.cadence) continue;
+    const iv = cadenceIntervalMs(a.cadence);
+    if (shortest === null || iv < shortest) shortest = iv;
+  }
+  if (shortest !== null) return shortest;
   const bA = bookAssignment(bookName);
   if (bA) return cadenceIntervalMs(bA.cadence);
   return null;
@@ -2170,22 +2391,27 @@ function byStatus(s) {
   return list.sort((a, b) => (b.updated || 0) - (a.updated || 0));
 }
 
-function addBook({ title, author = '', pages = 0, chapters = 0, category = null }) {
+// `category` (singular) is still accepted so existing call sites keep working; `categories` wins when
+// both are passed. Either way the book is stored in the 10.1 array shape from birth.
+function addBook({ title, author = '', pages = 0, chapters = 0, category = null, categories = null }) {
+  const cats = Array.isArray(categories) ? categories : (category ? [category] : []);
   const b = {
     id: uid(), title: title.trim(), author: author.trim(),
     pages: Number(pages) || 0, chapters: Number(chapters) || 0,
-    category, prefacePages: 0, prefaceRead: 0,
+    categories: [], prefacePages: 0, prefaceRead: 0,
     status: 'library', queuePos: 0, currentPage: 0,
     logs: [], summaries: {}, quotes: [], questions: [],
     added: Date.now(), updated: Date.now(), startedTs: null, finishedTs: null
   };
   books().push(b);
+  if (cats.length) setBookCategories(b, cats);   // registers each in the managed list + de-duplicates
   save();
   return b;
 }
 function removeBook(id) { state.reading.books = books().filter(b => b.id !== id); save(); }
 
-function setStatus(b, status) {
+// `finishedOn` (a 'YYYY-MM-DD' day-key) backdates the completion — Phase 10.3 / D-Q. Omitted = today.
+function setStatus(b, status, finishedOn = null) {
   if (status === 'upnext' && b.status !== 'upnext') {
     if (byStatus('upnext').length >= QUEUE_CAP) {
       return { ok: false, reason: 'Up Next is full (' + QUEUE_CAP + ') — finish or bump one first.' };
@@ -2193,11 +2419,140 @@ function setStatus(b, status) {
     b.queuePos = Math.max(0, ...byStatus('upnext').map(x => x.queuePos || 0)) + 1;
   }
   if (status === 'reading' && !b.startedTs) b.startedTs = Date.now();
-  if (status === 'finished') { b.finishedTs = Date.now(); if (b.pages) b.currentPage = b.pages; if (b.prefacePages) b.prefaceRead = b.prefacePages; }
+  if (status === 'finished') {
+    const r = applyFinishDate(b, finishedOn);
+    if (!r.ok) return r;
+    if (b.pages) b.currentPage = b.pages;
+    if (b.prefacePages) b.prefaceRead = b.prefacePages;
+  }
+  if (status !== 'finished' && b.status === 'finished') {
+    // re-reading clears the completion record so the book stops appearing in read history
+    delete b.finishedKey; delete b.backdated; b.finishedTs = null;
+  }
   b.status = status;
   b.updated = Date.now();
   save();
   return { ok: true };
+}
+
+// ================= Phase 10.3 — backdated completion + read history (D-Q) =================
+// Baruch enters books he finished over the past few years so their notes and quotes have a home. The
+// point of D-Q is that doing so must not distort *current* reading.
+//
+// ⚑ WHAT A BACKDATED BOOK DOES AND DOES NOT CREDIT — the load-bearing decision here.
+// It records WHEN the book was finished, and nothing else. It does NOT write page logs. It is
+// tempting to read D-Q's "those pages count toward that date" as "push a 400-page log entry dated
+// April 2024", and that is wrong for the same reason Baruch rejected synthesised page-splits in 9.6:
+// the boundaries would be fiction. He did not read 400 pages on the day he finished; he read them
+// across months nobody recorded. Inventing a 400-page spike on one past day would corrupt Trends and
+// every pages-per-day figure with data that was never observed.
+// So: read history counts BOOKS by finish date, `lifetime()` keeps counting pages as a cumulative
+// total, and pagesOn/pagesBetween — the daily page series — stay untouched. Streaks and 9.5 targets
+// are likewise not recomputed (Baruch's explicit call).
+const FINISH_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Local noon, matching the convention in review.js: it keeps a date from tipping into its neighbour
+// when the clock shifts, so a finish date can't drift a day across a DST boundary.
+function keyToNoonTs(k) {
+  const [y, m, d] = k.split('-').map(Number);
+  return new Date(y, m - 1, d, 12, 0, 0, 0).getTime();
+}
+
+function applyFinishDate(b, finishedOn) {
+  if (!finishedOn) {                       // finished right now, the ordinary path
+    b.finishedTs = Date.now();
+    b.finishedKey = todayKey();
+    delete b.backdated;
+    return { ok: true };
+  }
+  if (!FINISH_KEY_RE.test(finishedOn)) return { ok: false, reason: 'Finish date must be a real date.' };
+  if (finishedOn > todayKey()) return { ok: false, reason: "That date is in the future — a book can't be finished later than today." };
+  b.finishedKey = finishedOn;
+  b.finishedTs = keyToNoonTs(finishedOn);
+  b.backdated = finishedOn !== todayKey();
+  return { ok: true };
+}
+
+// Re-date an already-finished book (fixing a typo, or dating one entered earlier without a date).
+function setFinishedDate(b, dateKey) {
+  if (b.status !== 'finished') return { ok: false, reason: 'Only a finished book has a finish date.' };
+  const r = applyFinishDate(b, dateKey);
+  if (!r.ok) return r;
+  b.updated = Date.now();
+  save();
+  return { ok: true };
+}
+
+// Canonical finish day-key. Books finished before 10.3 carry only `finishedTs`, so derive from it
+// rather than migrating — a derived read cannot drift out of agreement with its source.
+function finishedKey(b) {
+  if (!b) return null;
+  if (b.finishedKey && FINISH_KEY_RE.test(b.finishedKey)) return b.finishedKey;
+  return b.finishedTs ? todayKey(new Date(b.finishedTs)) : null;
+}
+function isBackdated(b) { return !!(b && b.backdated); }
+
+// Deliberately a local copy rather than an import of planner.js's MONTHS. planner → targets → reading
+// is an existing chain, so importing planner here would close a cycle for the sake of twelve strings.
+// The RD_ prefix is what the flattened build needs: module privates become globals, so two
+// module-scoped `MONTHS` consts are a build failure, not a shadowed variable.
+const RD_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function monthLabel(ym) {
+  const [y, m] = String(ym || '').split('-').map(Number);
+  return (RD_MONTHS[m - 1] || '?') + ' ' + y;
+}
+
+// The books-finished LOG is DERIVED from the books themselves rather than kept as a parallel array.
+// A second copy would have to be maintained on finish, un-finish, re-date and remove, and any missed
+// path leaves the two disagreeing with no error — the failure mode this codebase keeps re-learning
+// (D-AH, the quotes `ch` field). Accepted trade-off: removing a book removes its history entry too,
+// which is the honest reading of "the record belongs to the book".
+function finishedBooks() {
+  return books().filter(b => b.status === 'finished' && finishedKey(b))
+    .sort((a, c) => (finishedKey(c) || '').localeCompare(finishedKey(a) || ''));   // newest first
+}
+function booksFinishedBetween(fromKey, toKey) {
+  return finishedBooks().filter(b => { const k = finishedKey(b); return k >= fromKey && k <= toKey; });
+}
+
+// Read history grouped by month, newest first: [{ym, label, books[], pages}].
+function readHistory() {
+  const groups = new Map();
+  finishedBooks().forEach(b => {
+    const ym = finishedKey(b).slice(0, 7);
+    if (!groups.has(ym)) groups.set(ym, { ym, label: monthLabel(ym), books: [], pages: 0 });
+    const g = groups.get(ym);
+    g.books.push(b);
+    g.pages += (b.pages || b.currentPage || 0);
+  });
+  return [...groups.values()].sort((a, c) => c.ym.localeCompare(a.ym));
+}
+// Same, by year — the top level of the history screen.
+function readHistoryByYear() {
+  const groups = new Map();
+  finishedBooks().forEach(b => {
+    const y = finishedKey(b).slice(0, 4);
+    if (!groups.has(y)) groups.set(y, { year: y, books: [], pages: 0 });
+    const g = groups.get(y);
+    g.books.push(b);
+    g.pages += (b.pages || b.currentPage || 0);
+  });
+  return [...groups.values()].sort((a, c) => c.year.localeCompare(a.year));
+}
+
+// Per-book stats card on book detail: "You read this in April 2024".
+// `days` is only reported when a real start date exists AND precedes the finish — a backdated book
+// usually has neither, and inventing a duration for it would be the same fiction as inventing pages.
+function bookReadStats(b) {
+  const k = finishedKey(b);
+  if (!k) return null;
+  const ym = k.slice(0, 7);
+  let days = null;
+  if (b.startedTs) {
+    const startKey = todayKey(new Date(b.startedTs));
+    if (startKey < k) days = Math.round((keyToNoonTs(k) - keyToNoonTs(startKey)) / 86400000);
+  }
+  return { key: k, ym, label: monthLabel(ym), pages: b.pages || b.currentPage || 0, days, backdated: isBackdated(b) };
 }
 
 function moveInQueue(b, dir) {
@@ -2244,13 +2599,27 @@ function authorLastName(a) {
   return parts.length ? parts[parts.length - 1].toLowerCase() : '';
 }
 
+// Display date for a finished book (Phase 10.3). Reads the recorded finish DAY, not the instant the
+// button was pressed, so a backdated book shows when it was actually read. Backdated entries show the
+// month rather than a precise day — he is recalling roughly when he finished something two years ago,
+// and rendering "4/12/2024" would give that recollection a precision it doesn't have.
+function finishedLabel(b) {
+  const k = finishedKey(b);
+  if (!k) return '';
+  if (isBackdated(b)) return monthLabel(k.slice(0, 7));
+  const [y, m, d] = k.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString();
+}
+
 // every book, one list, sorted (R4/R5). 'status' groups reading → upnext(queue order) → library → finished.
 function allSorted(sort) {
   const list = [...books()];
   const t = b => b.title.toLowerCase();
   if (sort === 'title') list.sort((a, b) => t(a).localeCompare(t(b)));
   else if (sort === 'author') list.sort((a, b) => (authorLastName(a.author) || '￿').localeCompare(authorLastName(b.author) || '￿') || t(a).localeCompare(t(b)));
-  else if (sort === 'category') list.sort((a, b) => ((a.category || '￿').toLowerCase()).localeCompare((b.category || '￿').toLowerCase()) || t(a).localeCompare(t(b)));
+  // Flat category sort orders by the PRIMARY category only — a book can't sit in two places in one
+  // flat list. The grouped view (groupedByCategory) is where multi-category books appear more than once.
+  else if (sort === 'category') list.sort((a, b) => ((primaryCategory(a) || '￿').toLowerCase()).localeCompare((primaryCategory(b) || '￿').toLowerCase()) || t(a).localeCompare(t(b)));
   else {
     const rank = { reading: 0, upnext: 1, library: 2, finished: 3 };
     list.sort((a, b) => (rank[a.status] ?? 2) - (rank[b.status] ?? 2)
@@ -2277,7 +2646,13 @@ function estimate(b) {
   if (!p || !b.pages) return null;
   const remaining = b.pages - (b.currentPage || 0);
   const days = Math.ceil(remaining / p);
-  return { days, finish: new Date(Date.now() + days * 86400000), pace: p };
+  // Projected finish is a CALENDAR date, so it advances by date components. `Date.now() + days*DAY`
+  // loses or gains an hour at each DST boundary, and a long projection that lands near midnight then
+  // displays the wrong day — the estimate is approximate, but it should not be approximate in a way
+  // that changes twice a year for no reason the reader can see.
+  const finishKey = addDaysKey(todayKey(), days);
+  const [fy, fm, fd] = finishKey.split('-').map(Number);
+  return { days, finish: new Date(fy, fm - 1, fd), finishKey, pace: p };
 }
 
 // ---- due date + remaining (Phase 9.4 targets engine) ----
@@ -2298,9 +2673,12 @@ function pagesLeft(b) {
 }
 // pages actually gained on a given local day-key (from the cumulative page logs),
 // so a pace nudge can read "done today" once the day's target is met
+// Calendar hardening: the day's end comes from dayBounds (the start of the NEXT local day), not from
+// adding 86400000. A DST day is 23 or 25 hours long, and the old arithmetic filed the first hour
+// after a spring-forward change under the previous day while silently dropping an hour of the
+// fall-back day. Half-open [start, end) so every log lands in exactly one bucket.
 function pagesOn(b, dk) {
-  const [y, m, d] = dk.split('-').map(Number);
-  const dayStart = new Date(y, m - 1, d).getTime(), dayEnd = dayStart + 86400000;
+  const [dayStart, dayEnd] = dayBounds(dk);
   const logs = [...(b.logs || [])].sort((a, c) => a.ts - c.ts);
   let before = 0, last = null;
   logs.forEach(l => { if (l.ts < dayStart) before = l.page; else if (l.ts < dayEnd) last = l.page; });
@@ -2505,10 +2883,92 @@ function addCategory(name) {
 }
 function removeCategory(name) {
   R().categories = R().categories.filter(c => c !== name);
-  books().forEach(b => { if (b.category === name) b.category = null; });
+  books().forEach(b => {
+    const next = bookCategories(b).filter(c => c !== name);
+    if (next.length !== bookCategories(b).length) b.categories = next;
+  });
   save();
 }
-function setBookCategory(b, name) { b.category = name || null; if (name) addCategory(name); b.updated = Date.now(); save(); }
+
+// ==== Phase 10.1 — MULTI-CATEGORY BOOKS ====
+// A book moved from a single `b.category` string to a `b.categories` array. Migration happens once in
+// store.js and is idempotent; the old scalar is dropped rather than kept in sync, because a
+// denormalised duplicate is exactly the kind of field that drifts silently (the quotes/questions
+// `ch` field taught this the expensive way). Callers that only want one value ask for
+// primaryCategory() — the D-Z precedent, where currentDoc() stayed available as "the first one".
+//
+// Every reader below goes through bookCategories(), which normalises on the fly, so a book that
+// somehow escapes migration (an old sync blob merging in after the fact) still reads correctly
+// instead of silently showing no categories.
+function bookCategories(b) {
+  if (!b) return [];
+  if (Array.isArray(b.categories)) return b.categories.filter(Boolean);
+  return b.category ? [b.category] : [];      // pre-10.1 shape, read live
+}
+function primaryCategory(b) { const c = bookCategories(b); return c.length ? c[0] : null; }
+function hasCategory(b, name) {
+  const n = String(name || '').toLowerCase();
+  return bookCategories(b).some(c => c.toLowerCase() === n);
+}
+// Display form for a list row: "History · Theology". Kept short deliberately — a book with five
+// categories should not push the author and page count off the line.
+function categoryLabel(b, max = 2) {
+  const c = bookCategories(b);
+  if (!c.length) return '';
+  return c.length <= max ? c.join(' · ') : c.slice(0, max).join(' · ') + ' +' + (c.length - max);
+}
+// Set the whole list at once. De-duplicates case-insensitively while KEEPING the first spelling the
+// user typed, registers anything new in the managed list, and preserves order — order is meaningful
+// because primaryCategory() reads [0] and the compact label truncates from the end.
+function setBookCategories(b, names) {
+  const seen = new Set(), out = [];
+  (names || []).forEach(raw => {
+    const name = String(raw || '').trim();
+    if (!name) return;
+    const k = name.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k); out.push(name); addCategory(name);
+  });
+  b.categories = out;
+  delete b.category;
+  b.updated = Date.now();
+  save();
+  return out;
+}
+function addBookCategory(b, name) {
+  if (!String(name || '').trim()) return bookCategories(b);
+  return setBookCategories(b, [...bookCategories(b), name]);
+}
+function removeBookCategory(b, name) {
+  const n = String(name || '').toLowerCase();
+  return setBookCategories(b, bookCategories(b).filter(c => c.toLowerCase() !== n));
+}
+// Legacy single-value setter, kept so nothing that still calls it writes the dead scalar field.
+function setBookCategory(b, name) { return setBookCategories(b, name ? [name] : []); }
+
+// Every book carrying a category, case-insensitively.
+function booksInCategory(name) { return books().filter(b => hasCategory(b, name)); }
+
+// Grouped library view. Baruch's call: a book with three categories APPEARS IN ALL THREE groups —
+// filtering by any one of them finds it, which is the whole point of the feature. The visible
+// consequence, stated here so it isn't mistaken for a bug later: the group counts deliberately sum to
+// more than the library size. Uncategorised books collect in a trailing group rather than vanishing.
+function groupedByCategory(sort = 'title') {
+  const groups = new Map();   // lowercased key → {category, books[]}
+  const uncat = [];
+  allSorted(sort).forEach(b => {
+    const cats = bookCategories(b);
+    if (!cats.length) { uncat.push(b); return; }
+    cats.forEach(c => {
+      const k = c.toLowerCase();
+      if (!groups.has(k)) groups.set(k, { category: c, books: [] });
+      groups.get(k).books.push(b);
+    });
+  });
+  const out = [...groups.values()].sort((a, b) => a.category.toLowerCase().localeCompare(b.category.toLowerCase()));
+  if (uncat.length) out.push({ category: 'Uncategorized', books: uncat, uncategorized: true });
+  return out;
+}
 function addTag(name) {
   name = String(name || '').trim();
   if (!name) return;
@@ -2523,7 +2983,7 @@ function removeTag(name) {
   save();
 }
 
-const RD = {QUEUE_CAP,READ_PREFIX,addBook,addCategory,addQuestion,addQuote,addTag,allSorted,authorLastName,bookStepDone,books,byStatus,canDeriveChapters,chapterForPage,chapterInfo,chapterRange,chapterStepDone,currentChapter,estimate,get,libraryLevel,lifetime,logPage,logPreface,moveInQueue,numberedChapters,pace,pagesBetween,pagesLeft,pagesOn,parseReadKey,pct,questionsForChapter,quotesForChapter,readScopeKey,readStepDone,removeBook,removeCategory,removeQuestion,removeQuote,removeTag,setBookCategory,setBookDue,setChapterList,setPrefacePages,setStatus,setSummary,summaryStepDone};
+const RD = {QUEUE_CAP,READ_PREFIX,addBook,addBookCategory,addCategory,addQuestion,addQuote,addTag,allSorted,authorLastName,bookCategories,bookReadStats,bookStepDone,books,booksFinishedBetween,booksInCategory,byStatus,canDeriveChapters,categoryLabel,chapterForPage,chapterInfo,chapterRange,chapterStepDone,currentChapter,estimate,finishedBooks,finishedKey,finishedLabel,get,groupedByCategory,hasCategory,isBackdated,libraryLevel,lifetime,logPage,logPreface,monthLabel,moveInQueue,numberedChapters,pace,pagesBetween,pagesLeft,pagesOn,parseReadKey,pct,primaryCategory,questionsForChapter,quotesForChapter,readHistory,readHistoryByYear,readScopeKey,readStepDone,removeBook,removeBookCategory,removeCategory,removeQuestion,removeQuote,removeTag,setBookCategories,setBookCategory,setBookDue,setChapterList,setFinishedDate,setPrefacePages,setStatus,setSummary,summaryStepDone};
 // Strive — Creeds, Catechisms & Confessions domain.
 // Static texts from the Van Dixhoorn edition; per-document track (read/memorize) and section progress.
 
@@ -2698,6 +3158,92 @@ function lastPracticeTs(docId, n) {
   return arr.length ? arr[arr.length - 1].ts : 0;
 }
 
+// ================= Creeds chunk 5 — scope keys, coverage, assignments =================
+// The creed analogue of `bible:` and `read:`. Three granularities, mirroring book / chapter / verse:
+//   creed:<docId>            the whole document
+//   creed:<docId>:ld<n>      one group — a Heidelberg Lord's Day, or a flat doc's single group
+//   creed:<docId>#<n>        one section / question
+//
+// ⚑ THE NAMESPACE GUARD IS THE POINT, and it is written first for the reason 9.6 learned the hard
+// way. app.js's parseScopeKey does `key.slice(6)` to drop 'bible:' and treats whatever is left as a
+// book name. 'creed:' is also six characters, so `creed:heidelberg` would slice to 'heidelberg' and
+// resolve to {kind:'book', book:'heidelberg'} — a book no scripture lookup matches, giving an empty
+// scope that reports not-done FOREVER with no error anywhere. That is the exact create-only shape of
+// D-AH and of the `read:` bug. Every creed key therefore carries its prefix and every consumer routes
+// through crParseScopeKey BEFORE the scripture path is reached.
+const CREED_PREFIX = 'creed:';
+
+function creedScopeKey(docId, kind = 'doc', n = 0) {
+  if (!docId) return null;
+  if (kind === 'doc') return CREED_PREFIX + docId;
+  if (kind === 'group') return n != null ? CREED_PREFIX + docId + ':ld' + n : null;
+  if (kind === 'section') return n >= 1 ? CREED_PREFIX + docId + '#' + n : null;
+  return null;
+}
+
+function crParseScopeKey(key) {
+  if (typeof key !== 'string' || !key.startsWith(CREED_PREFIX)) return null;
+  const body = key.slice(CREED_PREFIX.length);
+  if (!body) return null;
+  const hash = body.indexOf('#');
+  if (hash >= 0) {
+    const docId = body.slice(0, hash), n = Number(body.slice(hash + 1));
+    if (!docId || !(n >= 1)) return null;
+    return { kind: 'section', docId, n };
+  }
+  const c = body.lastIndexOf(':');
+  if (c < 0) return { kind: 'doc', docId: body, n: 0 };
+  const docId = body.slice(0, c), m = /^ld(\d+)$/.exec(body.slice(c + 1));
+  if (!docId || !m) return null;
+  return { kind: 'group', docId, n: Number(m[1]) };
+}
+
+// Sections of a document grouped the way the doc screen shows them: Heidelberg by Lord's Day, every
+// other doc as one flat group (ld = 0). Kept here rather than in app.js so the scope resolver and the
+// screen cannot disagree about what a group IS — the seam that D-AH exists to warn about.
+function creedGroupsOf(d) {
+  if (!d) return [];
+  const out = [], byLd = new Map();
+  d.sections.forEach(s => {
+    const ld = s.ld != null ? s.ld : 0;
+    if (!byLd.has(ld)) { byLd.set(ld, { ld: s.ld != null ? s.ld : null, sections: [] }); out.push(byLd.get(ld)); }
+    byLd.get(ld).sections.push(s);
+  });
+  return out;
+}
+function creedGroupSections(d, ld) {
+  const g = creedGroupsOf(d).find(x => (x.ld == null ? 0 : x.ld) === (ld || 0));
+  return g ? g.sections : [];
+}
+
+// The sections a scope covers. `memorizedOnly` filters to those actually marked done, mirroring
+// scopeVerses — a review cadence only ever governs material you've actually learned.
+function creedScopeSections(sc, memorizedOnly = false) {
+  if (!sc) return [];
+  const d = getDoc(sc.docId);
+  if (!d) return [];
+  let list;
+  if (sc.kind === 'doc') list = d.sections;
+  else if (sc.kind === 'group') list = creedGroupSections(d, sc.n);
+  else list = d.sections.filter(s => s.n === sc.n);
+  return memorizedOnly ? list.filter(s => isDone(d.id, s.n)) : list;
+}
+// Coverage keys for a scope. A creed section's coverage key is `<docId>#<n>` — the SAME key the
+// practice log and the binary review card already write, so review coverage on creeds has in fact
+// been accumulating all along; nothing here needs a migration or a backfill.
+function creedCoverageKeys(sc) {
+  return creedScopeSections(sc, true).map(s => sc.docId + '#' + s.n);
+}
+function creedScopeTitle(sc) {
+  const d = getDoc(sc && sc.docId);
+  if (!d) return 'Creed';
+  const short = d.name.replace(/^The /, '');
+  if (sc.kind === 'doc') return short;
+  if (sc.kind === 'group') return short + " · Lord's Day " + sc.n;
+  const s = d.sections.find(x => x.n === sc.n);
+  return short + ' · ' + (s ? sectionLabel(d, s) : '#' + sc.n);
+}
+
 // Ring/proficiency mastery (D-AE): ONLY rated Flashcards [1–5] (mode 'flash', NOT the binary card)
 // + Scripture typing ('typer') feed the proficiency ring. Excluded: the binary Got-it card (mode
 // 'flash' but tagged {binary:true} — it drives the review-decay FILL, not the ring), Scramble, Fade,
@@ -2710,7 +3256,7 @@ function ringMastery(docId, n) {
   return Math.round(last.reduce((a, x) => a + x.score, 0) / last.length);
 }
 
-const CR = {GROUPS,currentDoc,currentDocs,docDueOf,docStats,docs,dueBaseOf,getDoc,isCurrentDoc,isDone,lastPracticeTs,lifetimeSectionsMarked,logPractice,mastery,practiceCountBetween,practiceHistory,ringMastery,sectionLabel,sectionsLeft,sectionsMarked,sectionsMarkedToday,setCurrentDoc,setDocDue,setTrack,toggleCurrentDoc,toggleSection,trackOf};
+const CR = {CREED_PREFIX,GROUPS,crParseScopeKey,creedCoverageKeys,creedGroupSections,creedGroupsOf,creedScopeKey,creedScopeSections,creedScopeTitle,currentDoc,currentDocs,docDueOf,docStats,docs,dueBaseOf,getDoc,isCurrentDoc,isDone,lastPracticeTs,lifetimeSectionsMarked,logPractice,mastery,practiceCountBetween,practiceHistory,ringMastery,sectionLabel,sectionsLeft,sectionsMarked,sectionsMarkedToday,setCurrentDoc,setDocDue,setTrack,toggleCurrentDoc,toggleSection,trackOf};
 // Strive — Fitness domain: workout database (seeded from btwb export), logbook,
 // custom workout builder, weight log. Assessment scoring arrives in a later phase.
 
@@ -3026,7 +3572,11 @@ function weightGoalPace() {
   ftEnsure();
   const g = F().weightGoal, cur = latestWeight();
   if (!g || !g.lbs || !g.byTs || !cur) return null;
-  const days = Math.max(1, Math.ceil((g.byTs - Date.now()) / 86400000));
+  // Calendar hardening: days-remaining is a count of CALENDAR days, so it comes from day-keys rather
+  // than a millisecond division. `(byTs - now)/86400000` shifts by an hour at each DST boundary, and
+  // Math.ceil turns that hour into a whole extra day — which then divides into the weight delta and
+  // moves the displayed per-week pace for no reason the reader can see.
+  const days = Math.max(1, diffDaysKeys(todayKey(), todayKey(new Date(g.byTs))));
   const delta = g.lbs - cur.lbs;                 // + = gain, − = lose
   return { delta, days, perWeek: delta / days * 7, perDay: delta / days };
 }
@@ -3276,8 +3826,16 @@ function chaptersReadForPlan(id, fromKey, toKey) {
 }
 
 // flattened chapter list, canonical order of the chosen books
+// Defensive on `books` (fourteenth session). A plan without one is not supposed to exist — createPlan
+// always supplies it — but this is reached from planStats, which the DASHBOARD calls for every plan on
+// every render. An undefined books array therefore did not degrade one card; it threw inside render()
+// and took the whole dashboard down, i.e. the app opens to a blank screen with no way back. Since
+// state arrives from sync as a whole blob written by a possibly-older build (D-B), "this shape cannot
+// occur" is a claim about THIS version only. An empty plan reads as 0 chapters, which is visibly
+// wrong in a recoverable way; a white screen is neither.
 function chaptersOf(plan) {
   const out = [];
+  if (!plan || !Array.isArray(plan.books)) return out;
   plan.books.forEach(name => {
     const b = allBooks.find(x => x.name === name);
     if (b) b.verses.forEach((_, ci) => out.push({ book: b.name, ch: ci + 1 }));
@@ -3422,10 +3980,12 @@ function estFinish(plan) {
 // ---- prefabricated plans ----
 const CHRONO_ORDER = ['Genesis', 'Job', 'Exodus', 'Leviticus', 'Numbers', 'Deuteronomy', 'Joshua', 'Judges', 'Ruth', '1 Samuel', '2 Samuel', '1 Chronicles', 'Psalms', 'Proverbs', 'Ecclesiastes', 'Song of Solomon', '1 Kings', '2 Kings', '2 Chronicles', 'Obadiah', 'Joel', 'Jonah', 'Amos', 'Hosea', 'Micah', 'Isaiah', 'Nahum', 'Zephaniah', 'Habakkuk', 'Jeremiah', 'Lamentations', 'Ezekiel', 'Daniel', 'Haggai', 'Zechariah', 'Esther', 'Ezra', 'Nehemiah', 'Malachi', 'Luke', 'Mark', 'Matthew', 'John', 'Acts', 'James', '1 Thessalonians', '2 Thessalonians', '1 Corinthians', '2 Corinthians', 'Galatians', 'Romans', 'Colossians', 'Philemon', 'Ephesians', 'Philippians', '1 Timothy', 'Titus', '1 Peter', 'Hebrews', '2 Timothy', '2 Peter', 'Jude', '1 John', '2 John', '3 John', 'Revelation'];
 
-function dkPlus(days) {
-  const d = new Date(Date.now() + days * 86400000);
-  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-}
+// Calendar hardening: a plan's target date advances by DATE COMPONENTS, not by adding milliseconds.
+// The prefabs project 364 days out, and `Date.now() + 364*DAY` crosses one or two DST boundaries on
+// the way — enough to land a day early or late if the plan is started near midnight. A "Bible in a
+// Year" that is quietly 363 or 365 days long changes the chapters-per-day pace it exists to set.
+// addDaysKey routes through UTC noon, so no clock shift can move the date.
+function dkPlus(days) { return addDaysKey(todayKey(), days); }
 
 const PREFABS = [
   { key: 'mcheyne', name: "M'Cheyne (1 year)", kind: 'fixed', books: () => [], mode: 'perday', blurb: "4 readings/day · OT once, NT & Psalms twice · authentic fixed calendar" },
@@ -3614,12 +4174,15 @@ function targetAppliesOn(t, dk) {
   return dows.includes(tgDowOf(dk));
 }
 
-// day-key window → [startMs, endMs] spanning local midnight..last-ms, for the ts-based accessors.
-function windowMs(fromKey, toKey) {
-  const [fy, fm, fd] = fromKey.split('-').map(Number); const start = new Date(fy, fm - 1, fd).getTime();
-  const [ty, tm, td] = toKey.split('-').map(Number); const end = new Date(ty, tm - 1, td).getTime() + 86400000 - 1;
-  return [start, end];
-}
+// day-key window → [startMs, endMs] for the ts-based accessors.
+// Calendar hardening: the end now comes from daySpan (the start of the day AFTER toKey) rather than
+// `midnight + 86400000 - 1`. A local day is 23 hours on the spring-forward date and 25 on the
+// fall-back date, so the old arithmetic overshot into the next day each spring and clipped an hour
+// each autumn — quietly moving activity between target periods twice a year.
+// NB the end stays INCLUSIVE (last millisecond of toKey), because every caller feeds it to accessors
+// that compare with `<=`. daySpan is half-open, so step back one ms rather than changing the
+// comparison semantics of pagesBetween and friends, which are used well outside this file.
+function windowMs(fromKey, toKey) { const [s, e] = daySpan(fromKey, toKey); return [s, e - 1]; }
 function dayKeysBetween(fromKey, toKey) { const out = []; let k = fromKey; while (k <= toKey) { out.push(k); k = addDaysKey(k, 1); } return out; }
 
 // Real activity in a domain over [fromKey,toKey], generic (scope null) or scoped to one item.
@@ -4081,6 +4644,17 @@ const VIS = {setVisionKey,visionKey,visionReady,visionScanToc};
 // Strive — shell, navigation, screens
 
 
+// MOD and RV were USED (80 and 120 call sites) but never IMPORTED — found the first time app.js was
+// executed headless, fourteenth session. The deployed app was unaffected: build_preview.py flattens
+// every module into one scope, so `const MOD = {...}` is a global there and the call sites resolve.
+// The MODULAR source is what index.html loads (`<script type="module" src="./js/app.js">`), and on
+// that path both were ReferenceErrors — the Today tab threw on its first render, and has since
+// js/modules.js and js/review.js were introduced in July. Nothing caught it because the suites
+// import the modules directly and never load app.js, and the build strips imports anyway, so these
+// two lines change the deployed file not at all. Divergence between the source you edit and the
+// artifact you ship is its own hazard: the flattening was HIDING a broken source.
+
+
 
 
 
@@ -4096,6 +4670,12 @@ const VIS = {setVisionKey,visionKey,visionReady,visionScanToc};
 
 load();
 SC.ensureKeys();
+
+// Build stamp. build_preview.py rewrites the literal below at build time; unbuilt modular
+// source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
+// so "is my phone actually on the build I just uploaded?" is answerable in one glance —
+// a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
+const BUILD_ID = '20260804-2348'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260804-2348';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -4965,7 +5545,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
           </div>
         </div>`);
       if (!r.scheduled) {
-        const t = scopeLaunchTarget(r.sc, r.key, 'practice', r.title);
+        const t = r.creed ? creedLaunchTarget(r.sc, r.key, 'practice', r.title) : scopeLaunchTarget(r.sc, r.key, 'practice', r.title);
         const li = el.querySelector('.list-item');
         if (t) {
           li.onclick = () => launchScoped(t, 'practice');
@@ -6256,7 +6836,14 @@ function bookScreen(b) {
   const cad = RV.bookAssignment(b.name);
   const pills = h(`<div class="pillrow" style="margin-top:16px">
     <button class="pill" data-s="project">${isCurrent ? '✓ Project' : 'Project'}</button>
-    <button class="pill" data-s="modules">Modules${modCount ? ' · ' + modCount : ''}</button>
+    <!-- Reads "Units", not "Modules" (fourteenth session). D-V decision 3 renamed this pill to the
+         Units editor and the thirteenth session's notes AND the device checklist both record it as
+         done — but only the screen HEADER was changed; the pill itself still said "Modules". That
+         mattered out of all proportion to its size: checklist §0 uses this exact label as the
+         decisive tell that the build landed ("if any of these is wrong, stop"). Baruch would have
+         opened the app, read "Modules", concluded the upload never went through, and abandoned a
+         26-item eyeball pass over a rename. The data-s key stays "modules" — it is internal. -->
+    <button class="pill" data-s="modules">Units${modCount ? ' · ' + modCount : ''}</button>
     <button class="pill" data-s="cadence">${esc(assignPillLabel(RV.bookScopeKey(b.name), cad))}</button>
     <button class="pill" data-s="memorized">Memorized</button>
   </div>`);
@@ -6475,7 +7062,16 @@ function assignSheet(scope) {
 // ===== Pathway assignment-steps (D-AG) — a step.ref = {key, intent} links it to a scripture scope;
 // its completion is DERIVED from the engine (single source of truth) and synced onto s.done, so ALL
 // existing pathway rendering + Today surfacing work unchanged. Doing the work anywhere completes it. =====
+// ⚑ Creed keys must be rejected HERE, before the slice below. 'creed:' and 'bible:' are both six
+// characters, so `creed:heidelberg` would slice to 'heidelberg' and return {kind:'book'} carrying a
+// name no scripture book matches — an empty scope reporting not-done forever, silently. That is
+// exactly what `read:` did before its guard, and exactly the D-AH create-only shape. Callers that
+// handle creeds check isCreedKey FIRST; this guard is the backstop for the ones that don't.
+const isCreedKey = k => typeof k === 'string' && k.startsWith(CR.CREED_PREFIX);
 function parseScopeKey(key) {
+  if (typeof key !== 'string') return null;
+  if (isCreedKey(key)) return null;                                   // creeds resolve via CR.crParseScopeKey
+  if (!key.startsWith('bible:') && !key.startsWith('mod:')) return null;
   if (key.startsWith('mod:')) return { kind: 'module', modId: key.slice(4) };
   const body = key.slice(6);   // drop 'bible:'
   const hash = body.indexOf('#');
@@ -6526,6 +7122,54 @@ function assignPillLabel(key, reviewA) {
   if (u && u.memBy) bits.push('◆ ' + shortDate(u.memBy));
   return 'Assign' + (bits.length ? ' · ' + bits.join(' · ') : '');
 }
+// ===== Creeds chunk 5 — the creed half of the assignment engine (D-AE/D-AF parity) =====
+// Creed assignments live in the SAME assign store as chapter/verse ones (state.review.assign), keyed
+// by `creed:` scope keys. That is why review/practice/memBy needed no new storage: RV.getUnit,
+// setUnitCadence, unitsWithCadence and allMemBy all key on an opaque string. What DID need building
+// is everything that reads those keys back, because every one of those readers assumed 'bible:'.
+
+// Most-specific review cadence governing a creed section → its interval (ms). Section > group > doc,
+// mirroring governingReviewInterval's verse > chapter > module > book. Drives the decay FILL only;
+// practice cadences never touch the fill (D-AC).
+function creedGoverningInterval(docId, n, ld) {
+  const at = key => { const u = RV.getUnit(key); return u && u.review ? RV.cadenceIntervalMs(u.review.cadence) : null; };
+  const s = at(CR.creedScopeKey(docId, 'section', n)); if (s !== null) return s;
+  if (ld != null) { const g = at(CR.creedScopeKey(docId, 'group', ld)); if (g !== null) return g; }
+  return at(CR.creedScopeKey(docId, 'doc'));
+}
+// Assign-sheet scope descriptor for a creed doc / group / section — the same shape assignScope
+// returns, so assignSheet renders it with no branching.
+function creedAssignScope(docId, kind, n) {
+  const key = CR.creedScopeKey(docId, kind, n);
+  const sc = CR.crParseScopeKey(key);
+  return {
+    title: CR.creedScopeTitle(sc),
+    key,
+    reviewAssign: () => { const u = RV.getUnit(key); return u && u.review ? u.review : null; },
+    setReview: c => c ? RV.setUnitCadence(key, 'review', c) : RV.clearUnitCadence(key, 'review'),
+    practiceAssign: () => { const u = RV.getUnit(key); return u && u.practice ? u.practice : null; },
+    setPractice: c => c ? RV.setUnitCadence(key, 'practice', c) : RV.clearUnitCadence(key, 'practice'),
+    memBy: () => RV.unitMemBy(key),
+    setMemBy: d => RV.setUnitMemBy(key, d)
+  };
+}
+// Has every memorized section in a creed scope been practiced since `since`? Practice marks nothing
+// (D-AB), so like its scripture twin this reads the practice log rather than coverage.
+function creedPracticeScopeDone(sc, since) {
+  const secs = CR.creedScopeSections(sc, true);
+  return secs.length > 0 && secs.every(s => CR.lastPracticeTs(sc.docId, s.n) >= (since || 1));
+}
+// Launch target for a creed scope, shaped like scopeLaunchTarget's so launchScopeMode/scopeModeSheet
+// need no creed branch beyond fetching (creed text is local — there is no ESV call).
+function creedLaunchTarget(sc, key, intent, title) {
+  if (!sc) return null;
+  const d = CR.getDoc(sc.docId); if (!d) return null;
+  const keys = CR.creedCoverageKeys(sc);
+  const u = RV.getUnit(key);
+  const a = u && u[intent === 'practice' ? 'practice' : 'review'] ? u[intent === 'practice' ? 'practice' : 'review'] : null;
+  return { kind: 'creed', creed: true, doc: d, sc, key, a, keys, title: title || CR.creedScopeTitle(sc), intent };
+}
+
 function scopeReviewAssign(sc, key) {
   if (sc.kind === 'module') { const r = scopeModule(sc); return r && r[1].review ? r[1].review : null; }
   if (sc.kind === 'book') return RV.bookAssignment(sc.book);
@@ -6546,8 +7190,20 @@ function refStepDone(step) {
     const rb = RD.get(pk.bookId); if (!rb) return null;
     return RD.readStepDone(rb, pk);
   }
+  if (isCreedKey(key)) {                          // creed steps resolve through CR (pure/testable)
+    const csc = CR.crParseScopeKey(key); if (!csc) return null;
+    if (!CR.getDoc(csc.docId)) return null;
+    const all = CR.creedScopeSections(csc, false);
+    if (!all.length) return null;
+    if (intent === 'memorize') return all.every(s => CR.isDone(csc.docId, s.n));
+    const ck = CR.creedCoverageKeys(csc);
+    if (!ck.length) return false;
+    if (intent === 'review') { const u = RV.getUnit(key), since = u && u.review ? u.review.cycleStart : 0; return ck.every(k => RV.isCovered(k, since)); }
+    return creedPracticeScopeDone(csc, practiceCycleStart(key));
+  }
   if (!key.startsWith('bible:') && !key.startsWith('mod:')) return null;
   const sc = parseScopeKey(key);
+  if (!sc) return null;
   if (intent === 'memorize') { const all = scopeVerses(sc, false); return all.length > 0 && all.every(([bn, ci, v]) => { const b = allBooks.find(x => x.name === bn); return b && SC.verseDone(b, ci, v); }); }
   const memKeys = scopeCoverageKeys(sc);
   if (!memKeys.length) return false;
@@ -6688,7 +7344,16 @@ function refStepLaunch(step) {
     else render(() => bookDetail(rb));
     return;
   }
+  // creeds land on the doc screen (or the group write-out), the surface where the work happens
+  if (isCreedKey(step.ref.key)) {
+    const csc = CR.crParseScopeKey(step.ref.key); if (!csc) return;
+    const cd = CR.getDoc(csc.docId); if (!cd) return;
+    if (csc.kind === 'group') render(() => creedGroupScreen(cd, csc.n));
+    else render(() => creedDocScreen(cd));
+    return;
+  }
   const sc = parseScopeKey(step.ref.key);
+  if (!sc) return;                                   // unknown namespace — never guess a scripture book
   if (sc.kind === 'module') { const r = scopeModule(sc); if (r) { const b = allBooks.find(x => x.name === r[0]); render(() => moduleScreen(b, r[1])); } return; }
   const b = allBooks.find(x => x.name === sc.book); if (!b) return;
   if (sc.kind === 'book') render(() => bookScreen(b)); else render(() => chapterScreen(b, sc.ci));
@@ -6783,6 +7448,14 @@ function collectReviewAssignments() {
   // the store and the decay resolver shipped in the seventh session, the surfacing never did, so a
   // chapter cadence lit the circle but never reached Today/Week/Month.
   RV.unitsWithCadence('review').forEach(({ key, a }) => {
+    // creeds first — parseScopeKey rejects the namespace, and a `continue` here rather than a guard
+    // there would be the create-only bug all over again: stored, resolved, never surfaced (D-AH).
+    if (isCreedKey(key)) {
+      const csc = CR.crParseScopeKey(key); if (!csc) return;
+      const keys = CR.creedCoverageKeys(csc); if (!keys.length) return;
+      out.push({ id: 'asg-' + key, kind: 'creed', creed: true, doc: CR.getDoc(csc.docId), key, sc: csc, a, keys, title: CR.creedScopeTitle(csc) });
+      return;
+    }
     const sc = parseScopeKey(key); if (!sc || sc.kind === 'book' || sc.kind === 'module') return;
     const b = scopeBook(sc); if (!b) return;
     const keys = scopeCoverageKeys(sc); if (!keys.length) return;
@@ -6796,6 +7469,12 @@ function collectReviewAssignments() {
 function collectPracticeAssignments() {
   const out = [];
   RV.unitsWithCadence('practice').forEach(({ key, a }) => {
+    if (isCreedKey(key)) {
+      const csc = CR.crParseScopeKey(key); if (!csc) return;
+      if (!CR.creedScopeSections(csc, true).length) return;   // nothing learned yet → nothing to rehearse
+      out.push({ id: 'pr-' + key, kind: 'creed', creed: true, doc: CR.getDoc(csc.docId), key, sc: csc, a, keys: CR.creedCoverageKeys(csc), title: CR.creedScopeTitle(csc) });
+      return;
+    }
     const sc = parseScopeKey(key); if (!sc) return;
     const b = scopeBook(sc); if (!b) return;
     if (!scopeVerses(sc, true).length) return;   // nothing memorized in scope yet → nothing to rehearse
@@ -6810,7 +7489,8 @@ function syncReviewCycles() {
   // practice cycles roll on their own rule — completion comes from the practice log, so it's computed
   // here and handed to the pure roller rather than derived from coverage inside it.
   collectPracticeAssignments().forEach(P => {
-    if (RV.syncPracticeCycle(P.a, practiceScopeDone(P.sc, P.a.cycleStart))) changed = true;
+    const pDone = P.creed ? creedPracticeScopeDone(P.sc, P.a.cycleStart) : practiceScopeDone(P.sc, P.a.cycleStart);
+    if (RV.syncPracticeCycle(P.a, pDone)) changed = true;
   });
   if (changed) save();
 }
@@ -6830,7 +7510,7 @@ function reviewRowsForDate(dk, today = todayKey()) {
 function practiceRowsForDate(dk, today = todayKey()) {
   const rows = [];
   collectPracticeAssignments().forEach(P => {
-    const done = practiceScopeDone(P.sc, P.a.cycleStart);
+    const done = P.creed ? creedPracticeScopeDone(P.sc, P.a.cycleStart) : practiceScopeDone(P.sc, P.a.cycleStart);
     const st = RV.practiceStatus(P.a, done);
     if (!st.complete) { if (dk === today) rows.push({ ...P, st, late: st.late, scheduled: false }); }
     else { const ndKey = todayKey(new Date(st.nextDueMs)); if (dk === ndKey) rows.push({ ...P, st, scheduled: true }); }
@@ -6843,16 +7523,30 @@ function practiceRowsForDate(dk, today = todayKey()) {
 const MEMBY_PIN_DAYS = 7;
 function memByRowsForDate(dk, today = todayKey()) {
   const rows = [];
+  // days-left is computed from day-KEYS, not from parsing two dates and dividing. `new Date(k+'T00:00')`
+  // is local midnight, and subtracting two of them across a DST boundary yields 23 or 25 hours, which
+  // Math.round then turns into the wrong number of days — the pin would flip a day early or late twice
+  // a year. diffDaysKeys routes through UTC noon (calendar hardening).
+  const memRow = (key, memBy, extra) => {
+    const daysLeft = diffDaysKeys(today, memBy);
+    const row = { id: 'mem-' + key, key, memBy, daysLeft, late: daysLeft < 0, ...extra };
+    if (dk === memBy) rows.push({ ...row, pinned: false });
+    else if (dk === today && daysLeft <= MEMBY_PIN_DAYS) rows.push({ ...row, pinned: true });
+  };
   RV.allMemBy().forEach(({ key, memBy }) => {
+    if (isCreedKey(key)) {
+      const csc = CR.crParseScopeKey(key); if (!csc) return;
+      const d = CR.getDoc(csc.docId); if (!d) return;
+      const all = CR.creedScopeSections(csc, false), done = CR.creedScopeSections(csc, true).length;
+      if (!all.length || done >= all.length) return;
+      memRow(key, memBy, { kind: 'creed', creed: true, doc: d, sc: csc, done, total: all.length, title: CR.creedScopeTitle(csc) });
+      return;
+    }
     const sc = parseScopeKey(key); if (!sc) return;
     const b = scopeBook(sc); if (!b) return;
     const all = scopeVerses(sc, false), done = scopeVerses(sc, true).length;
     if (!all.length || done >= all.length) return;
-    const daysLeft = Math.round((new Date(memBy + 'T00:00') - new Date(today + 'T00:00')) / 86400000);
-    const row = { id: 'mem-' + key, kind: sc.kind, book: b, key, sc, memBy, daysLeft,
-                  done, total: all.length, late: daysLeft < 0, title: scopeTitle(sc, b) };
-    if (dk === memBy) rows.push({ ...row, pinned: false });
-    else if (dk === today && daysLeft <= MEMBY_PIN_DAYS) rows.push({ ...row, pinned: true });
+    memRow(key, memBy, { kind: sc.kind, book: b, sc, done, total: all.length, title: scopeTitle(sc, b) });
   });
   return rows;
 }
@@ -6881,15 +7575,28 @@ async function launchScopeMode(t, mode, scope, intent, btn) {
     if (intent === 'review' && scope) pref.scope = scope;
     save();
   }
-  if (mode === 'timer') { render(() => reviewTimer(t.book, (t.kind === 'module' && t.mod) ? MOD.moduleReviewScope(t.mod) : null, t.title)); return; }
+  // The review TIMER is scripture-only — reviewTimer files into scripture.reviewTimes, which is keyed
+  // by book name and has no creed equivalent. Rather than silently doing nothing, say so.
+  if (mode === 'timer') {
+    if (t.creed) { toast('The review timer is for Scripture — use Cards or Typing here'); return; }
+    render(() => reviewTimer(t.book, (t.kind === 'module' && t.mod) ? MOD.moduleReviewScope(t.mod) : null, t.title));
+    return;
+  }
   const cycleStart = (t.a && t.a.cycleStart) || 0;
   let keys = (intent === 'review' && scope === 'cycle') ? t.keys.filter(k => !RV.isCovered(k, cycleStart)) : t.keys.slice();
   if (!keys.length) keys = t.keys.slice();   // all covered this cycle → a fresh pass over the whole unit
-  if (!keys.length) { toast('No verses in this scope yet'); return; }
+  if (!keys.length) { toast(t.creed ? 'Nothing learned in this scope yet' : 'No verses in this scope yet'); return; }
   const orig = btn ? btn.textContent : '';
   if (btn) { btn.textContent = '…'; btn.disabled = true; }
   let doc;
-  try { doc = await fetchScopeDoc(t.book, keys); }
+  // Creed text is LOCAL — there is no network fetch, so the scope doc is just the document trimmed to
+  // the scope's sections. Building it here keeps launchScopeMode's single code path below intact.
+  if (t.creed) {
+    const keep = new Set(keys.map(k => Number(k.slice(k.indexOf('#') + 1))));
+    const secs = t.doc.sections.filter(s => keep.has(s.n));
+    doc = secs.length ? { ...t.doc, sections: secs } : null;
+  }
+  else try { doc = await fetchScopeDoc(t.book, keys); }
   catch (e) { if (btn) { btn.textContent = orig; btn.disabled = false; } esvErrToast(e); return; }
   if (!doc) { if (btn) { btn.textContent = orig; btn.disabled = false; } toast('Could not load verses'); return; }
   const queue = doc.sections.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn, ci: x.ci }));
@@ -6946,7 +7653,9 @@ function scopeLaunchTarget(sc, key, intent, title) {
   return { kind: sc.kind, book, mod, a, keys, title, intent };
 }
 function stepScopeTarget(s) {
-  return scopeLaunchTarget(parseScopeKey(s.ref.key), s.ref.key, s.ref.intent, s.label);
+  if (isCreedKey(s.ref.key)) return creedLaunchTarget(CR.crParseScopeKey(s.ref.key), s.ref.key, s.ref.intent, s.label);
+  const sc = parseScopeKey(s.ref.key);
+  return sc ? scopeLaunchTarget(sc, s.ref.key, s.ref.intent, s.label) : null;
 }
 // One-tap launch: mode labels + the remembered preference per intent (D-AG one-tap scoped launch).
 const MODE_LABEL = { flash: 'Cards 1–5', binary: 'Cards ✓', typer: 'Typing', timer: 'Timer', fade: 'Fade' };
@@ -7136,20 +7845,66 @@ function memMemorizedSheet(b) {
 // Draft lives in modDraft while editing (create = blank, edit = a copy), committed on Save.
 let modDraft = null;   // { book, mod, isNew, nameTouched }
 
-function modulesScreen(b) {
-  setHeader(b.name + ' — Modules', { back: () => bookScreen(b) });
-  const wrap = document.createElement('div');
-  wrap.append(h(`<div class="muted" style="font-size:12px;margin:2px 4px 12px">Split ${esc(b.name)} into named chunks to practice or review one at a time. Tap a module to edit it.</div>`));
+// D-V decision 3 — the Modules pill IS the Units editor. The governing constraint: a book with ONE
+// scheme must look EXACTLY as it did before schemes existed. No selector, no scheme label, no extra
+// row. The common case pays nothing for the feature, and the scheme affordance only appears once a
+// second scheme actually exists. Anything else taxes every single-scheme book with a concept it
+// doesn't use — which is why a first-class Schemes screen was rejected.
+let unitSchemeSel = null;   // { book, schemeId } — which scheme's units are on screen. null = default.
 
-  const list = MOD.modulesFor(b.name);
+function activeSchemeId(bookName) {
+  if (!unitSchemeSel || unitSchemeSel.book !== bookName) return null;
+  // a scheme deleted from under the selection falls back to default rather than showing an empty list
+  if (unitSchemeSel.schemeId && !MOD.getScheme(bookName, unitSchemeSel.schemeId)) return null;
+  return unitSchemeSel.schemeId;
+}
+
+function modulesScreen(b) {
+  const schemes = MOD.schemeList(b.name);
+  const multi = schemes.length > 1;                       // default + at least one named scheme
+  const selId = activeSchemeId(b.name);
+  setHeader(b.name + ' — Units', { back: () => bookScreen(b) });
+  const wrap = document.createElement('div');
+  wrap.append(h(`<div class="muted" style="font-size:12px;margin:2px 4px 12px">Split ${esc(b.name)} into named units to practice or review one at a time. Tap a unit to edit it.</div>`));
+
+  // ---- scheme selector — ONLY once a second scheme exists (D-V decision 3) ----
+  if (multi) {
+    const row = h(`<div class="pillrow">${schemes.map(s =>
+      `<button class="pill ${(s.id || null) === selId ? 'on' : ''}" data-sid="${s.id || ''}">${esc(s.name)}${s.count ? ' · ' + s.count : ''}</button>`).join('')}</div>`);
+    row.querySelectorAll('.pill').forEach(p => p.onclick = () => {
+      unitSchemeSel = { book: b.name, schemeId: p.dataset.sid || null };
+      rerender();
+    });
+    wrap.append(row);
+    wrap.append(h(`<div class="muted" style="font-size:11px;margin:-4px 4px 10px">Schemes run at the same time — a verse in two of them keeps both rhythms. There's no "active" one.</div>`));
+  }
+
+  const list = MOD.modulesInScheme(b.name, selId);
+
+  // ---- ⚑ assignment-loss audit (the copyModule/commitModule bug) ----
+  // Until MOD_CARRIED_FIELDS landed, editing or even renaming a unit silently stripped its cadence.
+  // A wiped unit is indistinguishable from one that never had a cadence, so this can't diagnose —
+  // it just surfaces the one circumstantial signal (reviewed verses, nothing scheduling them) and
+  // leaves the judgement to Baruch, who is the only one who can remember what he assigned.
+  const suspects = MOD.suspectModules(b.name, RV.coverageTs);
+  const suspectIds = new Set(suspects.map(s => s.id));
+  if (suspects.length) {
+    wrap.append(h(`<div class="card" style="border-color:var(--accent)">
+      <div style="font-weight:600;font-size:13px;margin-bottom:4px">⚑ ${suspects.length} unit${suspects.length === 1 ? '' : 's'} reviewed but not scheduled</div>
+      <div class="muted" style="font-size:12px">These have review history but no review cadence. Until recently, editing or renaming a unit silently erased its cadence — if one of these should be on a rhythm, set it again below. Units you never scheduled will show here too.</div>
+    </div>`));
+  }
+
   if (!list.length) {
-    wrap.append(h(`<div class="card"><div class="muted">No modules yet. Create one to review part of ${esc(b.name)} on its own.</div></div>`));
+    wrap.append(h(`<div class="card"><div class="muted">No units${multi ? ' in this scheme' : ''} yet. Create one to review part of ${esc(b.name)} on its own.</div></div>`));
   } else {
     list.forEach(mod => {
+      const flagged = suspectIds.has(mod.id);
+      const cad = mod.review && mod.review.cadence ? RV.cadenceLabel(mod.review.cadence) : null;
       const row = h(`<div class="list-item" style="cursor:pointer">
         <div class="grow">
-          <div class="title">${esc(mod.name || MOD.moduleAutoName(mod, b))}</div>
-          <div class="sub">${esc(MOD.moduleCoverage(mod, b))} · ${MOD.moduleVerseCount(mod)} verses</div>
+          <div class="title">${flagged ? '<span style="color:var(--accent)">⚑ </span>' : ''}${esc(mod.name || MOD.moduleAutoName(mod, b))}</div>
+          <div class="sub">${esc(MOD.moduleCoverage(mod, b))} · ${MOD.moduleVerseCount(mod)} verses${cad ? ' · ◎ ' + esc(cad) : (flagged ? ' · <span style="color:var(--accent)">no cadence</span>' : '')}</div>
         </div>
         <button class="del" style="border:none;background:none;color:var(--danger);font-size:17px;cursor:pointer">✕</button>
       </div>`).firstElementChild;
@@ -7158,22 +7913,149 @@ function modulesScreen(b) {
         render(() => moduleScreen(b, mod));
       };
       row.querySelector('.del').onclick = () => {
-        if (!confirm('Delete module "' + (mod.name || MOD.moduleAutoName(mod, b)) + '"? This does not affect your memorization progress.')) return;
+        if (!confirm('Delete unit "' + (mod.name || MOD.moduleAutoName(mod, b)) + '"? This does not affect your memorization progress.')) return;
         MOD.deleteModule(b.name, mod.id);
-        toast('Module deleted');
+        toast('Unit deleted');
         rerender();
       };
       wrap.append(row);
     });
   }
 
-  const add = h(`<button class="btn" style="margin-top:14px">＋ New module</button>`);
+  const add = h(`<button class="btn" style="margin-top:14px">＋ New unit</button>`);
   add.firstChild.onclick = () => {
-    modDraft = { book: b.name, mod: MOD.blankModule(), isNew: true, nameTouched: false };
+    modDraft = { book: b.name, mod: MOD.blankModule(selId), isNew: true, nameTouched: false };
     render(() => moduleEditScreen(b));
   };
   wrap.append(add);
+
+  // ---- scheme actions ----
+  const acts = h(`<div class="pillrow" style="margin-top:12px">
+    <button class="pill" data-a="newscheme">＋ New scheme</button>
+    ${multi && selId ? '<button class="pill" data-a="rename">Rename scheme</button><button class="pill" data-a="delscheme" style="color:var(--danger)">Delete scheme</button>' : ''}
+    ${list.length ? '<button class="pill" data-a="bulk">Set cadence for all</button>' : ''}
+  </div>`);
+  acts.querySelector('[data-a=newscheme]').onclick = () => schemeCreateSheet(b);
+  const rn = acts.querySelector('[data-a=rename]'); if (rn) rn.onclick = () => schemeRenameSheet(b, selId);
+  const dl = acts.querySelector('[data-a=delscheme]'); if (dl) dl.onclick = () => schemeDeleteSheet(b, selId);
+  const bk = acts.querySelector('[data-a=bulk]'); if (bk) bk.onclick = () => schemeBulkCadenceSheet(b, selId, list);
+  wrap.append(acts);
+
+  if (!multi) {
+    wrap.append(h(`<div class="muted" style="font-size:11px;margin:8px 4px 0">A second scheme lets you slice ${esc(b.name)} two ways at once — say 1–4 / 5–8 / 9–13 for a monthly review, and 1–2 / 3–4 / … for a tighter memorization rhythm. Both run together.</div>`));
+  }
   main().append(wrap);
+}
+
+// ---- scheme sheets (D-V) ----
+function schemeCreateSheet(b) {
+  openSheet('New scheme', (body, close) => {
+    const FIN = 'padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px';
+    const el = h(`<div>
+      <div class="muted" style="font-size:12px;margin-bottom:10px">A scheme is a named way of slicing ${esc(b.name)}. Units in different schemes run at the same time and share the same verse-level review history.</div>
+      <input data-a="nm" placeholder="e.g. Tight memorization rhythm" style="width:100%;${FIN}">
+      <button class="btn" data-a="go" style="margin-top:12px">Create scheme</button>
+    </div>`).firstElementChild;
+    el.querySelector('[data-a=go]').onclick = () => {
+      const nm = el.querySelector('[data-a=nm]').value.trim();
+      if (!nm) { toast('Give the scheme a name'); return; }
+      const sc = MOD.createScheme(b.name, nm);
+      unitSchemeSel = { book: b.name, schemeId: sc.id };   // land in the new scheme, ready to add units
+      toast('Scheme created');
+      close(); rerender();
+    };
+    body.append(el);
+  });
+}
+
+function schemeRenameSheet(b, schemeId) {
+  const sc = MOD.getScheme(b.name, schemeId);
+  if (!sc) { toast('Scheme not found'); return; }
+  openSheet('Rename scheme', (body, close) => {
+    const FIN = 'padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px';
+    const el = h(`<div>
+      <input data-a="nm" value="${esc(sc.name)}" style="width:100%;${FIN}">
+      <button class="btn" data-a="go" style="margin-top:12px">Save</button>
+    </div>`).firstElementChild;
+    el.querySelector('[data-a=go]').onclick = () => {
+      const nm = el.querySelector('[data-a=nm]').value.trim();
+      if (!nm) { toast('Give the scheme a name'); return; }
+      MOD.renameScheme(b.name, schemeId, nm);
+      toast('Renamed'); close(); rerender();
+    };
+    body.append(el);
+  });
+}
+
+// Deleting a scheme is NON-DESTRUCTIVE by default — its units fall back to the default scheme rather
+// than being deleted with it. The units carry live assignments with running cycles; discarding those
+// because a grouping was removed is the same silent loss the carried-fields fix exists to prevent.
+// The destructive option is offered, but it is the second button and it says what it will destroy.
+function schemeDeleteSheet(b, schemeId) {
+  const sc = MOD.getScheme(b.name, schemeId);
+  if (!sc) { toast('Scheme not found'); return; }
+  const count = MOD.modulesInScheme(b.name, schemeId).length;
+  openSheet('Delete scheme', (body, close) => {
+    const el = h(`<div>
+      <div class="muted" style="font-size:13px;margin-bottom:12px">“${esc(sc.name)}” holds ${count} unit${count === 1 ? '' : 's'}.</div>
+      <button class="btn" data-a="keep">Delete scheme, keep its ${count} unit${count === 1 ? '' : 's'}</button>
+      <div class="muted" style="font-size:11px;margin:6px 4px 12px">They move to the default scheme with their cadences and review cycles intact.</div>
+      <button class="btn secondary" data-a="all" style="color:var(--danger)">Delete scheme and its ${count} unit${count === 1 ? '' : 's'}</button>
+      <div class="muted" style="font-size:11px;margin:6px 4px 0">Cadences and review cycles on those units are lost. Your memorization progress and verse-level review history are not affected.</div>
+    </div>`).firstElementChild;
+    el.querySelector('[data-a=keep]').onclick = () => {
+      MOD.deleteScheme(b.name, schemeId);
+      unitSchemeSel = { book: b.name, schemeId: null };
+      toast('Scheme deleted — units kept'); close(); rerender();
+    };
+    el.querySelector('[data-a=all]').onclick = () => {
+      if (!confirm('Delete “' + sc.name + '” and its ' + count + ' unit' + (count === 1 ? '' : 's') + '?')) return;
+      MOD.deleteScheme(b.name, schemeId, { deleteModules: true });
+      unitSchemeSel = { book: b.name, schemeId: null };
+      toast('Scheme and units deleted'); close(); rerender();
+    };
+    body.append(el);
+  });
+}
+
+// D-V decision 3's bulk action: set one cadence across every unit in a scheme. The point of grouping
+// units is that they share a rhythm, so setting that rhythm thirteen times by hand is the tax the
+// scheme exists to remove.
+function schemeBulkCadenceSheet(b, schemeId, list) {
+  openSheet('Cadence for all units', (body, close) => {
+    const nm = schemeId ? (MOD.getScheme(b.name, schemeId) || {}).name : 'the default scheme';
+    const el = h(`<div>
+      <div class="muted" style="font-size:12px;margin-bottom:10px">Applies to all ${list.length} unit${list.length === 1 ? '' : 's'} in ${esc(nm || 'this scheme')}.</div>
+    </div>`).firstElementChild;
+    const opts = [
+      ['Every 7 days', { type: 'interval', days: 7 }],
+      ['Every 14 days', { type: 'interval', days: 14 }],
+      ['Every 30 days', { type: 'interval', days: 30 }],
+      ['Every 60 days', { type: 'interval', days: 60 }],
+      ['Weekly', { type: 'weekly' }],
+      ['Monthly', { type: 'monthly' }]
+    ];
+    opts.forEach(([label, cad]) => {
+      const btn = h(`<button class="btn secondary" style="margin-top:8px">${label}</button>`);
+      btn.firstChild.onclick = () => {
+        // Each unit gets its OWN assignment (own cycleStart, own derived anchor) — a shared cadence
+        // is not a shared cycle. Finishing 1–4 must re-anchor only 1–4, which is the whole point of
+        // per-unit assignments in D-M's design. newAssignment() is called per unit for that reason:
+        // one shared object would give every unit the same watermark and couple their cycles.
+        list.forEach(mod => MOD.setModuleAssignment(b.name, mod.id, 'review', RV.newAssignment(cad)));
+        toast('Cadence set on ' + list.length + ' unit' + (list.length === 1 ? '' : 's'));
+        close(); rerender();
+      };
+      el.append(btn.firstChild);
+    });
+    const off = h(`<button class="btn secondary" style="margin-top:14px;color:var(--danger)">Clear cadence on all</button>`);
+    off.firstChild.onclick = () => {
+      list.forEach(mod => MOD.setModuleAssignment(b.name, mod.id, 'review', null));
+      toast('Cadences cleared'); close(); rerender();
+    };
+    el.append(off.firstChild);
+    body.append(el);
+  });
 }
 
 function moduleEditScreen(b) {
@@ -7410,7 +8292,7 @@ function practiceScope(b, intent = 'practice') {
     ${b.chapters <= WHOLE_BOOK_CAP ? `<button class="pill ${s.mode === 'book' ? 'on' : ''}" data-m="book">Whole book</button>` : ''}
     <button class="pill ${s.mode === 'chapters' ? 'on' : ''}" data-m="chapters">Chapters</button>
     <button class="pill ${s.mode === 'verses' ? 'on' : ''}" data-m="verses">Verses</button>
-    ${MOD.moduleCount(b.name) ? `<button class="pill ${s.mode === 'modules' ? 'on' : ''}" data-m="modules">Modules</button>` : ''}
+    ${MOD.moduleCount(b.name) ? `<button class="pill ${s.mode === 'modules' ? 'on' : ''}" data-m="modules">Units</button>` : ''}
   </div>`);
   pills.querySelectorAll('[data-m]').forEach(p => p.onclick = () => { s.mode = p.dataset.m; rerender(); });
   wrap.append(pills);
@@ -7927,6 +8809,13 @@ function renderTimes(container) {
 // ---------- Reading ----------
 let rdSort = 'status';   // Phase 6 (R4/R5): one list, every book, sortable
 const RD_SORTS = [['status', 'Status'], ['title', 'Title'], ['author', 'Author'], ['category', 'Category']];
+// Compact multi-category label for a list row (Phase 10.1). Truncates past two so a heavily-tagged
+// book can't push the author and page count off the line.
+function rdCatLabel(b) { return RD.categoryLabel(b, 2); }
+// Comma-separated category entry. A single datalist input stays the fastest thing to type on a phone
+// — the alternative (a chip editor with an add button) is more taps for the common single-category
+// case. RD.setBookCategories de-duplicates and registers new names, so this only has to split.
+function parseCatInput(v) { return String(v || '').split(',').map(s => s.trim()).filter(Boolean); }
 const RD_BADGE = {
   reading: ['READING', 'var(--accent)'], upnext: ['UP NEXT', 'var(--midnight)'],
   library: ['LIBRARY', 'var(--text-3)'], finished: ['FINISHED', 'var(--forest)']
@@ -7945,20 +8834,41 @@ function readingHome() {
       <div class="progressbar" style="margin-top:8px"><div style="width:${lib.level}%"></div></div>
     </div>`));
 
-  const research = h(`<div class="list-item" style="margin-bottom:12px"><div class="grow">
+  const research = h(`<div class="list-item"><div class="grow">
     <div class="title" style="font-size:14px">Research</div>
     <div class="sub">Search quotes &amp; questions across every book by tag or text.</div></div><span class="chev">›</span></div>`);
   research.querySelector('.list-item').onclick = () => render(researchScreen);
   wrap.append(research);
+
+  // Phase 10.3 — read history. Sits beside Research as the library-level stats door.
+  const hist = RD.finishedBooks();
+  const histRow = h(`<div class="list-item" style="margin-bottom:12px"><div class="grow">
+    <div class="title" style="font-size:14px">Read history</div>
+    <div class="sub">${hist.length ? hist.length + ' book' + (hist.length === 1 ? '' : 's') + ' finished — by year and month' : 'Books you\'ve finished, and when.'}</div></div><span class="chev">›</span></div>`);
+  histRow.querySelector('.list-item').onclick = () => render(readHistoryScreen);
+  wrap.append(histRow);
 
   const pills = h(`<div class="pillrow">${RD_SORTS.map(([m, l]) =>
     `<button class="pill ${rdSort === m ? 'on' : ''}" data-m="${m}">${l}</button>`).join('')}</div>`);
   pills.querySelectorAll('.pill').forEach(b => b.onclick = () => { rdSort = b.dataset.m; rerender(); });
   wrap.append(pills);
 
-  const list = RD.allSorted(rdSort);
+  // Phase 10.1 — the Category pill switches from a flat sort to GROUPED sections, because with
+  // multiple categories per book a flat ordering can only honour one of them. A book in three
+  // categories appears under all three (Baruch's call): the counts across groups deliberately sum to
+  // more than the library, which is the honest consequence of a book genuinely being in three places.
+  const grouped = rdSort === 'category' ? RD.groupedByCategory('title') : null;
+  const list = grouped ? grouped.flatMap(g => g.books) : RD.allSorted(rdSort);
   const upnextOrder = RD.byStatus('upnext');
-  list.forEach(b => {
+  // header rows are injected between books when grouping; this tracks where each one belongs
+  const headerBefore = new Map();
+  if (grouped) {
+    let i = 0;
+    grouped.forEach(g => { headerBefore.set(i, g); i += g.books.length; });
+  }
+  list.forEach((b, idx) => {
+    const g = headerBefore.get(idx);
+    if (g) wrap.append(h(`<div class="muted" style="margin:14px 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase">${esc(g.category)} <span style="opacity:.6">· ${g.books.length}</span></div>`));
     const est = RD.estimate(b);
     const [bl, bc] = RD_BADGE[b.status] || RD_BADGE.library;
     const qPos = b.status === 'upnext' ? upnextOrder.indexOf(b) + 1 : 0;
@@ -7971,7 +8881,7 @@ function readingHome() {
         </div>` : ''}
         <div class="grow">
           <div class="title">${esc(b.title)}</div>
-          <div class="sub">${esc(b.author || '')}${b.category ? (b.author ? ' · ' : '') + esc(b.category) : ''}${b.pages ? ((b.author || b.category) ? ' · ' : '') + b.pages + ' pages' : ''}${b.status === 'reading' ? ' · ' + RD.pct(b) + '%' + (est ? ' · ~' + est.days + 'd left' : '') : ''}${b.status === 'finished' && b.finishedTs ? ' · ' + new Date(b.finishedTs).toLocaleDateString() : ''}</div>
+          <div class="sub">${esc(b.author || '')}${rdCatLabel(b) ? (b.author ? ' · ' : '') + esc(rdCatLabel(b)) : ''}${b.pages ? ((b.author || rdCatLabel(b)) ? ' · ' : '') + b.pages + ' pages' : ''}${b.status === 'reading' ? ' · ' + RD.pct(b) + '%' + (est ? ' · ~' + est.days + 'd left' : '') : ''}${b.status === 'finished' && b.finishedTs ? ' · ' + RD.finishedLabel(b) : ''}</div>
           ${b.status === 'reading' ? `<div class="progressbar" style="margin-top:6px"><div style="width:${RD.pct(b)}%"></div></div>` : ''}
         </div>
         <span class="badge" style="background:${bc}">${bl}${qPos ? ' ' + qPos : ''}</span>
@@ -7993,21 +8903,19 @@ function readingHome() {
         <input data-a="pages" placeholder="Pages" inputmode="numeric" style="width:70px;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
         <input data-a="chapters" placeholder="Ch." inputmode="numeric" style="width:56px;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
       </div>
-      <input data-a="cat" list="rd-cats" placeholder="Category (type to create or pick)" style="width:100%;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;margin-bottom:8px">
+      <input data-a="cat" list="rd-cats" placeholder="Categories (comma-separated; type to create or pick)" style="width:100%;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;margin-bottom:8px">
       <datalist id="rd-cats">${(state.reading.categories || []).map(c => `<option value="${esc(c)}">`).join('')}</datalist>
       <button class="btn" data-a="add">Add to Library</button>
     </div>`).firstElementChild;
   addCard.querySelector('[data-a=add]').onclick = () => {
     const title = addCard.querySelector('[data-a=title]').value.trim();
     if (!title) { toast('Give the book a title'); return; }
-    const cat = addCard.querySelector('[data-a=cat]').value.trim();
-    if (cat) RD.addCategory(cat);
     RD.addBook({
       title,
       author: addCard.querySelector('[data-a=author]').value,
       pages: addCard.querySelector('[data-a=pages]').value,
       chapters: addCard.querySelector('[data-a=chapters]').value,
-      category: cat || null
+      categories: parseCatInput(addCard.querySelector('[data-a=cat]').value)
     });
     toast('Added to Library');
     rerender();
@@ -8057,6 +8965,18 @@ function bookDetail(b) {
       </div>
       <div class="progressbar" style="margin-top:8px"><div style="width:${RD.pct(b)}%"></div></div>
     </div>`));
+
+  // Phase 10.3 — per-book read stats. Only for a finished book, and deliberately quiet: one line.
+  if (b.status === 'finished') {
+    const rs = RD.bookReadStats(b);
+    if (rs) {
+      const bits = [];
+      bits.push('You read this in <strong>' + esc(rs.label) + '</strong>');
+      if (rs.pages) bits.push(rs.pages + ' pages');
+      if (rs.days != null) bits.push('took ' + rs.days + ' day' + (rs.days === 1 ? '' : 's'));
+      wrap.append(h(`<div class="card" style="margin-top:12px"><div class="muted" style="font-size:13px">${bits.join(' · ')}${rs.backdated ? ' <span style="opacity:.65">· backdated</span>' : ''}</div></div>`));
+    }
+  }
 
   // primary action: Log progress while reading; otherwise the natural next status move
   if (b.status === 'reading') {
@@ -8121,16 +9041,60 @@ function bookDueSheet(b) {
   });
 }
 
+// Phase 10.3 — read-history screen. Year headers, month groups beneath, newest first. Per D-AD its
+// logical parent is the reading home, not wherever it was reached from.
+function readHistoryScreen() {
+  setHeader('Read history', { back: () => render(readingHome) });
+  const wrap = document.createElement('div');
+  const years = RD.readHistoryByYear();
+
+  if (!years.length) {
+    wrap.append(h(`<div class="empty">No finished books yet. Mark one finished — and set a past date if you read it a while ago.</div>`));
+    return wrap;
+  }
+
+  const totalBooks = years.reduce((s, y) => s + y.books.length, 0);
+  const totalPages = years.reduce((s, y) => s + y.pages, 0);
+  wrap.append(h(`
+    <div class="card">
+      <div class="row" style="gap:14px">
+        <div class="grow"><div class="big">${totalBooks}</div><div class="muted">books finished</div></div>
+        <div style="text-align:right"><div style="font-weight:700">${totalPages.toLocaleString()}</div><div class="muted" style="font-size:12px">pages</div></div>
+      </div>
+    </div>`));
+
+  const byMonth = RD.readHistory();
+  years.forEach(y => {
+    wrap.append(h(`<div class="row" style="margin:16px 0 4px;align-items:baseline">
+      <div class="grow" style="font-family:var(--display,inherit);font-size:19px;font-weight:700">${esc(y.year)}</div>
+      <div class="muted" style="font-size:12px">${y.books.length} book${y.books.length === 1 ? '' : 's'} · ${y.pages.toLocaleString()} pages</div>
+    </div>`));
+    byMonth.filter(m => m.ym.startsWith(y.year)).forEach(m => {
+      wrap.append(h(`<div class="muted" style="margin:10px 0 4px;font-size:12px;letter-spacing:.06em;text-transform:uppercase">${esc(m.label.replace(' ' + y.year, ''))}</div>`));
+      m.books.forEach(b => {
+        const el = h(`<div class="list-item"><div class="grow">
+          <div class="title">${esc(b.title)}</div>
+          <div class="sub">${esc(b.author || '')}${b.pages ? (b.author ? ' · ' : '') + b.pages + ' pages' : ''}${RD.isBackdated(b) ? ' · <span style="opacity:.7">backdated</span>' : ''}</div>
+        </div><span class="chev">›</span></div>`);
+        el.querySelector('.list-item').onclick = () => render(() => bookDetail(b));
+        wrap.append(el);
+      });
+    });
+  });
+  return wrap;
+}
+
 // Details sheet — category + front matter
 function bookDetailsSheet(b) {
   openSheet('Details', (body, close) => {
     const FIN2 = 'padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px';
     const det = h(`<div>
       <div class="row" style="margin-bottom:10px">
-        <span class="muted" style="width:74px;font-size:13px">Category</span>
-        <input data-a="cat" list="rd-cats-d" value="${esc(b.category || '')}" placeholder="type to create or pick" style="flex:1;min-width:0;${FIN2}">
+        <span class="muted" style="width:74px;font-size:13px">Categories</span>
+        <input data-a="cat" list="rd-cats-d" value="${esc(RD.bookCategories(b).join(', '))}" placeholder="comma-separated" style="flex:1;min-width:0;${FIN2}">
         <datalist id="rd-cats-d">${(state.reading.categories || []).map(c => `<option value="${esc(c)}">`).join('')}</datalist>
       </div>
+      <div class="muted" style="font-size:11px;margin:-4px 0 10px 82px">A book can sit in several — it shows under each in the Library.</div>
       <div class="row">
         <span class="muted" style="width:74px;font-size:13px">Preface</span>
         <input data-a="pr" value="${b.prefaceRead || ''}" placeholder="read" inputmode="numeric" style="width:64px;${FIN2};text-align:center">
@@ -8141,7 +9105,7 @@ function bookDetailsSheet(b) {
       <button class="btn" data-a="save" style="margin-top:14px">Save details</button>
     </div>`).firstElementChild;
     det.querySelector('[data-a=save]').onclick = () => {
-      RD.setBookCategory(b, det.querySelector('[data-a=cat]').value.trim());
+      RD.setBookCategories(b, parseCatInput(det.querySelector('[data-a=cat]').value));
       RD.setPrefacePages(b, det.querySelector('[data-a=pp]').value);
       RD.logPreface(b, det.querySelector('[data-a=pr]').value);
       toast('Details saved — ' + RD.pct(b) + '%');
@@ -8151,25 +9115,69 @@ function bookDetailsSheet(b) {
   });
 }
 
-// Status sheet — every valid move for the current status
+// Status sheet — every valid move for the current status.
+// Phase 10.3: finishing can be BACKDATED. The date box is always present rather than hidden behind a
+// disclosure, because Baruch's stated use for this is entering a backlog of books finished over past
+// years — for that session, backdating is the common case, not the exception.
 function bookStatusSheet(b) {
   openSheet('Status', (body, close) => {
+    // 'Mark Finished' is now reachable from library and up-next too, not just from reading. Entering a
+    // backlog means adding a book and immediately marking it done — routing that through
+    // library → up next → reading → finished would be three pointless taps per book, and would leave
+    // a false startedTs behind on every one of them.
     const moves = [];
-    if (b.status === 'library') moves.push(['Move to Up Next', 'upnext']);
-    if (b.status === 'upnext') moves.push(['Start Reading', 'reading'], ['Back to Library', 'library']);
+    if (b.status === 'library') moves.push(['Mark Finished 🎉', 'finished'], ['Move to Up Next', 'upnext']);
+    if (b.status === 'upnext') moves.push(['Start Reading', 'reading'], ['Mark Finished 🎉', 'finished'], ['Back to Library', 'library']);
     if (b.status === 'reading') moves.push(['Mark Finished 🎉', 'finished'], ['Pause — back to Up Next', 'upnext']);
     if (b.status === 'finished') moves.push(['Re-read — back to Reading', 'reading']);
+
+    let dateInput = null;
+    if (b.status !== 'finished') {
+      const FIN = 'padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px';
+      const row = h(`<div style="margin-bottom:12px">
+        <div class="row">
+          <span class="muted" style="width:88px;font-size:13px">Finished on</span>
+          <input data-a="fin" type="date" max="${RD_TODAY()}" value="${RD_TODAY()}" style="flex:1;min-width:0;${FIN}">
+        </div>
+        <div class="muted" style="font-size:11px;margin-top:4px;margin-left:96px">Set a past date for a book you finished a while ago. It files under that date and doesn't touch today's pace.</div>
+      </div>`).firstElementChild;
+      dateInput = row.querySelector('[data-a=fin]');
+      body.append(row);
+    }
+
     moves.forEach(([label, status]) => {
       const btn = h(`<button class="btn ${status === 'finished' || status === 'reading' ? '' : 'secondary'}">${label}</button>`);
       btn.firstChild.onclick = () => {
-        const r = RD.setStatus(b, status); if (!r.ok) { toast(r.reason); return; }
-        if (status === 'finished') celebrate('Book finished! 📚');
+        const on = (status === 'finished' && dateInput && dateInput.value) ? dateInput.value : null;
+        const r = RD.setStatus(b, status, on); if (!r.ok) { toast(r.reason); return; }
+        // A backdated finish is a filing action, not an achievement — celebrating a book he read two
+        // years ago every time he enters one would turn the celebration into noise.
+        if (status === 'finished') { if (RD.isBackdated(b)) toast('Filed under ' + RD.finishedLabel(b)); else celebrate('Book finished! 📚'); }
         close(); rerender();
       };
       body.append(btn);
     });
+
+    if (b.status === 'finished') {
+      const FIN = 'padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px';
+      const re = h(`<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+        <div class="row">
+          <span class="muted" style="width:88px;font-size:13px">Finished on</span>
+          <input data-a="redate" type="date" max="${RD_TODAY()}" value="${RD.finishedKey(b) || RD_TODAY()}" style="flex:1;min-width:0;${FIN}">
+          <button class="pill" data-a="save">Save</button>
+        </div>
+      </div>`).firstElementChild;
+      re.querySelector('[data-a=save]').onclick = () => {
+        const r = RD.setFinishedDate(b, re.querySelector('[data-a=redate]').value);
+        if (!r.ok) { toast(r.reason); return; }
+        toast('Finish date updated'); close(); rerender();
+      };
+      body.append(re);
+    }
   });
 }
+// today's day-key for date inputs (max= guard, so a finish date can't be set in the future)
+function RD_TODAY() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 
 // Remove sheet — destructive, explicit
 function bookRemoveSheet(b) {
@@ -8877,6 +9885,21 @@ function creedDocScreen(d) {
     wrap.append(prBtn);
   }
 
+  // Assign control (D-AF parity) — review cadence · practice cadence · memorize-by, on the whole doc.
+  const cKey = CR.creedScopeKey(d.id, 'doc');
+  const cAsg = h(`<button class="pill" style="margin:2px 0 4px">${esc(assignPillLabel(cKey, (RV.getUnit(cKey) || {}).review || null))}</button>`).firstChild;
+  cAsg.onclick = () => assignSheet(creedAssignScope(d.id, 'doc'));
+  wrap.append(cAsg);
+  {
+    const u = RV.getUnit(cKey);
+    if (u && u.review) {
+      const sc = CR.crParseScopeKey(cKey), keys = CR.creedCoverageKeys(sc);
+      if (RV.syncCycle(u.review, keys)) save();
+      const st = RV.assignmentStatus(u.review, keys);
+      wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 8px;${!st.complete ? 'color:var(--accent);font-weight:600' : ''}">${st.complete ? '✓ Reviewed this cycle · next due ' + shortDate(st.dueKey) : '◎ Due now · ' + st.covered + ' / ' + st.total + ' reviewed this cycle'}</div>`));
+    }
+  }
+
   // sections as numbered squares, grouped like Scripture chapters.
   // Heidelberg carries Lord's Days (clickable header → whole group written out);
   // other docs are a single flat grid. Each square opens that section.
@@ -8910,27 +9933,37 @@ function creedDocScreen(d) {
 }
 
 // Order-preserving grouping: Lord's Days if the doc carries them, else one flat group.
-function creedGroups(d) {
-  const secs = d.sections;
-  if (!secs.some(s => s.ld != null)) return [{ ld: null, sections: secs }];
-  const groups = [], byLd = new Map();
-  secs.forEach(s => {
-    if (!byLd.has(s.ld)) { const g = { ld: s.ld, sections: [] }; byLd.set(s.ld, g); groups.push(g); }
-    byLd.get(s.ld).sections.push(s);
-  });
-  return groups;
-}
+// Delegates to CR so the SCREEN and the SCOPE RESOLVER cannot disagree about what a group is. Two
+// independent groupings — one drawing the Lord's Day headers, one deciding which sections a
+// `creed:<id>:ld<n>` assignment covers — would be a seam, and seams are where nothing looks (D-AH).
+function creedGroups(d) { return CR.creedGroupsOf(d); }
 
 // A grid of numbered squares (done = filled), each opening that section's text.
+// Creeds chunk 5 — the square grid becomes the UNIVERSAL PROFICIENCY CIRCLE (D-AE), the same glyph
+// the chapter and book grids use: white→black FILL = review decay (black = due), brass RING =
+// proficiency, number centred. The two channels never share the fill — that was Baruch's call and it
+// is why mastery takes the ring. Unrated-but-learned counts as 0 in the ring (D-AE, re-confirmed
+// July 31 specifically so this extension would inherit one settled policy).
+// Long-press opens the section's Assign sheet, mirroring long-press on a verse.
 function creedGrid(d, sections) {
   const grid = document.createElement('div');
   grid.className = 'grid';
+  const now = Date.now();
   sections.forEach(s => {
-    const cell = document.createElement('div');
-    cell.className = 'cell' + (CR.isDone(d.id, s.n) ? ' done' : '');
-    cell.textContent = s.n;
-    cell.onclick = () => creedSectionSheet(d, s);
-    grid.append(cell);
+    const learned = CR.isDone(d.id, s.n);
+    const key = d.id + '#' + s.n;
+    const iv = learned ? creedGoverningInterval(d.id, s.n, s.ld != null ? s.ld : null) : null;
+    grid.append(scriptureCircle({
+      num: s.n,
+      memorized: learned,
+      // no governing cadence → neutral fill, exactly as an unassigned verse renders. A creed section
+      // with no cadence must not read as "due"; absence of a rhythm is not overdue-ness.
+      decay: (learned && iv) ? RV.verseFreshness(RV.coverageTs(key), iv, now) : null,
+      mastery: learned ? CR.ringMastery(d.id, s.n) : null,
+      title: CR.sectionLabel(d, s),
+      onClick: () => creedSectionSheet(d, s),
+      onLong: () => assignSheet(creedAssignScope(d.id, 'section', s.n))
+    }));
   });
   return grid;
 }
@@ -8957,6 +9990,15 @@ function creedSectionSheet(d, s) {
 function creedGroupScreen(d, ld) {
   setHeader(d.name.replace(/^The /, '') + (ld != null ? " · Lord's Day " + ld : ''), { back: () => creedDocScreen(d) });
   const wrap = document.createElement('div');
+  // A group IS the creed's section-set — the natural analogue of a Scripture module, and it already
+  // exists in the document's own structure (Lord's Days). So a section-set assignment needs no editor:
+  // it hangs off the grouping the text already has.
+  if (ld != null) {
+    const gKey = CR.creedScopeKey(d.id, 'group', ld);
+    const gAsg = h(`<button class="pill" style="margin:0 0 10px">${esc(assignPillLabel(gKey, (RV.getUnit(gKey) || {}).review || null))}</button>`).firstChild;
+    gAsg.onclick = () => assignSheet(creedAssignScope(d.id, 'group', ld));
+    wrap.append(gAsg);
+  }
   d.sections.filter(s => ld == null || s.ld === ld).forEach(s => {
     const done = CR.isDone(d.id, s.n);
     const el = h(`
@@ -11116,6 +12158,10 @@ function youProfile() {
     location.reload();   // sync config (URL/key) survives; sign back in to re-link — the first-link guard decides cloud vs device
   };
   wrap.append(danger);
+
+  wrap.append(h(`<div style="text-align:center;padding:18px 0 6px;color:var(--muted);font-size:11px;letter-spacing:.04em">
+    Strive · build <span id="s-build" style="font-family:var(--serif-display);letter-spacing:.08em">${esc(BUILD_ID)}</span>
+  </div>`));
 
   main().append(wrap);
 }
