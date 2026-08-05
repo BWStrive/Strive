@@ -2572,6 +2572,69 @@ function logPage(b, page) {
   save();
 }
 
+// ---- Back-logging: a page entry for a day that has already passed (Aug 5 2026) ----
+//
+// WHY THIS EXISTS, AND WHY IT IS NOT WHAT D-Q REFUSED. D-Q says backdating a FINISHED book writes no
+// page logs, because filing a 400-page book as a single 400-page entry on its finish date invents a
+// spike that never happened and corrupts every pages-per-day figure with data nobody observed. That
+// still holds and is untouched. This is the different case Baruch actually hit: he really did read
+// 100 pages three weeks ago and simply didn't open the app that day. The date is observed, not
+// synthesised, and he is the one asserting it — so the objection D-Q raises does not apply.
+//
+// THE ENTRY IS A POSITION, NOT A DELTA. logs store cumulative page positions and every reader
+// (pagesOn, pagesBetween) differences them against the position at the window start. "I read 100
+// pages" is therefore not directly expressible; "on July 5th I was on page 250" is, and the 100
+// falls out of it. The UI shows the derived delta so the two framings meet on screen.
+//
+// STREAKS ARE DELIBERATELY NOT TOUCHED — recordStreakDay is not called. This follows 10.3's explicit
+// decision that backdating does not recompute streaks or targets. A streak is a claim about
+// consecutive days of showing up, and quietly repairing a broken one weeks later makes the number
+// mean something else. Past-day TOTALS do move (that is the whole point) because targets and trends
+// derive from the logs on read; the stored streak counters do not.
+function logPageOn(b, page, dateKey) {
+  if (!b) return { ok: false, reason: 'No book.' };
+  if (!FINISH_KEY_RE.test(String(dateKey || ''))) return { ok: false, reason: 'Pick a real date.' };
+  if (dateKey > todayKey()) return { ok: false, reason: "That date is in the future — use Log for today's reading." };
+  page = Number(page);
+  if (!Number.isFinite(page) || page < 0) return { ok: false, reason: 'Enter the page you were on.' };
+  if (b.pages) page = Math.min(b.pages, page);
+
+  const ts = keyToNoonTs(dateKey);
+  const logs = [...(b.logs || [])].sort((x, y) => x.ts - y.ts);
+
+  // MONOTONIC GUARD. Positions only ever move forward, so a back-logged entry has to sit between its
+  // neighbours. Without this a slip of the thumb ("page 250" into a gap where you were already past
+  // 300) silently produces a NEGATIVE span, which pagesOn clamps to 0 — so the entry would appear to
+  // save, change nothing, and leave no trace of why. Refusing it with the real numbers is the only
+  // honest option; the caller shows the reason.
+  let before = null, after = null;
+  for (const l of logs) { if (l.ts <= ts) before = l; else { after = l; break; } }
+  if (before && page < before.page) return { ok: false, reason: `You were already on page ${before.page} by ${keyForTs(before.ts)}.` };
+  if (after && page > after.page) return { ok: false, reason: `You were only on page ${after.page} by ${keyForTs(after.ts)}.` };
+
+  b.logs.push({ ts, page });
+  b.logs.sort((x, y) => x.ts - y.ts);
+  // currentPage tracks the LATEST position, so a back-logged entry only moves it when the book has
+  // no later entry — otherwise back-logging would rewind your progress bar.
+  const last = b.logs[b.logs.length - 1];
+  if (last && last.ts === ts) b.currentPage = page;
+  b.updated = Date.now();
+  save();
+  return { ok: true, gained: before ? page - before.page : page, from: before ? before.page : 0 };
+}
+
+// What a back-logged entry WOULD record, without writing it — drives the live hint in the sheet so
+// "100 pages" and "page 250" are visibly the same statement before you commit to it.
+function backlogPreview(b, page, dateKey) {
+  if (!b || !FINISH_KEY_RE.test(String(dateKey || ''))) return null;
+  page = Number(page);
+  if (!Number.isFinite(page) || page < 0) return null;
+  const ts = keyToNoonTs(dateKey);
+  let before = null, after = null;
+  for (const l of [...(b.logs || [])].sort((x, y) => x.ts - y.ts)) { if (l.ts <= ts) before = l; else { after = l; break; } }
+  return { from: before ? before.page : 0, gained: page - (before ? before.page : 0), after: after ? after.page : null };
+}
+
 // % includes prefatory (roman-numeral) pages when the book has them (R1)
 function pct(b) {
   const total = (b.pages || 0) + (b.prefacePages || 0);
@@ -2983,7 +3046,7 @@ function removeTag(name) {
   save();
 }
 
-const RD = {QUEUE_CAP,READ_PREFIX,addBook,addBookCategory,addCategory,addQuestion,addQuote,addTag,allSorted,authorLastName,bookCategories,bookReadStats,bookStepDone,books,booksFinishedBetween,booksInCategory,byStatus,canDeriveChapters,categoryLabel,chapterForPage,chapterInfo,chapterRange,chapterStepDone,currentChapter,estimate,finishedBooks,finishedKey,finishedLabel,get,groupedByCategory,hasCategory,isBackdated,libraryLevel,lifetime,logPage,logPreface,monthLabel,moveInQueue,numberedChapters,pace,pagesBetween,pagesLeft,pagesOn,parseReadKey,pct,primaryCategory,questionsForChapter,quotesForChapter,readHistory,readHistoryByYear,readScopeKey,readStepDone,removeBook,removeBookCategory,removeCategory,removeQuestion,removeQuote,removeTag,setBookCategories,setBookCategory,setBookDue,setChapterList,setFinishedDate,setPrefacePages,setStatus,setSummary,summaryStepDone};
+const RD = {QUEUE_CAP,READ_PREFIX,addBook,addBookCategory,addCategory,addQuestion,addQuote,addTag,allSorted,authorLastName,backlogPreview,bookCategories,bookReadStats,bookStepDone,books,booksFinishedBetween,booksInCategory,byStatus,canDeriveChapters,categoryLabel,chapterForPage,chapterInfo,chapterRange,chapterStepDone,currentChapter,estimate,finishedBooks,finishedKey,finishedLabel,get,groupedByCategory,hasCategory,isBackdated,libraryLevel,lifetime,logPage,logPageOn,logPreface,monthLabel,moveInQueue,numberedChapters,pace,pagesBetween,pagesLeft,pagesOn,parseReadKey,pct,primaryCategory,questionsForChapter,quotesForChapter,readHistory,readHistoryByYear,readScopeKey,readStepDone,removeBook,removeBookCategory,removeCategory,removeQuestion,removeQuote,removeTag,setBookCategories,setBookCategory,setBookDue,setChapterList,setFinishedDate,setPrefacePages,setStatus,setSummary,summaryStepDone};
 // Strive — Creeds, Catechisms & Confessions domain.
 // Static texts from the Van Dixhoorn edition; per-document track (read/memorize) and section progress.
 
@@ -4675,7 +4738,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260804-2348'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260804-2348';
+const BUILD_ID = '20260805-0759'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260805-0759';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -4733,8 +4796,17 @@ function immersiveProgress(frac) {
 // ✕. Every mode routes through this one call so the five can't drift apart.
 function immersiveSession(wrap, frac, onClose) {
   setImmersive(true);
-  wrap.append(immersiveProgress(frac));
+  const bar = immersiveProgress(frac);
+  wrap.append(bar);
   wrap.append(practiceCloseX(onClose));
+  // Returned so a session that does NOT re-render between items can drive it live (First-Letter
+  // typing). Every other mode ignores it and behaves exactly as before.
+  return bar;
+}
+function setImmersiveProgress(bar, frac) {
+  if (!bar) return;
+  const inner = bar.firstElementChild;
+  if (inner) inner.style.width = (Math.max(0, Math.min(1, frac || 0)) * 100) + '%';
 }
 // The full-bleed card shared by all three flashcard types once immersive (.imm-card grows to fill the
 // freed height and centres its content; outside the immersive shell it degrades to a normal .card).
@@ -8816,6 +8888,74 @@ function rdCatLabel(b) { return RD.categoryLabel(b, 2); }
 // — the alternative (a chip editor with an add button) is more taps for the common single-category
 // case. RD.setBookCategories de-duplicates and registers new names, so this only has to split.
 function parseCatInput(v) { return String(v || '').split(',').map(s => s.trim()).filter(Boolean); }
+
+// ---- Chip category editor (Aug 5 2026) ----
+// Replaces the single comma-separated field. The old one pre-filled itself with your current
+// categories joined by ", ", which meant the answer to "what have I already added?" and the place
+// you type a new one were the SAME string — so adding a third category meant editing a sentence
+// rather than adding a thing, and Baruch reasonably read the pre-filled value as "it only took one".
+// The original code chose that on the grounds a chip editor is "more taps for the common
+// single-category case", which optimised for one category and made three awkward.
+//
+// It also deliberately does NOT rely on <datalist>. That was the old suggestion mechanism and its
+// support on iOS Safari — the only browser this app actually runs in — is unreliable enough that
+// the "type to create or pick" affordance may never have appeared on device at all. Suggestions are
+// plain buttons, which cannot silently not exist.
+//
+// Returns { el, values } — `values` is live, so the caller reads it on save.
+function catChipEditor(initial, opts = {}) {
+  const values = [...new Set((initial || []).map(s => String(s).trim()).filter(Boolean))];
+  const el = h(`<div>
+    <div data-a="chips" class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
+    <input data-a="in" placeholder="${esc(opts.placeholder || 'Type a category and press enter')}" autocapitalize="words" autocorrect="off"
+           style="width:100%;padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px">
+    <div data-a="sug" class="row" style="flex-wrap:wrap;gap:6px;margin-top:8px"></div>
+  </div>`).firstElementChild;
+  const chipZone = el.querySelector('[data-a=chips]'), input = el.querySelector('[data-a=in]'), sugZone = el.querySelector('[data-a=sug]');
+
+  const has = (name) => values.some(v => v.toLowerCase() === String(name).toLowerCase());
+  const add = (name) => {
+    // Comma-splitting survives on purpose: pasting or typing "History, Theology" still yields two
+    // chips, so the fast path someone already has in their fingers keeps working.
+    for (const part of parseCatInput(name)) if (!has(part)) values.push(part);
+    input.value = '';
+    draw();
+  };
+  const remove = (name) => { const i = values.findIndex(v => v.toLowerCase() === name.toLowerCase()); if (i >= 0) values.splice(i, 1); draw(); };
+
+  function draw() {
+    chipZone.innerHTML = '';
+    if (!values.length) chipZone.append(h(`<span class="muted" style="font-size:12px">No categories yet.</span>`));
+    values.forEach(v => {
+      const chip = h(`<button class="pill on" style="padding:6px 10px;font-size:13px">${esc(v)} <span style="opacity:.6;margin-left:2px">✕</span></button>`).firstChild;
+      chip.onclick = () => remove(v);
+      chipZone.append(chip);
+    });
+    // Suggestions are only the ones NOT already applied — a list that offers you what you've already
+    // got is the same confusion the old field had, one layer along.
+    sugZone.innerHTML = '';
+    const known = (state.reading.categories || []).filter(c => !has(c));
+    if (known.length) {
+      sugZone.append(h(`<span class="muted" style="font-size:11px;width:100%">Tap to add:</span>`));
+      known.forEach(c => {
+        const s = h(`<button class="pill" style="padding:6px 10px;font-size:13px">${esc(c)}</button>`).firstChild;
+        s.onclick = () => add(c);
+        sugZone.append(s);
+      });
+    }
+  }
+
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); if (input.value.trim()) add(input.value); }
+    else if (e.key === 'Backspace' && !input.value && values.length) { remove(values[values.length - 1]); }
+  };
+  // Committed on blur too. Typing a category and tapping Save without pressing enter is the obvious
+  // mistake to make, and silently dropping what you just typed would be the worst possible answer.
+  input.onblur = () => { if (input.value.trim()) add(input.value); };
+
+  draw();
+  return { el, values, commit: () => { if (input.value.trim()) add(input.value); return values; } };
+}
 const RD_BADGE = {
   reading: ['READING', 'var(--accent)'], upnext: ['UP NEXT', 'var(--midnight)'],
   library: ['LIBRARY', 'var(--text-3)'], finished: ['FINISHED', 'var(--forest)']
@@ -8903,10 +9043,11 @@ function readingHome() {
         <input data-a="pages" placeholder="Pages" inputmode="numeric" style="width:70px;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
         <input data-a="chapters" placeholder="Ch." inputmode="numeric" style="width:56px;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
       </div>
-      <input data-a="cat" list="rd-cats" placeholder="Categories (comma-separated; type to create or pick)" style="width:100%;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;margin-bottom:8px">
-      <datalist id="rd-cats">${(state.reading.categories || []).map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+      <div data-a="catzone" style="margin-bottom:10px"></div>
       <button class="btn" data-a="add">Add to Library</button>
     </div>`).firstElementChild;
+  const addCats = catChipEditor([], { placeholder: 'Categories — type and press enter' });
+  addCard.querySelector('[data-a=catzone]').append(addCats.el);
   addCard.querySelector('[data-a=add]').onclick = () => {
     const title = addCard.querySelector('[data-a=title]').value.trim();
     if (!title) { toast('Give the book a title'); return; }
@@ -8915,7 +9056,7 @@ function readingHome() {
       author: addCard.querySelector('[data-a=author]').value,
       pages: addCard.querySelector('[data-a=pages]').value,
       chapters: addCard.querySelector('[data-a=chapters]').value,
-      categories: parseCatInput(addCard.querySelector('[data-a=cat]').value)
+      categories: addCats.commit()
     });
     toast('Added to Library');
     rerender();
@@ -8980,11 +9121,16 @@ function bookDetail(b) {
 
   // primary action: Log progress while reading; otherwise the natural next status move
   if (b.status === 'reading') {
+    // The everyday path is deliberately untouched — one field, one button, always "now". Baruch's
+    // constraint when asking for back-logging was that logging must not become complicated, so
+    // backdating is its OWN affordance (the 🗓 pill) rather than a date field bolted onto this row
+    // that every ordinary log would have to look at.
     const log = h(`
       <div class="card"><h3>Log progress</h3>
         <div class="row">
           <input data-a="page" placeholder="Page you're on" inputmode="numeric" style="flex:1;min-width:0;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px">
           <button class="pill on" data-a="log" style="padding:11px 16px">Log</button>
+          <button class="pill" data-a="backlog" title="Log a day you missed" aria-label="Log a past day" style="padding:11px 13px">🗓</button>
         </div>
       </div>`).firstElementChild;
     log.querySelector('[data-a=log]').onclick = () => {
@@ -8994,6 +9140,7 @@ function bookDetail(b) {
       toast('Progress logged — ' + RD.pct(b) + '%');
       rerender();
     };
+    log.querySelector('[data-a=backlog]').onclick = () => backlogSheet(b);
     wrap.append(log);
   } else {
     const primary = { library: ['Move to Up Next', 'upnext'], upnext: ['Start Reading', 'reading'], finished: ['Re-read — back to Reading', 'reading'] }[b.status];
@@ -9084,17 +9231,57 @@ function readHistoryScreen() {
   return wrap;
 }
 
+// Back-log sheet — a page entry for a day that has already passed.
+// The live hint is the point of this screen. You think "I read 100 pages last month"; the store
+// thinks in cumulative positions. Rather than pick one framing and make the other your problem, the
+// sheet takes the position (same question the Log row asks, so nothing new to learn) and shows the
+// derived page count back to you before you commit. If the hint doesn't say 100, you've typed the
+// wrong number, and you find that out here instead of in a trend line three weeks later.
+function backlogSheet(b) {
+  openSheet('Log a past day', (body, close) => {
+    const F = 'padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px';
+    const el = h(`<div>
+      <div class="muted" style="font-size:12px;margin-bottom:10px">For a day you read but didn't open the app. Your streak isn't changed — it records what you read, not that you showed up.</div>
+      <div class="row" style="margin-bottom:8px">
+        <span class="muted" style="width:78px;font-size:13px">On</span>
+        <input data-a="date" type="date" max="${todayKey()}" value="${todayKey()}" style="flex:1;min-width:0;${F}">
+      </div>
+      <div class="row">
+        <span class="muted" style="width:78px;font-size:13px">I was on</span>
+        <input data-a="page" placeholder="page" inputmode="numeric" style="flex:1;min-width:0;${F}">
+      </div>
+      <div class="muted" data-a="hint" style="font-size:12px;margin:8px 0 0 86px;min-height:16px"></div>
+      <button class="btn" data-a="save" style="margin-top:14px">Log it</button>
+    </div>`).firstElementChild;
+
+    const dateI = el.querySelector('[data-a=date]'), pageI = el.querySelector('[data-a=page]'), hint = el.querySelector('[data-a=hint]');
+    const refresh = () => {
+      const pv = RD.backlogPreview(b, pageI.value, dateI.value);
+      if (!pv) { hint.textContent = ''; return; }
+      if (pv.gained < 0) { hint.innerHTML = `<span style="color:var(--danger)">You were already past page ${pv.from} by then.</span>`; return; }
+      if (pv.after != null && Number(pageI.value) > pv.after) { hint.innerHTML = `<span style="color:var(--danger)">A later entry has you on page ${pv.after}.</span>`; return; }
+      hint.textContent = `That's ${pv.gained} page${pv.gained === 1 ? '' : 's'}, from page ${pv.from}.`;
+    };
+    dateI.oninput = refresh; pageI.oninput = refresh;
+
+    el.querySelector('[data-a=save]').onclick = () => {
+      const r = RD.logPageOn(b, pageI.value, dateI.value);
+      if (!r.ok) { toast(r.reason); return; }
+      toast(`${r.gained} page${r.gained === 1 ? '' : 's'} logged for ${dateI.value}`);
+      close(); rerender();
+    };
+    body.append(el);
+  });
+}
+
 // Details sheet — category + front matter
 function bookDetailsSheet(b) {
   openSheet('Details', (body, close) => {
     const FIN2 = 'padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px';
     const det = h(`<div>
-      <div class="row" style="margin-bottom:10px">
-        <span class="muted" style="width:74px;font-size:13px">Categories</span>
-        <input data-a="cat" list="rd-cats-d" value="${esc(RD.bookCategories(b).join(', '))}" placeholder="comma-separated" style="flex:1;min-width:0;${FIN2}">
-        <datalist id="rd-cats-d">${(state.reading.categories || []).map(c => `<option value="${esc(c)}">`).join('')}</datalist>
-      </div>
-      <div class="muted" style="font-size:11px;margin:-4px 0 10px 82px">A book can sit in several — it shows under each in the Library.</div>
+      <div style="margin-bottom:4px"><span class="muted" style="font-size:13px">Categories</span></div>
+      <div data-a="catzone"></div>
+      <div class="muted" style="font-size:11px;margin:6px 0 12px">A book can sit in several — it shows under <em>each</em> of them in the Library, so those group counts add up to more than your library size. That's expected.</div>
       <div class="row">
         <span class="muted" style="width:74px;font-size:13px">Preface</span>
         <input data-a="pr" value="${b.prefaceRead || ''}" placeholder="read" inputmode="numeric" style="width:64px;${FIN2};text-align:center">
@@ -9104,8 +9291,10 @@ function bookDetailsSheet(b) {
       </div>
       <button class="btn" data-a="save" style="margin-top:14px">Save details</button>
     </div>`).firstElementChild;
+    const cats = catChipEditor(RD.bookCategories(b));
+    det.querySelector('[data-a=catzone]').append(cats.el);
     det.querySelector('[data-a=save]').onclick = () => {
-      RD.setBookCategories(b, parseCatInput(det.querySelector('[data-a=cat]').value));
+      RD.setBookCategories(b, cats.commit());
       RD.setPrefacePages(b, det.querySelector('[data-a=pp]').value);
       RD.logPreface(b, det.querySelector('[data-a=pr]').value);
       toast('Details saved — ' + RD.pct(b) + '%');
@@ -10402,48 +10591,86 @@ function fadeScreen(d, queue, qi, stage, results) {
 }
 
 // ---- First-Letter typer ----
-function typerScreen(d, queue, qi, results, intent = 'practice') {
-  const item = queue[qi];
+// ---- First-Letter typing — ONE input for the whole session (reworked Aug 5 2026) ----
+//
+// WHY THIS SCREEN IS SHAPED DIFFERENTLY FROM THE OTHER FOUR PRACTICE MODES.
+//
+// It used to end each verse with `render(() => typerScreen(…, qi + 1, …))`, exactly like Flashcards,
+// Fade and Scramble do. For those four that is fine — they advance by tapping. For typing it was a
+// functional break, and the cause is specific: a full render DESTROYS the DOM, including the hidden
+// <input> that holds focus. A new input was created and `setTimeout(() => inp.focus(), 100)` tried
+// to recover, but **iOS Safari refuses programmatic focus outside a user gesture**. The keystroke
+// that finished the previous verse is long over by the time that timeout fires, so the keyboard
+// dismissed and Baruch had to tap the card again — every single verse.
+//
+// No amount of re-focusing fixes that. The input has to NEVER BE REMOVED. So the session builds its
+// shell once and swaps only the verse content around a persistent input:
+//
+//     typerScreen()  — entry point, unchanged signature, builds the shell once
+//       └── load(qi) — swaps the text, resets the per-verse state, NEVER touches `inp`
+//
+// `render()` is called exactly twice in a session now: never between verses, and once at the end for
+// the summary (where a keyboard is neither wanted nor expected).
+//
+// THE INVARIANT, and it is worth stating because it is easy to undo: nothing inside load() may
+// replace, detach or re-create `inp`, and nothing may call render()/rerender() between verses.
+// test-typing.mjs asserts the identity of the input element across a verse boundary, which is the
+// only check that actually proves the keyboard will stay up.
+//
+// TWO PROGRESS BARS, and why they sit where they do. The per-verse bar stays directly under the
+// text, and the whole-selection bar is the immersive hairline at the top. That is the opposite of
+// the arrangement Baruch first suggested, for one concrete reason: on a phone the keyboard covers
+// the bottom third of the screen while you type, so a bar pinned to the bottom is hidden at exactly
+// the moment it is useful. The per-verse bar is the one you glance at mid-verse, so it must sit
+// above the keyboard; the session bar only matters between verses, so the top is fine for it.
+function typerScreen(d, queue, qi0, results, intent = 'practice') {
   statsStamp(results, 'typer', d.id);
-  if (!item) {
+  const isCreed = queue.length && queue[0].vn == null;   // creeds carry .n (question); scripture carries .vn
+  const NOUN = isCreed ? 'Question' : 'Verse';
+
+  const finishSession = () => {
     practiceSummary(d, 'First-Letter', results.map(r => `Q${r.n} — ${r.acc}% (${r.missed.length ? 'missed: ' + r.missed.join(', ') : 'perfect'})`), queue.length, {
       carrier: results, mode: 'typer', intent,
       score: avgOf(results.map(r => r.acc)),
       items: results.map(r => ({ n: r.n, label: 'Q' + r.n, val: r.acc, tag: '%' }))
     });
-    return;
-  }
-  setHeader(`First-Letter · Q${item.n}`, { back: true });
+  };
+  if (!queue[qi0]) { finishSession(); return; }
 
-  const words = tokenize(item.a).flatMap((line, li) => [...line.map(w => ({ ...w, li })), { raw: '\n', key: null, br: true, li }]);
-  words.pop();
-  let pos = 0, misses = 0, missedWords = [], wordMisses = 0;
-  const startTs = Date.now();
-
+  // ---------- the shell, built ONCE ----------
   const wrap = document.createElement('div');
-  wrap.append(h(`
-    <div class="muted" style="margin:2px 4px 10px">Question ${qi + 1} of ${queue.length} · type the first letter of each word</div>
-    <div class="card"><div style="font-weight:700;font-size:15px;line-height:1.5">Q${item.n}. ${esc(item.q)}</div></div>`));
+  const counter = h(`<div class="muted" style="margin:2px 4px 8px"></div>`).firstChild;
+  wrap.append(counter);
+  const prompt = h(`<div class="card"><div data-a="q" style="font-weight:700;font-size:15px;line-height:1.5"></div></div>`).firstElementChild;
+  wrap.append(prompt);
 
   const card = document.createElement('div');
   card.className = 'card';
   card.style.minHeight = '120px';
   const body = document.createElement('div');
   body.style.cssText = 'font-size:15px;line-height:1.9';
-  const cursor = h(`<span style="color:var(--gold);font-weight:700">▊</span>`).firstChild;
-  body.append(cursor);
   card.append(body);
+
+  // ⚑ THE PERSISTENT INPUT. Created once, appended once, never removed for the life of the session.
   const inp = h(`<input autocapitalize="off" autocomplete="off" autocorrect="off" style="position:absolute;opacity:0.01;height:1px;width:1px;border:none">`).firstChild;
   card.append(inp);
   card.onclick = () => inp.focus();
   wrap.append(card);
-  wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 8px">Tap the card if the keyboard hides. Three misses on a word reveals it.</div>`));
+  wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 8px">Keep typing — verses advance on their own. Three misses on a word reveals it.</div>`));
 
   const bar = h(`<div class="progressbar"><div style="width:0%"></div></div>`).firstElementChild;
   wrap.append(bar);
 
-  const total = words.filter(w => w.key).length;
-  let correct = 0;
+  const skip = h(`<button class="btn secondary" style="margin-top:14px">Skip this ${NOUN.toLowerCase()}</button>`).firstChild;
+  wrap.append(skip);
+
+  const immBar = immersiveSession(wrap, 0, () => { done = true; render(finishSession, false); });
+
+  // ---------- per-verse state, reset by load() ----------
+  let qi = qi0, item = null, words = [], pos = 0, misses = 0, missedWords = [], wordMisses = 0;
+  let total = 0, correct = 0, startTs = 0, cursor = null, done = false;
+
+  const sessionFrac = () => (qi + (words.length ? pos / words.length : 0)) / queue.length;
 
   function placeWord(w, missed) {
     const span = document.createElement('span');
@@ -10458,9 +10685,11 @@ function typerScreen(d, queue, qi, results, intent = 'practice') {
       pos++;
     }
     bar.firstElementChild.style.width = (pos / words.length * 100) + '%';
-    if (pos >= words.length) finish();
+    setImmersiveProgress(immBar, sessionFrac());
+    if (pos >= words.length) finishVerse();
   }
-  function finish() {
+  function finishVerse() {
+    if (done) return;
     const secs = Math.round((Date.now() - startTs) / 1000);
     const acc = total ? Math.round(100 * correct / total) : 100;
     results.push({ n: item.n, acc, missed: missedWords, secs });
@@ -10469,11 +10698,13 @@ function typerScreen(d, queue, qi, results, intent = 'practice') {
       if (intent === 'review') RV.markCovered(RV.coverageKey(prDocId(d, item), prN(item)));
       else binaryMarkMemorized(d, item);
     }
-    toast(`Q${item.n}: ${acc}%${acc >= 90 && intent !== 'review' ? ' · memorized ✓' : ''} in ${SC.fmtSecs(secs)}`);
-    render(() => typerScreen(d, queue, qi + 1, results, intent), false);
+    toast(`${NOUN} ${item.n}: ${acc}%${acc >= 90 && intent !== 'review' ? ' · memorized ✓' : ''} in ${SC.fmtSecs(secs)}`);
+    // NOT a render — load() swaps the content in place so the keyboard never closes.
+    if (qi + 1 >= queue.length) { done = true; render(finishSession, false); return; }
+    load(qi + 1);
   }
   function handle(ch) {
-    if (pos >= words.length) return;
+    if (done || pos >= words.length) return;
     const w = words[pos];
     if (ch === w.key) {
       placeWord(w, wordMisses >= 3);
@@ -10491,22 +10722,45 @@ function typerScreen(d, queue, qi, results, intent = 'practice') {
       }
     }
   }
+
+  function load(next) {
+    qi = next;
+    item = queue[qi];
+    if (!item) { done = true; render(finishSession, false); return; }
+    setHeader(`First-Letter · ${NOUN} ${item.n}`, { back: true });
+    counter.textContent = `${NOUN} ${qi + 1} of ${queue.length} · type the first letter of each word`;
+    prompt.querySelector('[data-a=q]').textContent = `Q${item.n}. ${item.q}`;
+
+    words = tokenize(item.a).flatMap((line, li) => [...line.map(w => ({ ...w, li })), { raw: '\n', key: null, br: true, li }]);
+    words.pop();
+    pos = 0; misses = 0; missedWords = []; wordMisses = 0; correct = 0;
+    total = words.filter(w => w.key).length;
+    startTs = Date.now();
+
+    // Rebuild the text area only — `inp` is a sibling of `body`, so clearing body cannot touch it.
+    body.innerHTML = '';
+    cursor = h(`<span style="color:var(--gold);font-weight:700">▊</span>`).firstChild;
+    body.append(cursor);
+    advanceAutos();
+  }
+
+  skip.onclick = () => {
+    if (qi + 1 >= queue.length) { done = true; render(finishSession, false); return; }
+    load(qi + 1);
+    inp.focus();
+  };
   inp.oninput = () => {
     const v = inp.value.toLowerCase();
     inp.value = '';
     const m = v.match(/[a-z0-9]/);
     if (m) handle(m[0]);
   };
-  advanceAutos();
-  setTimeout(() => inp.focus(), 100);
 
-  const skip = h(`<button class="btn secondary" style="margin-top:14px">Skip this question</button>`);
-  skip.firstChild.onclick = () => { render(() => typerScreen(d, queue, qi + 1, results, intent), false); };
-  wrap.append(skip);
-  // typing is the fragile one — immersive here is chrome-hiding ONLY (a body class, no new stacking
-  // context and no layout change inside the screen), so the keyboard-viewport behaviour is unchanged.
-  immersiveSession(wrap, queue.length ? qi / queue.length : 0, () => render(() => typerScreen(d, queue, queue.length, results, intent), false));
   main().append(wrap);
+  load(qi0);
+  // The one focus() of the session, on first mount. Every later verse inherits focus because the
+  // element is never replaced — which is the entire point of the rework.
+  setTimeout(() => inp.focus(), 100);
 }
 
 // ---- Scramble: rebuild the text by tapping pieces in order ----
