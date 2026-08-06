@@ -4399,6 +4399,56 @@ const TIMER_KINDS = [
   ['intervals', 'Intervals', 'work / rest, a result per round'],
 ];
 
+// One accent colour per kind, as on the timer Baruch actually uses. This is not decoration:
+// mid-workout the colour is legible from further away than the label is.
+const TIMER_COLOR = {
+  stopwatch: '#4a6cf7', countdown: '#e8912a', emom: '#a020e0',
+  tabata: '#12b886', intervals: '#12b886',
+};
+
+// ---------------------------------------------------------------------------------------
+// ⚑ PICKER VALUES ARE DATA, for the same reason cues are: the drum itself is scroll physics
+// that no headless test can touch, but WHICH VALUES IT OFFERS and which row it lands on are
+// pure and therefore testable. Keeping them here means a wrong list fails a suite rather than
+// a workout.
+const SEC_STEPS = [5, 10, 15, 20, 25, 30, 40, 45, 50, 60, 75, 90, 105, 120, 150, 180, 240, 300];
+
+const PICKER = {
+  minutes:  { values: Array.from({ length: 60 }, (_, i) => i + 1), unit: 'min', fmt: v => v + (v === 1 ? ' minute' : ' minutes') },
+  rounds:   { values: Array.from({ length: 50 }, (_, i) => i + 1), unit: '', fmt: v => v + (v === 1 ? ' round' : ' rounds') },
+  seconds:  { values: SEC_STEPS, unit: 'sec', fmt: v => fmtClock(v) },
+  interval: { values: SEC_STEPS.filter(v => v >= 15), unit: 'sec', fmt: v => fmtClock(v) },
+  lead:     { values: [0, 3, 5, 10, 15, 20, 30], unit: 'sec', fmt: v => (v ? v + ' seconds' : 'no countdown') },
+};
+
+function fmtClock(s) {
+  s = Math.max(0, Math.round(s));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// The row the drum should open on: the exact value if it is offered, otherwise the nearest —
+// never index 0, which is the failure that silently resets a custom cap to one minute.
+function pickerIndex(field, value) {
+  const vs = (PICKER[field] || {}).values || [];
+  if (!vs.length) return 0;
+  const exact = vs.indexOf(Number(value));
+  if (exact >= 0) return exact;
+  let best = 0, bd = Infinity;
+  vs.forEach((v, i) => { const d = Math.abs(v - Number(value)); if (d < bd) { bd = d; best = i; } });
+  return best;
+}
+
+// A custom value keeps its place in the list rather than being dropped or appended at the end.
+function pickerValues(field, value) {
+  const vs = ((PICKER[field] || {}).values || []).slice();
+  const n = Number(value);
+  if (Number.isFinite(n) && n > 0 && !vs.includes(n)) {
+    vs.push(n);
+    vs.sort((a, b) => a - b);
+  }
+  return vs;
+}
+
 // Total scheduled length in seconds, or null for an open-ended stopwatch.
 function timerTotal(cfg) {
   if (!cfg) return null;
@@ -4429,12 +4479,33 @@ function isPaused(session, now) {
   return !!(last && last.until == null && last.at <= now);
 }
 
-// Seconds elapsed, derived — never accumulated. Frozen at stoppedAt once stopped.
-function elapsedSec(session, now) {
+// ⚑ THE LEAD-IN IS PART OF THE ENGINE, NOT THE UI, and that is the whole point of it living
+// here. The obvious implementation is a setTimeout on the run screen — and a setTimeout is the
+// exact thing this module exists to avoid: lock the phone during a 5-second lead and iOS may
+// never fire it, so the piece silently never starts. Deriving it from wall-clock time means
+// the lead behaves correctly even if the screen is off for the whole of it.
+//
+// Two clocks, and keeping them apart is what stops the lead-in corrupting every logged result:
+//   rawSec      seconds since the START TAP, lead included
+//   elapsedSec  seconds of the PIECE, which is what gets logged — 0 for the whole lead
+function leadSec(cfg) { return Math.max(0, Math.floor(Number(cfg && cfg.lead) || 0)); }
+
+// Seconds since the start tap, derived — never accumulated. Frozen at stoppedAt once stopped.
+function rawSec(session, now) {
   if (!session || !session.startedAt) return 0;
   const end = session.stoppedAt != null ? session.stoppedAt : now;
   return Math.max(0, Math.floor((end - session.startedAt - pausedMs(session, end)) / 1000));
 }
+
+// Seconds of the piece itself. The lead-in does not count toward it, so a 5-second lead does
+// not make every result you log 5 seconds slow. `cfg` is optional: omit it and this is the
+// pre-lead-in behaviour exactly, which is why every existing caller and test still holds.
+function elapsedSec(session, now, cfg) {
+  return Math.max(0, rawSec(session, now) - leadSec(cfg));
+}
+
+// True while the lead-in is still counting down.
+function inLead(cfg, session, now) { return rawSec(session, now) < leadSec(cfg); }
 
 // ---------------------------------------------------------------------------------------
 // The whole visible state of the timer at a moment. One pure function; the UI renders it.
@@ -4443,36 +4514,54 @@ function elapsedSec(session, now) {
 //   round      1-based, or null
 //   remaining  seconds left in the whole piece, or null when open-ended
 function timerState(cfg, session, now) {
-  const el = elapsedSec(session, now);
+  const el = elapsedSec(session, now, cfg);
   const total = timerTotal(cfg);
   const paused = isPaused(session, now);
   const base = { elapsed: el, total, paused, stopped: session.stoppedAt != null, rounds: cfg.rounds || null };
   const finish = (extra) => ({ ...base, phase: 'done', display: el, round: null, remaining: 0, ...extra });
 
+  // The lead-in owns the screen before the piece starts. `fraction` drives the bezel arc, so
+  // the dial visibly empties as the count runs down.
+  const lead = leadSec(cfg);
+  if (lead > 0 && !base.stopped) {
+    const raw = rawSec(session, now);
+    if (raw < lead) {
+      return { ...base, phase: 'lead', display: lead - raw, round: null,
+               remaining: total, lead, fraction: (lead - raw) / lead };
+    }
+  }
+
+  // `fraction` is how much of the CURRENT phase is left, 0..1. The bezel arc reads it, so the
+  // ring empties over each interval rather than over the whole piece — which is what makes an
+  // EMOM legible at a glance from the floor.
   if (cfg.kind === 'stopwatch') {
-    if (total != null && el >= total) return finish({ display: total, capped: true });
-    return { ...base, phase: 'work', display: el, round: null, remaining: total == null ? null : total - el };
+    if (total != null && el >= total) return finish({ display: total, capped: true, fraction: 0 });
+    return { ...base, phase: 'work', display: el, round: null, remaining: total == null ? null : total - el,
+             fraction: total == null ? (60 - (el % 60)) / 60 : (total - el) / total };
   }
   if (cfg.kind === 'countdown') {
-    if (el >= total) return finish({ display: 0 });
-    return { ...base, phase: 'work', display: total - el, round: null, remaining: total - el };
+    if (el >= total) return finish({ display: 0, fraction: 0 });
+    return { ...base, phase: 'work', display: total - el, round: null, remaining: total - el,
+             fraction: total ? (total - el) / total : 0 };
   }
   if (cfg.kind === 'emom') {
     const iv = timerIntervals(cfg);
     let acc = 0, i = 0;
     for (; i < iv.length; i++) { if (el < acc + iv[i]) break; acc += iv[i]; }
-    if (i >= iv.length) return finish({ display: 0 });
+    if (i >= iv.length) return finish({ display: 0, fraction: 0 });
     return { ...base, phase: 'work', display: acc + iv[i] - el, round: i + 1,
-             roundLength: iv[i], remaining: total - el };
+             roundLength: iv[i], remaining: total - el, fraction: (acc + iv[i] - el) / iv[i] };
   }
   if (cfg.kind === 'tabata' || cfg.kind === 'intervals') {
     const cyc = (cfg.work || 0) + (cfg.rest || 0);
-    if (!cyc || el >= total) return finish({ display: 0 });
+    if (!cyc || el >= total) return finish({ display: 0, fraction: 0 });
     const round = Math.floor(el / cyc) + 1;
     const inCyc = el % cyc;
     const working = inCyc < cfg.work;
+    const len = working ? cfg.work : cfg.rest;
     return { ...base, phase: working ? 'work' : 'rest', round,
-             display: working ? cfg.work - inCyc : cyc - inCyc, remaining: total - el };
+             display: working ? cfg.work - inCyc : cyc - inCyc, remaining: total - el,
+             fraction: len ? (working ? cfg.work - inCyc : cyc - inCyc) / len : 0 };
   }
   return finish({});
 }
@@ -4481,12 +4570,22 @@ function timerState(cfg, session, now) {
 // ⚑ CUES ARE DATA, NOT SIDE EFFECTS. The engine says what should sound at second `s`; the UI
 // plays it. That makes the audio schedule unit-testable, which is the only way to check it
 // at all — beeps and lock-screen behaviour are otherwise device-only.
+//   'lead'      a tick of the pre-start countdown
 //   'go'        the piece starts
 //   'round'     an interval boundary
 //   'rest'      work → rest
 //   'count'     the last 3 seconds of a phase
 //   'end'       the piece is over
+//
+// ⚑ `s` IS RAW SESSION TIME, lead included — not piece time. The lead-in has to be able to
+// beep, and it happens before the piece exists, so there is no piece clock to hang it on.
+// Everything below is shifted by the lead, which means 'go' still lands exactly at the moment
+// the piece starts. With no lead configured the shift is zero and this is unchanged.
 function cueAt(cfg, s) {
+  const lead = leadSec(cfg);
+  if (lead > 0 && s < lead) return (lead - s) <= 3 ? 'lead' : null;
+  s -= lead;
+
   const total = timerTotal(cfg);
   if (s === 0) return 'go';
   if (total != null && s === total) return 'end';
@@ -4517,9 +4616,9 @@ function cueAt(cfg, s) {
   return null;
 }
 
-// Every cue strictly after fromSec and up to toSec. The UI calls this with the seconds it
-// skipped, so a backgrounded app that wakes up 4 minutes later does not replay 4 minutes of
-// beeps — it takes the last one, or none.
+// Every cue strictly after fromSec and up to toSec, both in RAW session seconds. The UI calls
+// this with the seconds it skipped, so a backgrounded app that wakes up 4 minutes later does
+// not replay 4 minutes of beeps — it takes the last one, or none.
 function cuesBetween(cfg, fromSec, toSec) {
   const out = [];
   for (let s = Math.max(0, Math.floor(fromSec) + 1); s <= Math.floor(toSec); s++) {
@@ -4553,13 +4652,22 @@ function timerStop(session, now) {
 // Taps are stored as elapsed seconds, so splits survive a pause and a reload.
 function timerTap(session, cfg, now) {
   if (session.stoppedAt != null) return session;
-  return { ...session, taps: [...(session.taps || []), elapsedSec(session, now)] };
+  if (inLead(cfg, session, now)) return session;   // a tap during the lead-in is not a round
+  return { ...session, taps: [...(session.taps || []), elapsedSec(session, now, cfg)] };
 }
 
 // Splits: how long each tapped round actually took.
 function timerSplits(session) {
   const t = session.taps || [];
   return t.map((v, i) => v - (i ? t[i - 1] : 0));
+}
+
+// Each split with its signed change against the PREVIOUS round — the column SmartWOD shows as
+// +305 s / −251 s. Against the previous round, not the average: the question mid-workout is
+// "am I falling off?", and the average only answers that once you have finished.
+function splitDeltas(session) {
+  const sp = timerSplits(session);
+  return sp.map((s, i) => ({ round: i + 1, secs: s, delta: i ? s - sp[i - 1] : null }));
 }
 
 // ---------------------------------------------------------------------------------------
@@ -4570,7 +4678,7 @@ function timerSplits(session) {
 // Logging stopped being a second act you have to remember. You confirm, you do not enter.
 function timerToLogFields(cfg, session, w, now) {
   const st = timerState(cfg, session, now);
-  const el = elapsedSec(session, now);
+  const el = elapsedSec(session, now, cfg);   // ⚑ piece time — the lead-in is never logged
   const taps = (session.taps || []).length;
   const fmt = (w && w.format) || ({ countdown: 'amrap', emom: 'emom', tabata: 'tabata',
                                     intervals: 'intervals' })[cfg.kind] || 'fortime';
@@ -4590,7 +4698,7 @@ function timerToLogFields(cfg, session, w, now) {
   return out;
 }
 
-const TM = {TIMER_KINDS,cueAt,cuesBetween,elapsedSec,isPaused,pausedMs,timerIntervals,timerPause,timerResume,timerSplits,timerStart,timerState,timerStop,timerTap,timerToLogFields,timerTotal};
+const TM = {PICKER,TIMER_COLOR,TIMER_KINDS,cueAt,cuesBetween,elapsedSec,fmtClock,inLead,isPaused,leadSec,pausedMs,pickerIndex,pickerValues,rawSec,splitDeltas,timerIntervals,timerPause,timerResume,timerSplits,timerStart,timerState,timerStop,timerTap,timerToLogFields,timerTotal};
 // Strive — the movement registry. D2, twentieth session.
 //
 // ⚑ THE MODEL, settled in strive-fitness-open-threads.md §1 (Baruch's answer to 1.1):
@@ -5945,7 +6053,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260806-1814'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260806-1814';
+const BUILD_ID = '20260806-1838'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260806-1838';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -13801,6 +13909,70 @@ function ftTimers(body) {
   ftTimerConfig(body, null);
 }
 
+// ⚑ THE PICKER. Tapping a value opens a drum instead of the iOS keyboard, and avoiding that
+// keyboard is the point: it is where the bug that took three sessions to find lived, and it is
+// the wrong control for a number you are setting between rounds with one sweaty thumb.
+//
+// The scroll physics belong to the browser (CSS scroll-snap), so there is nothing here for a
+// headless test to drive — which is exactly why WHICH VALUES it offers and WHERE IT OPENS live
+// in timer.js as pure functions and are asserted there. What is left here is plumbing.
+function tmPickerStyles() {
+  if (document.getElementById('tm-picker-css')) return;
+  const s = document.createElement('style');
+  s.id = 'tm-picker-css';
+  s.textContent = `
+    .tm-drum{height:220px;overflow-y:auto;scroll-snap-type:y mandatory;-webkit-overflow-scrolling:touch;
+             mask-image:linear-gradient(transparent,#000 25%,#000 75%,transparent);
+             -webkit-mask-image:linear-gradient(transparent,#000 25%,#000 75%,transparent)}
+    .tm-drum::-webkit-scrollbar{display:none}
+    .tm-drum .tm-row{height:44px;line-height:44px;text-align:center;scroll-snap-align:center;
+                     font-size:19px;color:var(--muted);cursor:pointer}
+    .tm-drum .tm-row.on{color:var(--text);font-size:24px;font-weight:600}
+    .tm-box{border-radius:12px;background:transparent;font-weight:700;font-size:30px;
+            padding:6px 16px;min-width:74px;cursor:pointer;font-variant-numeric:tabular-nums}
+    .tm-dial-num{font-size:56px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em}`;
+  document.head.append(s);
+}
+
+function tmPicker(field, value, color, onPick) {
+  tmPickerStyles();
+  const P = TM.PICKER[field] || TM.PICKER.rounds;
+  const values = TM.pickerValues(field, value);
+  const idx = values.indexOf(Number(value)) >= 0 ? values.indexOf(Number(value)) : TM.pickerIndex(field, value);
+  const back = h(`
+    <div style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60;display:flex;
+                align-items:center;justify-content:center;padding:24px">
+      <div style="background:var(--card);border:1px solid var(--line);border-radius:16px;
+                  width:100%;max-width:320px;overflow:hidden">
+        <div class="tm-drum" data-a="drum">${
+          values.map((v, i) => `<div class="tm-row${i === idx ? ' on' : ''}" data-i="${i}">${esc(P.fmt(v))}</div>`).join('')
+        }</div>
+        <button data-a="custom" style="display:block;width:100%;background:none;border:0;
+                border-top:1px solid var(--line);padding:12px;color:${color};font-size:14px;
+                text-decoration:underline;cursor:pointer">Set custom value</button>
+        <button data-a="ok" style="display:block;width:100%;background:none;border:0;
+                border-top:1px solid var(--line);padding:14px;color:var(--text);font-size:17px;
+                cursor:pointer">OK</button>
+      </div>
+    </div>`).firstElementChild;
+  let chosen = values[idx];
+  const drum = back.querySelector('[data-a=drum]');
+  const rows = Array.from(drum.querySelectorAll('.tm-row'));
+  const mark = i => { chosen = values[i]; rows.forEach((r, j) => r.classList.toggle('on', j === i)); };
+  rows.forEach((r, i) => r.onclick = () => mark(i));
+  // Centre the opening row. Not available headless, and not important there either.
+  if (drum.scrollTo) setTimeout(() => drum.scrollTo({ top: idx * 44 - 88 }), 0);
+  const close = () => back.remove();
+  back.onclick = e => { if (e.target === back) close(); };
+  back.querySelector('[data-a=custom]').onclick = () => {
+    const raw = prompt('Value in ' + (P.unit || 'units'), String(chosen));
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) { close(); onPick(n); }
+  };
+  back.querySelector('[data-a=ok]').onclick = () => { close(); onPick(chosen); };
+  document.body.append(back);
+}
+
 function ftTimersScreen(w) {
   setHeader('Timer · ' + (w ? w.name : ''), { back: true });
   const wrap = document.createElement('div');
@@ -13808,76 +13980,172 @@ function ftTimersScreen(w) {
   main().append(wrap);
 }
 
+// ⚑ THE SETUP SCREEN IS A SENTENCE, AND THIS IS A BUG FIX, NOT A RESTYLE.
+//
+// What was here before was five bare number boxes whose only labels were `placeholder`
+// attributes. Every box is pre-filled with a default, and a placeholder does not render when
+// a field has a value — so "Interval sec", "Rounds", "Work" and "Rest" were written in the
+// source and could not appear on screen under any circumstance. Baruch's report from the
+// device was exactly that: "there are no labels, I don't know what I'm adjusting".
+//
+// Putting the value INSIDE the sentence that describes it ("Every 1:00 for 15 rounds") makes
+// the label impossible to lose, because it is no longer a separate thing that can fail to
+// render. test-timer-render.mjs asserts every value on this screen sits in labelled text.
+const TM_TITLE = { stopwatch: 'FOR TIME', countdown: 'AMRAP', emom: 'EMOM', tabata: 'TABATA', intervals: 'INTERVALS' };
+
 function ftTimerConfig(body, w) {
-  const defaults = w && w.custom ? w : {};
-  const configs = [
-    ['Stopwatch', 'For Time — counts up', () => ({ kind: 'stopwatch' })],
-    ['Countdown', 'AMRAP — set the minutes', null],
-    ['EMOM', 'Every minute (or interval) on the minute', null],
-    ['Tabata', 'Work / rest intervals', null],
-  ];
-  const card = h(`
-    <div class="card">
-      <div class="pillrow" data-a="kinds">
-        <button class="pill on" data-k="stopwatch">Stopwatch</button>
-        <button class="pill" data-k="countdown">Countdown</button>
-        <button class="pill" data-k="emom">EMOM</button>
-        <button class="pill" data-k="tabata">Tabata</button>
-        <button class="pill" data-k="intervals">Intervals</button>
-      </div>
-      <div class="row" data-a="opts" style="flex-wrap:wrap;margin-bottom:10px"></div>
-      <button class="btn" data-a="go">Start</button>
-    </div>`).firstElementChild;
+  tmPickerStyles();
+  const d = w && w.custom ? w : {};
   // ⚑ Default the timer to the workout's OWN format, not just custom ones. A Regionals event
   // or an Open workout knows it is capped for time; opening a stopwatch on it is a wasted tap
   // and a wrong cap. `cap` comes from build_workouts.py, which reads the published time cap.
   let kind = w && w.format === 'amrap' ? 'countdown'
     : w && ['emom', 'tabata', 'intervals'].includes(w.format) ? w.format
     : 'stopwatch';
-  const opts = card.querySelector('[data-a=opts]');
-  function drawOpts() {
-    card.querySelectorAll('[data-k]').forEach(x => x.classList.toggle('on', x.dataset.k === kind));
-    opts.innerHTML = '';
-    if (kind === 'countdown') opts.append(h(`<input data-o="min" placeholder="Minutes" inputmode="numeric" value="${defaults.cap ? defaults.cap / 60 : 20}" style="width:110px;${FIN}">`).firstChild);
-    if (kind === 'emom') {
-      opts.append(h(`<input data-o="interval" placeholder="Interval sec" inputmode="numeric" value="${defaults.interval || 60}" style="width:130px;${FIN}">`).firstChild);
-      opts.append(h(`<input data-o="rounds" placeholder="Rounds" inputmode="numeric" value="${defaults.rounds || 10}" style="width:100px;${FIN}">`).firstChild);
-    }
-    if (kind === 'tabata' || kind === 'intervals') {
-      const dw = kind === 'tabata' ? 20 : 60, dr = kind === 'tabata' ? 10 : 60, dn = kind === 'tabata' ? 8 : 6;
-      opts.append(h(`<input data-o="work" placeholder="Work" inputmode="numeric" value="${defaults.work || dw}" style="width:90px;${FIN}">`).firstChild);
-      opts.append(h(`<input data-o="rest" placeholder="Rest" inputmode="numeric" value="${defaults.rest || dr}" style="width:90px;${FIN}">`).firstChild);
-      opts.append(h(`<input data-o="rounds" placeholder="Rounds" inputmode="numeric" value="${defaults.rounds || dn}" style="width:100px;${FIN}">`).firstChild);
-    }
-    if (kind === 'stopwatch' && w && w.cap) {
-      opts.append(h(`<input data-o="cap" placeholder="Cap sec" inputmode="numeric" value="${w.cap}" style="width:110px;${FIN}">`).firstChild);
-    }
+  // One live config, edited in place by the picker. `lead` is the pre-start countdown and is
+  // remembered between sessions, because a preference you have to re-set every time is not one.
+  const F = state.fitness || (state.fitness = {});
+  const cfg = {
+    kind,
+    cap: (w && w.cap) || 0,
+    total: (d.cap || (w && w.format === 'amrap' && w.cap)) || 15 * 60,
+    interval: d.interval || 60,
+    rounds: d.rounds || 10,
+    work: d.work || 20,
+    rest: d.rest || 10,
+    lead: F.timerLead == null ? 5 : F.timerLead,
+  };
+
+  const card = h(`
+    <div class="card" style="text-align:center;padding:22px 14px 18px">
+      <div class="pillrow" data-a="kinds" style="justify-content:center;margin-bottom:18px">
+        <button class="pill" data-k="stopwatch">For Time</button>
+        <button class="pill" data-k="countdown">AMRAP</button>
+        <button class="pill" data-k="emom">EMOM</button>
+        <button class="pill" data-k="tabata">Tabata</button>
+        <button class="pill" data-k="intervals">Intervals</button>
+      </div>
+      <div data-a="title" style="font-size:30px;font-weight:800;letter-spacing:.02em"></div>
+      <div data-a="sentence" style="margin:16px 0 4px;font-size:19px;line-height:2.1"></div>
+      <div data-a="lead" style="margin:18px 0 4px;font-size:15px;line-height:2.1;color:var(--muted)"></div>
+      <button class="btn" data-a="go" style="margin-top:18px">START TIMER<div data-a="tot"
+        style="font-size:12px;font-weight:400;opacity:.85;margin-top:2px"></div></button>
+    </div>`).firstElementChild;
+
+  const $ = s => card.querySelector(`[data-a=${s}]`);
+
+  // A tappable value, rendered inline in the sentence. The box carries the timer's colour so
+  // that what is editable is obvious without a hint line saying so.
+  function box(field, key, fmt) {
+    const color = TM.TIMER_COLOR[kind];
+    const b = document.createElement('button');
+    b.className = 'tm-box';
+    b.style.cssText = `border:2px solid ${color};color:var(--text)`;
+    b.textContent = fmt(cfg[key]);
+    b.setAttribute('data-field', key);
+    b.onclick = () => tmPicker(field, cfg[key], color, v => { cfg[key] = v; draw(); });
+    return b;
   }
-  card.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { kind = b.dataset.k; drawOpts(); });
-  drawOpts();
-  card.querySelector('[data-a=go]').onclick = () => {
-    const gv = k => { const el = card.querySelector(`[data-o=${k}]`); return el ? Number(el.value) || 0 : 0; };
-    const cfg = { kind };
-    if (kind === 'countdown') cfg.total = gv('min') * 60;
-    if (kind === 'stopwatch' && gv('cap')) cfg.cap = gv('cap');
-    if (kind === 'emom') { cfg.interval = gv('interval') || 60; cfg.rounds = gv('rounds') || 10; }
-    if (kind === 'tabata' || kind === 'intervals') { cfg.work = gv('work') || 20; cfg.rest = gv('rest') || 10; cfg.rounds = gv('rounds') || 8; }
-    render(() => timerRun(cfg, w));
+  const txt = s => { const n = document.createElement('span'); n.textContent = s; return n; };
+  const line = (...nodes) => { const d2 = document.createElement('div'); nodes.forEach(n => d2.append(n)); return d2; };
+  const mins = v => String(Math.round(v / 60));
+  const num = v => String(v);
+
+  function draw() {
+    card.querySelectorAll('[data-k]').forEach(x => x.classList.toggle('on', x.dataset.k === kind));
+    const color = TM.TIMER_COLOR[kind];
+    $('title').textContent = TM_TITLE[kind];
+    $('title').style.color = color;
+    $('go').style.background = color;
+    const s = $('sentence');
+    s.innerHTML = '';
+    if (kind === 'stopwatch') {
+      s.append(txt('As fast as possible for time'));
+      s.append(line(txt('Time cap: '), box('minutes', 'cap', mins), txt(' minutes')));
+    } else if (kind === 'countdown') {
+      s.append(txt('As many rounds as possible in'));
+      s.append(line(box('minutes', 'total', mins), txt(' minutes')));
+    } else if (kind === 'emom') {
+      s.append(line(txt('Every '), box('interval', 'interval', TM.fmtClock)));
+      s.append(line(txt('for '), box('rounds', 'rounds', num), txt(' rounds')));
+    } else {
+      s.append(line(box('rounds', 'rounds', num), txt(' rounds of')));
+      s.append(line(box('seconds', 'work', TM.fmtClock), txt(' work')));
+      s.append(line(box('seconds', 'rest', TM.fmtClock), txt(' rest')));
+    }
+    const ld = $('lead');
+    ld.innerHTML = '';
+    ld.append(txt('Countdown before start: '));
+    ld.append(box('lead', 'lead', num));
+    ld.append(txt(' seconds'));
+    const tot = TM.timerTotal(build());
+    $('tot').textContent = tot ? 'Total time: ' + SC.fmtSecs(tot) : 'no time cap';
+  }
+
+  // The config the engine actually receives. Kept separate from the edit model so that, for
+  // example, a stopwatch cap of 0 means "no cap" rather than "a cap of zero seconds".
+  function build() {
+    const out = { kind, lead: cfg.lead };
+    if (kind === 'stopwatch' && cfg.cap) out.cap = cfg.cap;
+    if (kind === 'countdown') out.total = cfg.total;
+    if (kind === 'emom') { out.interval = cfg.interval || 60; out.rounds = cfg.rounds || 10; }
+    if (kind === 'tabata' || kind === 'intervals') {
+      out.work = cfg.work || 20; out.rest = cfg.rest || 10; out.rounds = cfg.rounds || 8;
+    }
+    return out;
+  }
+
+  card.querySelectorAll('[data-k]').forEach(b => b.onclick = () => {
+    kind = b.dataset.k;
+    if (kind === 'tabata') { cfg.work = 20; cfg.rest = 10; cfg.rounds = 8; }
+    if (kind === 'intervals') { cfg.work = 60; cfg.rest = 60; cfg.rounds = 6; }
+    draw();
+  });
+  draw();
+  $('go').onclick = () => {
+    F.timerLead = cfg.lead; save();
+    render(() => timerRun(build(), w));
   };
   body.append(card);
 }
 
 let audioCtx = null;
-function beep(freq = 880, ms = 160) {
+// ⚑ The envelope is not cosmetic. Starting and stopping an oscillator at full gain cuts the
+// waveform mid-cycle, which is a step change in pressure — an audible click on every single
+// cue. Ramping in and out over a few milliseconds is the whole fix.
+function beep(freq = 880, ms = 160, vol = 0.25) {
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();   // iOS suspends until a gesture
+    const t = audioCtx.currentTime, dur = ms / 1000;
     const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = 'sine';
     o.frequency.value = freq;
     o.connect(g); g.connect(audioCtx.destination);
-    g.gain.setValueAtTime(0.25, audioCtx.currentTime);
-    o.start();
-    o.stop(audioCtx.currentTime + ms / 1000);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
+    g.gain.setValueAtTime(vol, t + Math.max(0.02, dur - 0.04));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.start(t);
+    o.stop(t + dur + 0.02);
   } catch (e) {}
+}
+
+// The bezel: 60 ticks and an arc that empties over the current phase. `frac` is 1..0.
+function tmDial(color) {
+  const ticks = Array.from({ length: 60 }, (_, i) => {
+    const a = (i * 6 - 90) * Math.PI / 180, long = i % 5 === 0;
+    const r1 = long ? 82 : 86, r2 = 94;
+    return `<line x1="${(100 + r1 * Math.cos(a)).toFixed(1)}" y1="${(100 + r1 * Math.sin(a)).toFixed(1)}"
+                  x2="${(100 + r2 * Math.cos(a)).toFixed(1)}" y2="${(100 + r2 * Math.sin(a)).toFixed(1)}"
+                  stroke="var(--line)" stroke-width="${long ? 2.4 : 1.4}" stroke-linecap="round"/>`;
+  }).join('');
+  return `<svg viewBox="0 0 200 200" style="width:100%;max-width:300px;display:block;margin:0 auto">
+    <g>${ticks}</g>
+    <circle id="tm-arc" cx="100" cy="100" r="90" fill="none" stroke="${color}" stroke-width="7"
+            stroke-linecap="round" transform="rotate(-90 100 100)"
+            stroke-dasharray="565.5" stroke-dashoffset="565.5"/>
+  </svg>`;
 }
 
 function timerRun(cfg, w) {
@@ -13890,28 +14158,44 @@ function timerRun(cfg, w) {
   // activity where the phone is guaranteed to be face-down on the floor. Every number below
   // comes from js/timer.js, which is a pure function of (config, session, Date.now()) and is
   // tested headless in test-timer.mjs. See §4.3: this must work with the screen locked.
+  tmPickerStyles();
   const F = state.fitness || (state.fitness = {});
-  let session = TM.timerStart(Date.now());
+  const COLOR = TM.TIMER_COLOR[cfg.kind] || 'var(--accent)';
+  // ⚑ PLAY-TO-START. The clock no longer starts on the setup screen's button, because that
+  // button is pressed while you are still holding the phone. The run screen loads idle with a
+  // play control, so you set the phone down, get over the bar, and then tap — which is the
+  // only arrangement in which a 5-second lead-in is any use at all.
+  let session = null;
   let lastCueSec = 0;
-  F.timerSession = { cfg, session, wid: w ? w.id : null };   // survives a reload mid-workout
 
   const wrap = h(`
-    <div class="card" style="text-align:center;padding:30px 14px">
-      <div class="muted" id="tm-phase" style="font-weight:700;letter-spacing:.05em;text-transform:uppercase;font-size:13px"></div>
-      <div class="big" id="tm-clock" style="font-size:64px;margin-top:6px">0:00</div>
-      <div class="muted" id="tm-sub" style="margin-top:4px"></div>
-      <button class="btn" id="tm-tap" style="margin-top:20px">Round done</button>
+    <div class="card" style="text-align:center;padding:24px 14px">
+      <div class="muted" id="tm-phase" style="font-weight:700;letter-spacing:.05em;text-transform:uppercase;font-size:13px;min-height:16px"></div>
+      <div style="position:relative;margin:10px 0 4px">
+        ${tmDial(COLOR)}
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+          <div class="tm-dial-num" id="tm-clock" style="color:${COLOR}">0:00</div>
+          <button id="tm-play" style="background:none;border:0;cursor:pointer;color:${COLOR};font-size:52px;line-height:1">▶</button>
+          <div class="muted" id="tm-hint" style="font-size:13px">tap to start</div>
+        </div>
+      </div>
+      <div class="muted" id="tm-sub" style="margin-top:2px"></div>
+      <button class="btn" id="tm-tap" style="margin-top:16px;background:${COLOR}">Round done</button>
       <div class="row" style="gap:8px;margin-top:8px">
         <button class="btn secondary grow" id="tm-pause">Pause</button>
         <button class="btn secondary grow" id="tm-done">Finish</button>
       </div>
-      <div class="muted" id="tm-splits" style="margin-top:10px;font-size:12px;line-height:1.6"></div>
+      <div class="muted" id="tm-splits" style="margin-top:10px;font-size:12px;line-height:1.7"></div>
     </div>`).firstElementChild;
   const el = document.createElement('div'); el.append(wrap);
   if (w) el.append(h(`<div class="muted" style="text-align:center;margin-top:10px;font-size:13px;white-space:pre-line">${esc(w.name)}${w.movements ? '\n' + esc(w.movements) : ''}</div>`));
   main().append(el);
 
-  const CUE = { go: [880, 250], round: [880, 250], rest: [550, 250], count: [660, 140], end: [440, 700] };
+  // ⚑ The lead-in and the piece must not sound alike. Three flat mid ticks and then a higher,
+  // longer GO is the convention every start line uses, and the point of it is that you can
+  // start on the tone without looking at the phone.
+  const CUE = { lead: [700, 130], go: [1100, 420], round: [880, 250], rest: [550, 250],
+                count: [660, 140], end: [440, 700] };
 
   function view(playCues = true) {
     const clock = wrap.querySelector('#tm-clock');
@@ -13923,38 +14207,68 @@ function timerRun(cfg, w) {
     const gone = !clock || clock.isConnected === false
       || (document.getElementById && document.getElementById('tm-clock') !== clock);
     if (gone) { clearInterval(iv); document.removeEventListener('visibilitychange', wake); return; }
+    const q = s => wrap.querySelector(s);
+    // Idle: the dial is up, nothing is running, and the piece has not begun.
+    if (!session) {
+      q('#tm-play').style.display = '';
+      q('#tm-hint').style.display = '';
+      clock.style.display = 'none';
+      q('#tm-tap').style.display = 'none';
+      q('#tm-pause').style.display = 'none';
+      q('#tm-sub').textContent = cfg.lead ? cfg.lead + '-second countdown, then go' : '';
+      return;
+    }
+    q('#tm-play').style.display = 'none';
+    q('#tm-hint').style.display = 'none';
+    clock.style.display = '';
     const now = Date.now();
     const st = TM.timerState(cfg, session, now);
+    const raw = TM.rawSec(session, now);
 
     // ⚑ Cues are DATA (timer.js decides what should sound; this only plays it), and we ask
     // for the window we actually skipped. A phone that slept for four minutes must not wake
     // up and replay four minutes of beeps — take the last one and nothing else.
+    // The window is RAW session seconds now, because the lead-in beeps before the piece
+    // exists and so has no piece clock to sit on.
     if (playCues && !st.paused && !st.stopped) {
-      const missed = TM.cuesBetween(cfg, lastCueSec, st.elapsed);
+      const missed = TM.cuesBetween(cfg, lastCueSec, raw);
       if (missed.length) {
         const last = missed[missed.length - 1];
         const spec = CUE[last.cue];
-        if (spec && (missed.length <= 2 || last.cue === 'end' || last.cue === 'round')) beep(spec[0], spec[1]);
+        const worth = missed.length <= 2 || ['end', 'round', 'go'].includes(last.cue);
+        if (spec && worth) beep(spec[0], spec[1]);
       }
     }
-    lastCueSec = st.elapsed;
+    lastCueSec = raw;
 
-    clock.textContent = SC.fmtSecs(st.display);
-    const phase = st.phase === 'done' ? 'Done'
+    clock.textContent = st.phase === 'lead' ? String(st.display) : SC.fmtSecs(st.display);
+    clock.style.fontSize = st.phase === 'lead' ? '84px' : '';
+    const phase = st.phase === 'lead' ? 'Get ready'
+      : st.phase === 'done' ? 'Done'
       : st.round ? (cfg.kind === 'tabata' || cfg.kind === 'intervals' ? st.phase.toUpperCase() + ' · ' : '')
-                   + 'Round ' + st.round + (st.rounds ? ' of ' + st.rounds : '')
+                   + st.round + (st.rounds ? '/' + st.rounds : '')
       : '';
-    wrap.querySelector('#tm-phase').textContent = st.paused ? 'Paused' : phase;
-    wrap.querySelector('#tm-sub').textContent = st.total
-      ? 'total ' + SC.fmtSecs(Math.min(st.elapsed, st.total)) + ' / ' + SC.fmtSecs(st.total)
+    q('#tm-phase').textContent = st.paused ? 'Paused' : phase;
+    q('#tm-tap').style.display = st.phase === 'lead' ? 'none' : '';
+    q('#tm-sub').textContent = st.phase === 'lead' ? ''
+      : st.total ? 'Total time: ' + SC.fmtSecs(Math.max(0, st.total - st.elapsed))
       : 'elapsed ' + SC.fmtSecs(st.elapsed);
+
+    // The bezel arc empties over the current phase. 565.5 is the circumference at r=90.
+    const arc = wrap.querySelector('#tm-arc');
+    if (arc && arc.setAttribute) {
+      const f = st.fraction == null ? 0 : Math.max(0, Math.min(1, st.fraction));
+      arc.setAttribute('stroke-dashoffset', String((565.5 * (1 - f)).toFixed(1)));
+    }
     if (cfg.kind === 'tabata' || cfg.kind === 'intervals') {
       wrap.style.borderColor = st.phase === 'work' ? 'var(--danger)' : st.phase === 'rest' ? 'var(--accent)' : '';
     }
-    const sp = TM.timerSplits(session);
-    wrap.querySelector('#tm-splits').textContent = sp.length
-      ? sp.map((s, i) => `${i + 1}: ${SC.fmtSecs(s)}`).join('   ') : '';
-    if (st.phase === 'done') wrap.querySelector('#tm-pause').style.display = 'none';
+    const sp = TM.splitDeltas(session);
+    q('#tm-splits').textContent = sp.length
+      ? sp.map(r => `${r.round}: ${SC.fmtSecs(r.secs)}` +
+          (r.delta == null ? '' : ` (${r.delta > 0 ? '+' : r.delta < 0 ? '−' : '±'}${Math.abs(r.delta)}s)`)).join('   ')
+      : '';
+    if (st.phase === 'done') q('#tm-pause').style.display = 'none';
     F.timerSession = { cfg, session, wid: w ? w.id : null };
   }
 
@@ -13963,12 +14277,23 @@ function timerRun(cfg, w) {
   document.addEventListener('visibilitychange', wake);
 
   const iv = setInterval(view, 250);
+  wrap.querySelector('#tm-play').onclick = () => {
+    // The tap is the gesture iOS requires before any audio may play at all, so prime the
+    // context here — otherwise the lead-in counts down in silence the first time.
+    beep(700, 60, 0.12);
+    session = TM.timerStart(Date.now());
+    lastCueSec = 0;
+    F.timerSession = { cfg, session, wid: w ? w.id : null };
+    view(false);
+  };
   wrap.querySelector('#tm-tap').onclick = () => {
+    if (!session) return;
     session = TM.timerTap(session, cfg, Date.now());
     beep(1200, 90);
     view(false);
   };
   wrap.querySelector('#tm-pause').onclick = () => {
+    if (!session) return;
     const now = Date.now();
     session = TM.isPaused(session, now) ? TM.timerResume(session, now) : TM.timerPause(session, now);
     wrap.querySelector('#tm-pause').textContent = TM.isPaused(session, Date.now()) ? 'Resume' : 'Pause';
@@ -13978,6 +14303,9 @@ function timerRun(cfg, w) {
     clearInterval(iv);
     document.removeEventListener('visibilitychange', wake);
     const now = Date.now();
+    // Backing out before ever tapping play must not open a log form for a workout that did
+    // not happen, and must not write a zero result.
+    if (!session) { F.timerSession = null; goBack(); return; }
     session = TM.timerStop(session, now);
     F.timerSession = null; save();
     if (!w) { goBack(); return; }
@@ -13988,7 +14316,6 @@ function timerRun(cfg, w) {
     render(() => logForm(w, out.fields.time || '', null, out.fields), false);
     toast(`${SC.fmtSecs(out.elapsed)}${out.taps ? ' · ' + out.taps + ' rounds' : ''} — check it and save`);
   };
-  beep(880, 200);
   view(false);
 }
 
