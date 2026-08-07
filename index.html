@@ -5080,6 +5080,57 @@ const MOVEMENTS = [
 
 const MOVEMENT_BY_ID = Object.fromEntries(MOVEMENTS.map(m => [m.id, m]));
 
+// ---------------------------------------------------------------------------------------
+// ⚑ EQUIPMENT IS DERIVED FROM MOVEMENTS, NOT STORED ON WORKOUTS.
+//
+// build_workouts.py writes a `kit` field, but only onto the workouts it generates — 37 of
+// 441. Filtering on that field would silently hide most of the library, which is the same
+// looks-complete-and-is-not failure the volume totals had. The movement registry resolves
+// 100% of the corpus, so a workout's kit is the union of its movements' kit and every
+// workout gets one. One source of truth, already hardened.
+//
+// Deliberately coarse: this answers "can I do this at all", not "is my rig identical".
+const EQUIPMENT = [
+  ['barbell', 'Barbell'], ['bench', 'Bench'], ['dumbbell', 'Dumbbells'],
+  ['kettlebell', 'Kettlebell'], ['pullupbar', 'Pull-up bar'], ['rings', 'Gymnastics rings'],
+  ['dipbars', 'Dip bars'], ['rope', 'Climbing rope'], ['jumprope', 'Jump rope'],
+  ['box', 'Plyo box'], ['wallball', 'Wall ball'], ['ghd', 'GHD'], ['wall', 'Wall space'],
+  ['rower', 'Concept2 RowErg'], ['skierg', 'Concept2 SkiErg'], ['airbike', 'Air bike'],
+  ['bikeerg', 'Concept2 BikeErg'], ['sled', 'Sled'], ['sandbag', 'Sandbag'],
+  ['implements', 'Heavy carry implements'], ['pool', 'Pool'],
+];
+const EQUIPMENT_LABEL = Object.fromEntries(EQUIPMENT);
+
+// Anything absent from this map needs nothing — a push-up, an air squat, a run, a plank.
+// That is the honest default: it is the presence of kit that has to be justified.
+const MOVEMENT_KIT = {
+  deadlift: ['barbell'], rdl: ['barbell'], backsquat: ['barbell'], frontsquat: ['barbell'],
+  overheadsquat: ['barbell'], benchpress: ['barbell', 'bench'], shoulderpress: ['barbell'],
+  pushpress: ['barbell'], pushjerk: ['barbell'], clean: ['barbell'], powerclean: ['barbell'],
+  squatclean: ['barbell'], cleanjerk: ['barbell'], snatch: ['barbell'],
+  powersnatch: ['barbell'], squatsnatch: ['barbell'], thruster: ['barbell'],
+  s2oh: ['barbell'], boxsquat: ['barbell', 'box'], bfb: ['barbell'],
+  dbdeadlift: ['dumbbell'], dbsnatch: ['dumbbell'], dbthruster: ['dumbbell'],
+  dbcleanjerk: ['dumbbell'], dblunge: ['dumbbell'], dbsquat: ['dumbbell'],
+  dbpress: ['dumbbell'], sadbpress: ['dumbbell'], dbhighpull: ['dumbbell'],
+  dbboxstepup: ['dumbbell', 'box'],
+  kbswing: ['kettlebell'], gobletsquat: ['kettlebell'],
+  pullup: ['pullupbar'], chinup: ['pullupbar'], c2b: ['pullupbar'], barmu: ['pullupbar'],
+  ttb: ['pullupbar'], kneeraise: ['pullupbar'], deadhang: ['pullupbar'],
+  ringmu: ['rings'], ringdip: ['rings'], dip: ['dipbars'],
+  du: ['jumprope'], boxjump: ['box'], wallball: ['wallball'], ghdsitup: ['ghd'],
+  ropeclimb: ['rope'], hspu: ['wall'], wallwalk: ['wall'],
+  row: ['rower'], ski: ['skierg'], airbike: ['airbike'], bike: ['bikeerg'],
+  swim: ['pool'], sled: ['sled'], sandbag: ['sandbag'], farmer: ['implements'],
+};
+
+// ⚑ Seeded from the answers he already gave (D2 and D3, twentieth session) rather than
+// guessed: RowErg yes, SkiErg yes, air bike yes, BikeErg no, rings no, rope no, GHD no,
+// sandbag no, space to handstand walk yes. The rest is read off what his own logs contain —
+// he has logged weighted pull-ups, double-unders, box jumps, KB swings and wall balls.
+const DEFAULT_KIT = ['barbell', 'bench', 'dumbbell', 'kettlebell', 'pullupbar',
+  'jumprope', 'box', 'wallball', 'wall', 'rower', 'skierg', 'airbike'];
+
 // One compiled matcher per movement. Longest-first so "power clean" wins over "clean" and
 // "strict pull-up" wins over "pull-up"; the negative lookbehinds above do the rest.
 const MOVEMENT_RE = MOVEMENTS.map(m => ({
@@ -5160,6 +5211,59 @@ function workoutsWithAll(ids) {
     const have = movementsOf(w);
     return want.every(id => have.includes(id));
   });
+}
+
+// ⚑ THE OTHER FILTER, and it is the one that answers the question he was actually asking:
+// "I want to see workouts that only include those types of movements. Not meaning that every
+// workout has to have all seven, but it can't have anything other than those seven."
+//
+// SUBSET, not superset. And the difference is not academic — measured on his real library:
+//   8 bodyweight movements  → 51 workouts you could do  ·  0 containing all eight
+//   8 barbell movements     → 65                        ·  0
+//   3 movements             → 26                        ·  14
+// `workoutsWithAll` collapses to zero past about four movements, because nothing contains
+// all of anything. This grows as you add movements, which is how "what am I willing to do
+// today" is supposed to behave.
+function workoutsOnly(ids) {
+  const have = new Set((ids || []).filter(Boolean));
+  if (!have.size) return [];
+  return allWorkouts().filter(w => {
+    const m = movementsOf(w);
+    // a workout we cannot resolve at all is not evidence that it fits — it is no evidence
+    return m.length > 0 && m.every(id => have.has(id));
+  });
+}
+
+// ---------------------------------------------------------------------------------------
+// EQUIPMENT. Derived from the movements (see MOVEMENT_KIT), so it covers all 441 workouts
+// rather than the 37 that carry build_workouts.py's `kit` field.
+function kitOf(w) {
+  const out = new Set();
+  movementsOf(w).forEach(id => (MOVEMENT_KIT[id] || []).forEach(k => out.add(k)));
+  return [...out];
+}
+// Workouts you can actually do with what you have. A workout needing nothing always passes.
+function workoutsWithKit(have) {
+  const set = new Set(have || []);
+  return allWorkouts().filter(w => kitOf(w).every(k => set.has(k)));
+}
+function missingKit(w, have) {
+  const set = new Set(have || []);
+  return kitOf(w).filter(k => !set.has(k));
+}
+// His kit lives in settings, seeded from the answers he already gave rather than empty —
+// an empty picker would show him a library of push-ups and runs on first open.
+function myKit() {
+  const f = state.fitness || (state.fitness = {});
+  if (!Array.isArray(f.kit)) f.kit = DEFAULT_KIT.slice();
+  return f.kit;
+}
+function toggleKit(k) {
+  const cur = myKit();
+  const i = cur.indexOf(k);
+  if (i >= 0) cur.splice(i, 1); else cur.push(k);
+  save();
+  return cur;
 }
 
 // The same filter applied to history — "show me every session where I deadlifted".
@@ -5609,7 +5713,7 @@ function movementCoverage() {
            unmatched: ws.filter(w => movementsOf(w).length === 0).map(w => w.name).slice(0, 40) };
 }
 
-const MV = {MOVEMENTS,MOVEMENT_BY_ID,MOVEMENT_CATS,PR_TYPES,confirmDerived,confirmKey,confirmedList,eligibleForLevel,formOf,isConfirmed,ladderHeader,logsWithAll,movementCounts,movementCoverage,movementStats,movementsIn,movementsOf,repSchemeOf,repsIn,roundsHeader,unconfirmDerived,withConfirmation,workoutsWithAll};
+const MV = {EQUIPMENT,EQUIPMENT_LABEL,MOVEMENTS,MOVEMENT_BY_ID,MOVEMENT_CATS,PR_TYPES,confirmDerived,confirmKey,confirmedList,eligibleForLevel,formOf,isConfirmed,kitOf,ladderHeader,logsWithAll,missingKit,movementCounts,movementCoverage,movementStats,movementsIn,movementsOf,myKit,repSchemeOf,repsIn,roundsHeader,toggleKit,unconfirmDerived,withConfirmation,workoutsOnly,workoutsWithAll,workoutsWithKit};
 // Strive — Bible reading plans: any scope, canonical order, pace by chapters/day
 // or target date. Missed days roll forward. Multiple plans can run at once.
 
@@ -6531,7 +6635,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260807-0836'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260807-0836';
+const BUILD_ID = '20260807-0854'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260807-0854';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -13286,7 +13390,7 @@ function ftLevel(body) {
   // Everything that qualifies it lives one tap down, on the card itself.
   const overallCard = h(`
     <div class="card" style="text-align:center;padding:22px 14px;cursor:pointer">
-      <div style="display:flex;justify-content:center">${levelRing(view.overall ?? null, 96, { best: liveView ? a.alltime.overall : null, stroke: 5 })}</div>
+      <div style="display:flex;justify-content:center">${levelRing(view.overall ?? null, 96, { best: view.overall != null ? a.alltime.overall : null, stroke: 5 })}</div>
       <div style="font-weight:700;margin-top:8px">Fitness Level</div>
       <div class="muted" style="font-size:12px">${view.overall != null
         ? view.unlockedCount + ' of 7 domains unlocked · 99 ≈ average professional'
@@ -13332,18 +13436,30 @@ function ftLevel(body) {
          + (dom.unlocked ? (nModelled ? ' · ' + nModelled + ' modelled' : '')
                          : ' — ' + Math.max(1, FT.UNLOCK_MIN - dom.count) + ' more to unlock'))
       : 'No scored results yet — tap to find benchmarks';
-    // ⚑ The same three states as the benchmark rows, one level up: a domain counting right
-    // now is at full contrast; one that only has expired results is faded but still shows
-    // what it was. The fade is the whole explanation — no pill, no second screen.
+    // ⚑ NO GHOST NUMBERS ON THIS SCREEN. Baruch, after seeing the first version: "it shows an
+    // approximate number of what it used to be. I do not want that... if the assessment has
+    // not been done, there is no valid score."
+    //
+    // He is right, and the first version was also INCONSISTENT in a way that proved his
+    // point: a domain with expired results was faded-with-a-number, while Bodyweight and
+    // Heavy — which have never unlocked at all — showed a lock. Two renderings of the same
+    // fact ("this does not count"), which is exactly what made it read as confusing.
+    //
+    // So every domain that is not counting right now renders IDENTICALLY: a lock, no number,
+    // no fade. The history is not deleted — it is one tap down, on the domain screen, where
+    // the old level sits beside the workout that earned it. This screen answers one question
+    // and it is "what is my level", not "what was it".
     const domA2 = a.alltime.domains[d];
-    const expiredOnly = !dom.unlocked && domA2 && domA2.unlocked;
+    const hadLevel = !dom.unlocked && domA2 && domA2.unlocked;
     const card = h(`
-      <div class="card" style="padding:12px 14px;cursor:pointer${expiredOnly ? ';opacity:.45' : ''}">
+      <div class="card" style="padding:12px 14px;cursor:pointer">
         <div class="row">
-          <div style="flex-shrink:0">${levelRing(dom.unlocked ? dom.level : (expiredOnly ? domA2.level : null), 46, { best: bestLvl })}</div>
+          <div style="flex-shrink:0">${levelRing(dom.unlocked ? dom.level : null, 46, { best: dom.unlocked ? bestLvl : null })}</div>
           <div class="grow">
             <div style="font-weight:700">${label}</div>
-            <div class="muted" style="font-size:12px">${expiredOnly ? `Was ${domA2.level} · nothing in the last 12 months` : sub}</div>
+            <div class="muted" style="font-size:12px">${hadLevel
+              ? `Nothing in the last 12 months — tap to see what you had`
+              : sub}</div>
           </div>
           <span class="chev">›</span>
         </div>
@@ -13354,16 +13470,21 @@ function ftLevel(body) {
   // ⚑ Q11 ✅ — the cheapest way to move the number, said out loud.
   // A repeat cancels the curve's error entirely, so it carries σ 7.07 instead of the tier's.
   // On a tier-E workout that is 8.4× a first attempt and worth half an Open result.
+  // ⚑ READ FROM ALL-TIME, NOT FROM THE LIVE VIEW. This nudge is about what is in your log,
+  // and a live window with nothing in it has no suggestions to make — so switching the screen
+  // to live silently deleted the most useful thing on it. Repeating a workout you have done
+  // before is precisely how an expired domain comes back, which makes this MORE relevant when
+  // the live view is empty, not less.
   const repeatable = [];
   FT.ASSESS_DOMAINS.forEach(([d, label]) => {
-    (view.domains[d].repeatSuggestions || []).forEach(r => repeatable.push({ ...r, domain: label }));
+    (a.alltime.domains[d].repeatSuggestions || []).forEach(r => repeatable.push({ ...r, domain: label }));
   });
   repeatable.sort((x, y) => y.gain - x.gain);
   if (repeatable.length) {
     const top = repeatable[0];
     const nudge = h(`<div class="card" style="padding:12px 14px;cursor:pointer">
       <div class="row"><div class="grow">
-        <div style="font-weight:700;font-size:13px">You have done this one before</div>
+        <div style="font-weight:700;font-size:13px">${view.overall == null ? 'The quickest way back' : 'You have done this one before'}</div>
         <div class="muted" style="font-size:12px">Repeat <b>${esc(top.label)}</b> and it counts about
           ${top.gain >= 1 ? top.gain.toFixed(1) + '×' : Math.round(top.gain * 100) + '% of'} an Open result
           toward ${esc(top.domain)} — more than most first attempts, because repeating a workout
@@ -13496,13 +13617,16 @@ function ftDomainScreenBody(d, label) {
   const wrap = document.createElement('div');
   const a = FT.assessment();
   const domA = a.alltime.domains[d], domL = a.live.domains[d];
-  const shownLevel = domL.unlocked ? domL.level : (domA.unlocked ? domA.level : null);
-  // Q12 again: the domain number is bare too. The ± sits in the source sheet, not beside it.
+  // ⚑ Same rule one level down: the ring shows a LOCK, never an expired number. The all-time
+  // level is stated in words underneath, which is a different claim from drawing it inside
+  // the ring — one is history, the other looks like a score.
+  const shownLevel = domL.unlocked ? domL.level : null;
+  const need = Math.max(1, FT.UNLOCK_MIN - domL.count);
   const summary = domL.unlocked ? 'Live level ' + domL.level
-    : domA.unlocked ? 'All-time ' + domA.level + ' · nothing in the last 12 months'
-    : Math.max(1, FT.UNLOCK_MIN - domL.count) + ' more result' + (FT.UNLOCK_MIN - domL.count === 1 ? '' : 's') + ' to unlock';
+    : domA.unlocked ? `Nothing in the last 12 months · all-time you were ${domA.level}`
+    : need + ' more result' + (need === 1 ? '' : 's') + ' in the last 12 months to unlock';
   wrap.append(h(`<div class="card" style="text-align:center;padding:16px 14px">
-      <div style="display:flex;justify-content:center">${levelRing(shownLevel, 74, { best: domL.unlocked ? null : (domA.unlocked ? domA.level : null), stroke: 5 })}</div>
+      <div style="display:flex;justify-content:center">${levelRing(shownLevel, 74, { best: null, stroke: 5 })}</div>
       <div style="font-weight:700;margin-top:6px">${label}</div>
       <div class="muted" style="font-size:12px">${summary}</div>
     </div>`));
@@ -13712,6 +13836,19 @@ function workoutCardBuilder() {
 function cardComponentPicker() {
   setHeader('Add component', { back: true });
   const wrap = document.createElement('div');
+  // ⚑ AND IT BELONGS HERE MOST OF ALL — this is the screen you are on when you are actually
+  // planning a session, and searching by NAME only helps if you already know what you want.
+  // Picking a workout in the finder adds it straight to the card and comes back.
+  const find = h(`<div class="card" style="padding:12px 14px;cursor:pointer;margin-bottom:10px">
+      <div class="row"><div class="grow">
+        <div style="font-weight:700;font-size:13px">Find by movement or equipment</div>
+        <div class="muted" style="font-size:12px">Instead of searching by name</div>
+      </div><span class="chev">›</span></div></div>`);
+  find.firstElementChild.onclick = () => render(() => workoutFinder(mvSelected, {
+    title: 'Add component',
+    onPick: w => { cardDraft.parts.push(w.id); render(workoutCardBuilder); },
+  }));
+  wrap.append(find);
   const inp = h(`<input placeholder="Search workouts…" style="width:100%;${FIN};margin-bottom:10px">`).firstChild;
   const list = document.createElement('div');
   const draw = () => {
@@ -13990,10 +14127,10 @@ function ftMovements(body) {
     const logs = MV.logsWithAll(mvSelected);
     const tray = h(`<div class="card" style="border-color:var(--gold);padding:12px 13px">
         <div style="font-size:13px;line-height:1.6"><b>${esc(names.join(' + '))}</b></div>
-        <div class="muted" style="font-size:12px;margin-top:4px">${hits.length} workout${hits.length === 1 ? '' : 's'} contain ${names.length === 1 ? 'it' : 'all of them'} · ${logs.length} session${logs.length === 1 ? '' : 's'} in your history</div>
+        <div class="muted" style="font-size:12px;margin-top:4px"><b>${MV.workoutsOnly(mvSelected).length}</b> made up of only these · <b>${hits.length}</b> containing all of them · ${logs.length} session${logs.length === 1 ? '' : 's'} in your history</div>
         <div class="row" style="gap:8px;margin-top:10px">
           <button class="btn secondary grow" data-a="clear">Clear</button>
-          <button class="btn grow" data-a="show">Show workouts</button>
+          <button class="btn grow" data-a="show">Find workouts</button>
         </div>
       </div>`).firstElementChild;
     tray.querySelector('[data-a=clear]').onclick = () => { mvSelected = []; render(fitnessHome); };
@@ -14026,15 +14163,92 @@ function ftMovements(body) {
   body.append(h(`<div class="muted" style="font-size:11px;margin:8px 4px;line-height:1.55">Tap a movement to see the stats that matter for it. Tap ＋ on several to find the workouts that contain all of them. ${shown.length} of ${MV.MOVEMENTS.length} movements appear in your library.</div>`));
 }
 
-function mvResultsScreen(ids) {
-  const names = ids.map(id => (MV.MOVEMENT_BY_ID[id] || {}).name).filter(Boolean);
-  setHeader(names.join(' + '), { back: true });
+// ⚑ THE WORKOUT FINDER. Two questions that look alike and are not:
+//
+//   ONLY THESE  — "it can't have anything other than those seven" (his words). SUBSET.
+//                 This is what you ask when you are deciding what to train today.
+//   ALL OF THESE — every one of the selected movements appears. SUPERSET. This is what you
+//                 ask when you are hunting for a specific workout you half-remember.
+//
+// The old screen only had the second, which is why it went to zero as soon as you picked
+// more than about four movements. Both are here, and the counts for each are printed on the
+// toggle so the difference is visible instead of something you have to work out.
+//
+// ⚑ EQUIPMENT IS A SEPARATE AXIS AND COMBINES WITH EITHER. Derived from the movements, so it
+// covers all 441 workouts rather than the 37 that carry a `kit` field.
+let mvMode = 'only';
+let mvUseKit = true;
+let finderReturn = null;      // where "Use this workout" should hand the choice back to
+
+function workoutFinder(ids, opts = {}) {
+  const sel = (ids || []).filter(Boolean);
+  const names = sel.map(id => (MV.MOVEMENT_BY_ID[id] || {}).name).filter(Boolean);
+  setHeader(opts.title || 'Find a workout', { back: true });
   const wrap = document.createElement('div');
-  const hits = MV.workoutsWithAll(ids);
-  wrap.append(h(`<div class="muted" style="font-size:12px;margin:2px 4px 8px">${hits.length} workout${hits.length === 1 ? '' : 's'} contain ${names.length === 1 ? 'it' : 'all ' + names.length}.</div>`));
-  hits.slice(0, 120).forEach(w => wrap.append(libRow(w)));
+  const kit = MV.myKit();
+
+  const base = !sel.length ? FT.allWorkouts()
+    : mvMode === 'only' ? MV.workoutsOnly(sel) : MV.workoutsWithAll(sel);
+  const hits = mvUseKit ? base.filter(w => !MV.missingKit(w, kit).length) : base;
+
+  // the two questions, with their answers on the buttons
+  if (sel.length) {
+    const nOnly = MV.workoutsOnly(sel).length, nAll = MV.workoutsWithAll(sel).length;
+    const modes = h(`<div class="pillrow">
+        <button class="pill ${mvMode === 'only' ? 'on' : ''}" data-m="only">Only these · ${nOnly}</button>
+        <button class="pill ${mvMode === 'all' ? 'on' : ''}" data-m="all">All of these · ${nAll}</button>
+      </div>`);
+    modes.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { mvMode = b.dataset.m; render(() => workoutFinder(sel, opts)); });
+    wrap.append(modes);
+    wrap.append(h(`<div class="card" style="padding:11px 13px">
+        <div style="font-size:13px;line-height:1.6"><b>${esc(names.join(' + '))}</b></div>
+        <div class="muted" style="font-size:11.5px;margin-top:4px;line-height:1.55">${mvMode === 'only'
+          ? 'Workouts made up of nothing but these — they need not contain all of them.'
+          : 'Workouts containing every one of these, and possibly more besides.'}</div>
+      </div>`));
+  } else {
+    wrap.append(h(`<div class="muted" style="font-size:12px;margin:2px 4px 8px">No movements picked, so this is your whole library${mvUseKit ? ', filtered to the kit you have' : ''}. Pick movements on the Movements screen to narrow it.</div>`));
+  }
+
+  // ---- equipment, as its own axis
+  const blocked = base.length - hits.length;
+  const kitCard = h(`<div class="card" style="padding:11px 13px">
+      <div class="row" style="align-items:center">
+        <div class="grow" style="font-size:13px;font-weight:700">Equipment</div>
+        <button class="pill ${mvUseKit ? 'on' : ''}" data-a="usekit">${mvUseKit ? 'Filtering' : 'Ignoring'}</button>
+      </div>
+      <div class="muted" style="font-size:11.5px;margin-top:5px;line-height:1.55">${mvUseKit
+        ? `Showing only what you can do with what you have${blocked ? ` — <b>${blocked}</b> hidden for want of kit` : ''}.`
+        : 'Showing everything, including workouts needing kit you do not have.'}</div>
+      <div class="pillrow" data-a="kits" style="margin-top:8px;flex-wrap:wrap"></div>
+    </div>`).firstElementChild;
+  kitCard.querySelector('[data-a=usekit]').onclick = () => { mvUseKit = !mvUseKit; render(() => workoutFinder(sel, opts)); };
+  const kitRow = kitCard.querySelector('[data-a=kits]');
+  MV.EQUIPMENT.forEach(([k, lab]) => {
+    const on = kit.includes(k);
+    const b = h(`<button class="pill ${on ? 'on' : ''}" style="font-size:11px">${esc(lab)}</button>`).firstElementChild;
+    b.onclick = () => { MV.toggleKit(k); render(() => workoutFinder(sel, opts)); };
+    kitRow.append(b);
+  });
+  wrap.append(kitCard);
+
+  wrap.append(sectionTitle(`${hits.length} workout${hits.length === 1 ? '' : 's'}`));
+  if (!hits.length) {
+    wrap.append(h(`<div class="muted" style="font-size:12px;margin:2px 4px 8px">Nothing matches. ${mvMode === 'all' && sel.length > 3 ? 'Try <b>Only these</b> — asking for every one of these movements in a single workout gets very restrictive past three or four.' : 'Try removing a movement, or turn the equipment filter off.'}</div>`));
+  }
+  hits.slice(0, 120).forEach(w => {
+    const row = libRow(w);
+    // when the finder was opened FROM a planning surface, picking a workout returns it there
+    if (opts.onPick) {
+      const item = row.querySelector('.list-item') || row;
+      item.onclick = () => opts.onPick(w);
+    }
+    wrap.append(row);
+  });
   main().append(wrap);
 }
+// the old name, kept so nothing that linked to it breaks
+function mvResultsScreen(ids) { return workoutFinder(ids); }
 
 // ⚑ The confirm control. §6's rule is that a derived value never sets a PR or feeds Level
 // until it has been confirmed — so there has to be somewhere to confirm it, and it has to
@@ -14141,6 +14355,19 @@ function mvDetailScreen(id) {
 let ftDomainFilter = 'all';
 
 function ftWorkouts(body) {
+  // ⚑ THE FINDER BELONGS WHERE YOU ARE WHEN YOU ARE CHOOSING. It lives on the Movements
+  // screen because that is where the picker is, but nobody goes to Movements in order to
+  // decide what to train — they come here.
+  {
+    const find = h(`<div class="card" style="padding:12px 14px;cursor:pointer">
+        <div class="row"><div class="grow">
+          <div style="font-weight:700;font-size:13px">Find a workout</div>
+          <div class="muted" style="font-size:12px">By the movements you want to do, or the kit you have</div>
+        </div><span class="chev">›</span></div></div>`);
+    find.firstElementChild.onclick = () => render(() => workoutFinder(mvSelected));
+    body.append(find);
+  }
+
   const doms = [['all', 'All'], ...FT.ASSESS_DOMAINS];
   const dpills = h(`<div class="pillrow">${doms.map(([d, l]) =>
     `<button class="pill ${ftDomainFilter === d ? 'on' : ''}" data-d="${d}">${l}${d === 'all' ? '' : ' (' + FT.byDomain(d).length + ')'}</button>`).join('')}</div>`);
