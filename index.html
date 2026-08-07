@@ -1120,6 +1120,19 @@ function ensureShapes() {
     if (!Array.isArray(b.categories)) b.categories = b.category ? [b.category] : [];
     if (b.category !== undefined) delete b.category;
   });
+  // ⚑ Any STORED fitness log without an id gets a derived one. See the long note on
+  // `logIdFor` in fitness.js for why ids were missing and why they are derived rather than
+  // random. Idempotent; a log that has an id is left alone. The 431 seed logs are handled in
+  // fitness.js instead, because they are a build-time constant and never reach state at all.
+  if (state.fitness && Array.isArray(state.fitness.logs)) {
+    const seen = {};
+    state.fitness.logs.forEach(l => {
+      if (l.id) return;
+      const base = 'lg' + Number(l.ts || 0).toString(36) + '-' + String(l.wid || 'x');
+      seen[base] = (seen[base] || 0) + 1;
+      l.id = seen[base] > 1 ? base + '-' + seen[base] : base;
+    });
+  }
   if (!Array.isArray(state.sermons)) state.sermons = [];
   if (!state.planner) state.planner = def.planner;
   if (!Array.isArray(state.planner.targets)) state.planner.targets = [];   // Phase 9.5 (additive)
@@ -3801,14 +3814,38 @@ function removeCustomWorkout(id) {
 }
 
 // ---- logs ----
+// ---------------------------------------------------------------------------------------
+// ⚑ EVERY LOG NEEDS AN ID, AND 431 OF HIS 628 DID NOT HAVE ONE (twenty-fourth session).
+//
+// Only logs created through addLog() were ever given one. The entire imported btwb history —
+// seven years, and the great majority of the data — had none, because until now nothing had
+// ever needed to point AT a log. Retroactive grouping is the first feature that does, and it
+// was quietly impossible over exactly the history he wants to group: cardFromLogs would build
+// a card whose every part read `logId: null`, looking like it worked.
+//
+// ⚑ THE SEED LOGS ARE A BUILD-TIME CONSTANT AND NEVER REACH STATE, so this cannot be a store
+// migration. It is applied once, here, at module load.
+//
+// ⚑ AND THE ID IS DERIVED, NOT RANDOM — the part worth keeping. A uid would be re-rolled every
+// time the module loaded, so a card saved on Tuesday would point at nothing on Wednesday.
+// Building it from the log's own timestamp and workout makes it identical on every load, on
+// every device, forever. The duplicate counter keeps two entries of the same workout at the
+// same instant distinct, which the real does contain.
+function logIdFor(l, seen) {
+  const base = 'lg' + Number(l.ts || 0).toString(36) + '-' + String(l.wid || 'x');
+  seen[base] = (seen[base] || 0) + 1;
+  return seen[base] > 1 ? base + '-' + seen[base] : base;
+}
+const SEED_LOGS_IDD = (() => { const seen = {}; return SEED_LOGS.map(l => (l.id ? l : { ...l, id: logIdFor(l, seen) })); })();
+
 function logsFor(wid) {
   ftEnsure();
-  return [...SEED_LOGS.filter(l => l.wid === wid), ...F().logs.filter(l => l.wid === wid)]
+  return [...SEED_LOGS_IDD.filter(l => l.wid === wid), ...F().logs.filter(l => l.wid === wid)]
     .sort((a, b) => b.ts - a.ts);
 }
 function allLogs() {
   ftEnsure();
-  return [...SEED_LOGS, ...F().logs].sort((a, b) => b.ts - a.ts);
+  return [...SEED_LOGS_IDD, ...F().logs].sort((a, b) => b.ts - a.ts);
 }
 // Rx tri-state (Phase 8): as-prescribed, scaled DOWN (−Rx, less weight/reps/sets),
 // scaled UP (+Rx, more). rxStatus is the source of truth; the rx string is kept for
@@ -3879,7 +3916,11 @@ function allCards() { cardsEnsure(); return [...F().cards].sort((a, b) => b.ts -
 function getCard(id) { cardsEnsure(); return F().cards.find(c => c.id === id) || null; }
 function addCard({ name = '', ts = Date.now(), parts = [] }) {
   cardsEnsure();
-  const c = { id: 'wc' + uid(), name: name.trim() || defaultCardName(ts), ts, parts: parts.map(p => ({ wid: p.wid, logId: null })) };
+  // ⚑ `logId: p.logId || null` — it used to hardcode null, which was right while the only way
+  // to build a card was FORWARDS (make the card, then log into its slots). Retroactive
+  // grouping hands over parts that are already logged, and discarding their log ids would have
+  // produced a card of empty slots sitting next to the very logs it was made from.
+  const c = { id: 'wc' + uid(), name: name.trim() || defaultCardName(ts), ts, parts: parts.map(p => ({ wid: p.wid, logId: p.logId || null })) };
   F().cards.push(c);
   save();
   return c;
@@ -3888,6 +3929,65 @@ function cardAddPart(cardId, wid) { const c = getCard(cardId); if (c) { c.parts.
 function cardRemovePart(cardId, idx) { const c = getCard(cardId); if (c) { c.parts.splice(idx, 1); save(); } }
 function cardSetPartLog(cardId, idx, logId) { const c = getCard(cardId); if (c && c.parts[idx]) { c.parts[idx].logId = logId; save(); } }
 function removeCard(id) { cardsEnsure(); F().cards = F().cards.filter(c => c.id !== id); save(); }
+
+// ---------------------------------------------------------------------------------------
+// ⚑ RETROACTIVE GROUPING (twenty-fourth session). Baruch: "I log multiple workouts but they're
+// often all adding up to one workout for that day. So I need to be able to group them together
+// AFTER I've entered them, so that though they log as separate in stats etc., when it comes to
+// counting the workout of the day or how many workouts I've done in the week, it's not counting
+// every individual piece."
+//
+// ⚑ A CARD IS A VIEW OVER LOGS AND OWNS NOTHING. Grouping does not move, edit, merge or delete
+// a single log — it records that these entries were one session. That is what makes it safe to
+// do to history, and what makes ungrouping a no-op for the data. PR and assessment continue to
+// run on the component logs exactly as before, which is the Phase 8 §3 rule and is the reason
+// his "they still log as separate in stats" is satisfied for free.
+//
+// ⚑ AND THE COUNTING HALF OF HIS ASK WAS ALREADY TRUE — worth saying so rather than building a
+// second mechanism for it. trainingStreak counts sessionDayKeys(), which is DISTINCT DAYS, so
+// three logs on one Tuesday have always counted as one session toward the weekly target.
+// Grouping changes how the day READS; it does not change what the streak counts. A test in
+// test-ftnav.mjs asserts the streak is byte-identical before and after a grouping.
+
+// Which card, if any, a log already belongs to. One log is in at most one card.
+function cardForLog(logId) {
+  cardsEnsure();
+  return F().cards.find(c => c.parts.some(p => p.logId === logId)) || null;
+}
+
+// Days that have more than one log — the only days grouping has anything to say about.
+// Newest first, and each day carries whether any of its logs are already spoken for.
+function groupableDays() {
+  const by = {};
+  allLogs().forEach(l => {
+    const k = dayKeyOf(l.ts);
+    (by[k] = by[k] || []).push(l);
+  });
+  return Object.entries(by)
+    .filter(([, logs]) => logs.length > 1)
+    .map(([dk, logs]) => ({
+      dk,
+      ts: Math.max(...logs.map(l => l.ts)),
+      logs: logs.sort((a, b) => a.ts - b.ts),
+      grouped: logs.filter(l => cardForLog(l.id)).length,
+    }))
+    .sort((a, b) => b.dk.localeCompare(a.dk));
+}
+
+// Build a card out of logs that already exist. Parts keep the order given, which is the order
+// they were logged in — Part A is what he did first.
+function cardFromLogs({ logIds = [], name = '', ts = null } = {}) {
+  cardsEnsure();
+  const logs = logIds.map(id => allLogs().find(l => l.id === id)).filter(Boolean);
+  if (logs.length < 2) return null;               // one log is not a multi-part workout
+  if (logs.some(l => cardForLog(l.id))) return null;   // never let a log sit in two cards
+  logs.sort((a, b) => a.ts - b.ts);
+  return addCard({
+    name,
+    ts: ts || logs[logs.length - 1].ts,
+    parts: logs.map(l => ({ wid: l.wid, logId: l.id })),
+  });
+}
 
 // ---- result parsing & PRs ----
 // numeric value for comparison; direction: time → lower is better, everything else → higher
@@ -4104,6 +4204,61 @@ function levelFromCurve(v, curve, dir, levels) {
   const a = pts[pts.length - 2], b = pts[pts.length - 1];
   const slope = (b.l - a.l) / (b.v - a.v);
   return Math.min(99, Math.max(1, Math.round(b.l + (v - b.v) * slope)));
+}
+
+// ---------------------------------------------------------------------------------------
+// ⚑ THE INVERSE OF levelFromCurve (twenty-fourth session). Baruch: "when I look at a workout
+// that is used for assessment I want to be able to see the results or stats of different
+// levels. So maybe that's just 25th, 50th, 75th and 99th."
+//
+// ⚑ THIS INVENTS NOTHING, AND THAT IS THE WHOLE ARGUMENT FOR IT. levelFromCurve is already
+// piecewise-linear between anchors, so a result landing between two of them ALREADY scores on
+// the interpolated line. Reading that same line backwards prints the number the engine would
+// hand back a given level for. Clean & Jerk stores 245 lb at L75 and 285 at L90, so L80 reads
+// 258 — and lifting 258 today already returns 80. Showing it is showing the reader the function
+// that is already scoring them, which is the opposite of making one up.
+//
+// ⚑ IT MUST BE AN EXACT INVERSE, NOT AN APPROXIMATION OF ONE. Two functions that agree
+// approximately are two functions that will disagree visibly the first time either is edited,
+// and the ladder would then contradict the level printed beside it on the same screen.
+// test-ladder asserts levelFromCurve(valueAtLevel(L)) === L for all four rungs on every
+// benchmark that has a curve — 144 of 162 — rather than on a sample.
+function valueAtLevel(level, curve, dir, levels) {
+  if (!curve || !levels || !curve.length) return null;
+  const pts = curve.map((c, i) => ({ v: c, l: levels[i] }));
+  // levels descend (99 first). At or above the top anchor, the elite value — matching
+  // levelFromCurve, which clamps anything better than pts[0] to 99 rather than extrapolating.
+  if (level >= pts[0].l) return pts[0].v;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    if (level <= a.l && level >= b.l) {
+      if (a.l === b.l) return a.v;
+      const t = (level - a.l) / (b.l - a.l);
+      return a.v + t * (b.v - a.v);
+    }
+  }
+  // below the worst anchor, extrapolate on the last segment's slope — the same rule, mirrored
+  const a = pts[pts.length - 2], b = pts[pts.length - 1];
+  if (b.l === a.l) return b.v;
+  const slope = (b.v - a.v) / (b.l - a.l);
+  return b.v + (level - b.l) * slope;
+}
+
+// ⚑ THE RUNGS ARE 99 / 80 / 50 / 20, AND THEY ARE HIS CALL. He asked for "approximately 25,
+// 50, 75 and 99". The stored grids differ by tier — the 63 tier-A benchmarks hold 80 and 20 as
+// real anchors but no 75 or 25, while the 39 tier-B/C ones hold 75 and 20 but no 80. He chose
+// one consistent set over per-tier exactness, which the interpolation argument above makes
+// honest: every rung is a point on the curve the engine already uses.
+const LEVEL_RUNGS = [99, 80, 50, 20];
+
+// The ladder for one benchmark, ready to render. null when the benchmark has no curve — the
+// 18 weight-0 personal ones (Max Pull-ups, Max Weighted Pull-up, the air bike). They score
+// nothing, so there is nothing to read backwards, and the screen says that rather than
+// printing a blank.
+function levelLadder(key) {
+  const b = BENCHMARKS[key];
+  if (!b || !b.curve || !b.levels || !b.curve.length) return null;
+  return LEVEL_RUNGS.map(l => ({ level: l, value: valueAtLevel(l, b.curve, b.dir, b.levels) }));
 }
 
 // Q13 ✅: tier C and tier E results DO count toward the unlock. Anything with a curve and a
@@ -4479,7 +4634,7 @@ function ftStats() {
   };
 }
 
-const FT = {ASSESS_DOMAINS,BENCHMARKS,FORMATS,LIBRARY,REPMAX_MAX_REPS,RESULT_TYPES,ROOMS,RX_STATES,SIGMA_EST_1RM,SIGMA_REPEAT,STREAK_DEFAULTS,TIER_SIGMA,UNLOCK_MIN,WORKOUT_TEMPLATES,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,assessment,axisValue,benchmarkFor,buildResult,byDomain,cardAddPart,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,dietTargets,estBand,formatOf,ftStats,getCard,getWorkout,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,libraryFor,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,prFor,precisionOf,precisionOfResult,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,rxLabel,rxStatusOf,sessionText,setDietTargets,setStreakSettings,setWaterGoal,setWeightGoal,sigmaFromPrecision,sigmaOf,sigmaOfResult,sleepForDate,sleepList,streakSettings,trainingStreak,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights,workoutsBetween};
+const FT = {ASSESS_DOMAINS,BENCHMARKS,FORMATS,LEVEL_RUNGS,LIBRARY,REPMAX_MAX_REPS,RESULT_TYPES,ROOMS,RX_STATES,SIGMA_EST_1RM,SIGMA_REPEAT,STREAK_DEFAULTS,TIER_SIGMA,UNLOCK_MIN,WORKOUT_TEMPLATES,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,assessment,axisValue,benchmarkFor,buildResult,byDomain,cardAddPart,cardForLog,cardFromLogs,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,dietTargets,estBand,formatOf,ftStats,getCard,getWorkout,groupableDays,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,levelLadder,libraryFor,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,prFor,precisionOf,precisionOfResult,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,rxLabel,rxStatusOf,sessionText,setDietTargets,setStreakSettings,setWaterGoal,setWeightGoal,sigmaFromPrecision,sigmaOf,sigmaOfResult,sleepForDate,sleepList,streakSettings,trainingStreak,valueAtLevel,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights,workoutsBetween};
 // Strive — the workout timer engine. Pure, no DOM, no clock of its own.
 //
 // ⚑ WHY THIS IS A SEPARATE MODULE, AND WHY IT TAKES `now` AS AN ARGUMENT.
@@ -5715,6 +5870,100 @@ function withConfirmation(st) {
 }
 
 // ---------------------------------------------------------------------------------------
+// ⚑ THE STATS SUMMARY (twenty-fourth session). Baruch: "in the fitness home screen there should
+// be a stats page... that's where max stats will live, max load, total load, the calisthenics
+// stats, the fastest runs. The stats page doesn't have to have every movement on it."
+//
+// ⚑ THIS COMPUTES NOTHING NEW AND THAT IS DELIBERATE. Every number here is movementStats()
+// read back and sorted. A second implementation of "heaviest lift" would be a second thing to
+// keep true, and the two would drift the first time an attribution rule changed — which is
+// exactly what the twenty-second session's audit spent nine defects proving.
+//
+// ⚑ SUMMING TONNAGE ACROSS MOVEMENTS IS SOUND, and it is worth writing down why rather than
+// trusting it. repsIn() attributes per SEGMENT and refuses any segment naming two movements
+// (`movementsIn(seg).length > 1 → blocked`), so no rep is ever counted against two movements.
+// The totals are therefore disjoint sums, not overlapping ones.
+//
+// ⚑ AND THE DENOMINATOR TRAVELS WITH EVERY TOTAL. A lifetime tonnage that silently covers a
+// third of the history is the defect `strive-denominator-audit.md` exists about. Each total
+// carries how many sessions it could be read from, and a total that could be read from nothing
+// is null — never 0. "No reps could be read" and "you did zero reps" are different claims.
+function statsSummary({ windowDays = 365, top = 8 } = {}) {
+  const counts = movementCounts();
+  const ids = MOVEMENTS.filter(m => counts[m.id]).map(m => m.id);
+
+  const heaviest = [], maxSets = [], fastest = [], efforts = [], tonnageBy = [];
+  let tonAll = 0, tonWin = 0, tonMovements = 0;
+  let repsAll = 0, repsMovements = 0;
+  let sessionsCounted = 0, sessionsUnknown = 0;
+
+  ids.forEach(id => {
+    const st = movementStats(id, { windowDays });
+    if (!st) return;
+    const S = st.stats;
+
+    // heaviest single — a rep max at ONE rep, or a heaviest weighted rep. Both are already
+    // guarded upstream (a bare load on a multi-set piece is tonnage, not a set weight).
+    const single = (S.repmax || []).find(r => r.reps === 1);
+    if (single) heaviest.push({ id, name: st.name, cat: st.cat, kind: '1RM', value: single.value, ts: single.ts, from: single.from || null });
+    if (S.weighted) heaviest.push({ id, name: st.name, cat: st.cat, kind: 'weighted', value: S.weighted.value, ts: S.weighted.ts, from: S.weighted.from || null });
+
+    if (S.maxset) maxSets.push({ id, name: st.name, cat: st.cat, value: S.maxset.value, ts: S.maxset.ts });
+    if (S.effort) efforts.push({ id, name: st.name, cat: st.cat, value: S.effort.value, ts: S.effort.ts });
+    (S.distance || []).forEach(d => fastest.push({ id, name: st.name, cat: st.cat, at: d.at, value: d.value, ts: d.ts }));
+
+    const V = S.volume;
+    if (V) {
+      sessionsCounted += V.sessionsCounted || 0;
+      sessionsUnknown += V.sessionsUnknown || 0;
+      if (V.tonnageLifetime !== null) { tonAll += V.tonnageLifetime; tonWin += V.tonnageWindow || 0; tonMovements++;
+        tonnageBy.push({ id, name: st.name, cat: st.cat, tonnage: V.tonnageLifetime }); }
+      if (V.repsLifetime !== null) { repsAll += V.repsLifetime; repsMovements++; }
+    }
+  });
+
+  // ⚑ SESSIONS ARE COUNTED ON DAYS, NOT LOGS — the same rule trainingStreak uses. Baruch logs
+  // a day's work as several entries, so counting logs would report a training year he did not
+  // have. Grouping them into one card must not change this number, and a test asserts it.
+  // ⚑ todayKey(), NOT toISOString().slice(0,10). The first draft of this used the UTC date and
+  // it would have been wrong for every evening session — the app is on America/New_York, so a
+  // workout logged after 8pm belongs to the NEXT day in UTC. The streak, the logbook and the
+  // planner all key on the local day via todayKey; a headline "training days" that quietly used
+  // a different calendar would disagree with the streak sitting one screen away and there would
+  // be no way to tell which was lying.
+  const dayKeys = new Set();
+  let firstTs = null, lastTs = null;
+  allLogs().forEach(l => {
+    dayKeys.add(todayKey(new Date(l.ts)));
+    if (firstTs === null || l.ts < firstTs) firstTs = l.ts;
+    if (lastTs === null || l.ts > lastTs) lastTs = l.ts;
+  });
+
+  const byValueDesc = (a, b) => b.value - a.value;
+  return {
+    totals: {
+      logs: allLogs().length,
+      sessionDays: dayKeys.size,
+      movementsSeen: ids.length,
+      movementsTotal: MOVEMENTS.length,
+      tonnageLifetime: tonMovements ? tonAll : null,
+      tonnageWindow: tonMovements ? tonWin : null,
+      tonnageMovements: tonMovements,
+      repsLifetime: repsMovements ? repsAll : null,
+      repsMovements,
+      sessionsCounted, sessionsUnknown,
+      firstTs, lastTs,
+    },
+    heaviest: heaviest.sort(byValueDesc).slice(0, top),
+    maxSets: maxSets.sort(byValueDesc).slice(0, top),
+    // a TIME is better when lower — the one list that does not sort like the others
+    fastest: fastest.sort((a, b) => a.value - b.value).slice(0, top),
+    efforts: efforts.sort(byValueDesc).slice(0, top),
+    tonnageBy: tonnageBy.sort((a, b) => b.tonnage - a.tonnage).slice(0, top),
+  };
+}
+
+// ---------------------------------------------------------------------------------------
 // Coverage: what fraction of the library the registry actually recognises. Measured, not
 // asserted — test-movements.mjs holds it to a floor so a bad edit to the alias table shows up.
 function movementCoverage() {
@@ -5724,7 +5973,7 @@ function movementCoverage() {
            unmatched: ws.filter(w => movementsOf(w).length === 0).map(w => w.name).slice(0, 40) };
 }
 
-const MV = {EQUIPMENT,EQUIPMENT_LABEL,MOVEMENTS,MOVEMENT_BY_ID,MOVEMENT_CATS,PR_TYPES,confirmDerived,confirmKey,confirmedList,eligibleForLevel,formOf,isConfirmed,kitOf,ladderHeader,logsWithAll,missingKit,movementCounts,movementCoverage,movementStats,movementsIn,movementsOf,myKit,repSchemeOf,repsIn,roundsHeader,toggleKit,unconfirmDerived,withConfirmation,workoutsOnly,workoutsWithAll,workoutsWithKit};
+const MV = {EQUIPMENT,EQUIPMENT_LABEL,MOVEMENTS,MOVEMENT_BY_ID,MOVEMENT_CATS,PR_TYPES,confirmDerived,confirmKey,confirmedList,eligibleForLevel,formOf,isConfirmed,kitOf,ladderHeader,logsWithAll,missingKit,movementCounts,movementCoverage,movementStats,movementsIn,movementsOf,myKit,repSchemeOf,repsIn,roundsHeader,statsSummary,toggleKit,unconfirmDerived,withConfirmation,workoutsOnly,workoutsWithAll,workoutsWithKit};
 // Strive — Bible reading plans: any scope, canonical order, pace by chapters/day
 // or target date. Missed days roll forward. Multiple plans can run at once.
 
@@ -6646,7 +6895,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260807-0914'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260807-0914';
+const BUILD_ID = '20260807-1354'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260807-1354';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -7185,7 +7434,12 @@ function dashboard() {
   `));
   main().querySelector('#d-stats').onclick = () => render(statsScreen);   // D-AB: Stats sits ABOVE Trends
   main().querySelector('#d-trends').onclick = () => render(trendsScreen);
-  main().querySelector('#d-fitness').onclick = () => ftGo('level');   // the dashboard ring goes straight to the assessment
+  // ⚑ TWENTY-FOURTH SESSION — the ring lands on the HUB, not the assessment. He asked for the
+  // opposite in the twenty-second and reversed it himself after using the hub: "I know I told
+  // you different before but at this point the way that the fitness home page is laid out, it
+  // makes it easy to navigate to the overall fitness page and it shows it pretty largely at the
+  // top." The hub's own card carries the Level ring, so nothing is further away than one tap.
+  main().querySelector('#d-fitness').onclick = () => ftGo('hub');
   { // 7B.2 dashboard-as-hub — Scripture card clickable targets
     const scT = main().querySelector('#d-sc-title'); if (scT) scT.onclick = () => render(scriptureHome);
     main().querySelectorAll('[data-corpus]').forEach(r => r.onclick = () => { const k = r.dataset.corpus; render(() => corpusBooks(k === 'all' ? null : k)); });
@@ -7193,12 +7447,21 @@ function dashboard() {
     const scP = main().querySelector('#d-sc-practice'); if (scP) scP.onclick = e => { e.stopPropagation(); render(practiceScriptureLauncher); };
     const scR = main().querySelector('#d-sc-review'); if (scR) scR.onclick = e => { e.stopPropagation(); render(reviewArea); };   // Scripture Review reachable from the hub (Areas tab removed)
     const crP = main().querySelector('#d-cr-practice'); if (crP) crP.onclick = e => { e.stopPropagation(); render(practiceCreedsLauncher); };
-    main().querySelectorAll('#d-fitness [data-dom]').forEach(r => r.onclick = e => { e.stopPropagation(); ftDomainView = 'lib'; render(() => ftDomainScreen(r.dataset.dom)); });
+    // ⚑ 'assess', NOT 'lib'. Tapping a domain from the dashboard opened the FULL LIBRARY of that
+    // domain — every workout in it, scoring or not. His instruction: "the standard should be it
+    // just brings me to the assessment piece of that, not the full library." The library is still
+    // one tap away on the toggle; it is no longer what you land on.
+    main().querySelectorAll('#d-fitness [data-dom]').forEach(r => r.onclick = e => { e.stopPropagation(); ftDomainView = 'assess'; render(() => ftDomainScreen(r.dataset.dom)); });
   }
   const ftq = main().querySelector('#d-ft-quick');
   if (ftq) {
     ftq.onclick = e => e.stopPropagation();
-    const openFt = m => { ftMode = m; render(fitnessHome); };
+    // ⚑ The §22 rule, applied to the four quick-add pills: the mode must TRAVEL WITH the stack
+    // entry. This pushed a bare `fitnessHome` and set ftMode beside it, so a later rerender()
+    // would redraw the frame against whatever ftMode happened to be by then. ftGo pushes a
+    // closure that re-asserts its own mode. Same defect §22 fixed on the hub, four call sites
+    // it never reached.
+    const openFt = m => ftGo(m);
     ftq.querySelector('[data-ql=workout]').onclick = e => { e.stopPropagation(); render(workoutPicker); };
     ftq.querySelector('[data-ql=water]').onclick = e => { e.stopPropagation(); openFt('water'); };
     ftq.querySelector('[data-ql=meal]').onclick = e => { e.stopPropagation(); openFt('diet'); };
@@ -13173,7 +13436,7 @@ const FIN = 'padding:11px;border-radius:3px;border:1px solid var(--line);backgro
 // 5.3 also lives here: Movements is its own destination beside Workouts, not something you
 // reach through a workout.
 const FT_GROUPS = [
-  ['training', 'Training', [['level', 'Level'], ['workouts', 'Workouts'], ['movements', 'Movements'], ['log', 'Logbook'], ['timers', 'Timers']]],
+  ['training', 'Training', [['level', 'Level'], ['workouts', 'Workouts'], ['movements', 'Movements'], ['stats', 'Stats'], ['log', 'Logbook'], ['timers', 'Timers']]],
   ['health', 'Health', [['weight', 'Weight'], ['water', 'Water'], ['diet', 'Macros'], ['sleep', 'Sleep']]],
 ];
 const ftGroupOf = mode => (FT_GROUPS.find(g => g[2].some(t => t[0] === mode)) || FT_GROUPS[0])[0];
@@ -13190,6 +13453,10 @@ const ftGroupOf = mode => (FT_GROUPS.find(g => g[2].some(t => t[0] === mode)) ||
 const FT_HUB = [
   ['workouts', 'Workouts', 'Browse, build and log every workout'],
   ['movements', 'Movements', 'Rep maxes, max sets, volume and tonnage per movement'],
+  // ⚑ STATS SITS BESIDE MOVEMENTS, NOT INSIDE IT. Movements answers "tell me about the
+  // deadlift"; Stats answers "what are my numbers" without naming a movement first. Same data,
+  // opposite entry point — which is why it is a sibling and not a tab on the movement screen.
+  ['stats', 'Stats', 'Your bests and lifetime totals across every movement'],
   ['log', 'Logbook', 'Everything you have logged, newest first'],
   ['timers', 'Timers', 'Stopwatch, AMRAP, EMOM, Tabata, Death By'],
   ['weight', 'Weight', 'Bodyweight log and goal'],
@@ -13256,10 +13523,20 @@ function fitnessHome() {
     const group = ftGroupOf(ftMode);
     const groupDef = FT_GROUPS.find(g => g[0] === group);
     const pills = h(`<div class="pillrow">${groupDef[2].filter(([m]) => m !== 'level').map(([m, l]) => `<button class="pill ${ftMode === m ? 'on' : ''}" data-m="${m}">${l}</button>`).join('')}</div>`);
-    pills.querySelectorAll('[data-m]').forEach(b => b.onclick = () => ftScreen(b.dataset.m));
+    // ⚑ THE PILLS DID NOT NAVIGATE, AND IT WAS ONE WORD. This called ftScreen() directly.
+    // ftScreen mutates ftMode and calls fitnessHome(), which calls setHeader() — so the TITLE
+    // changed — and then appends to main() WITHOUT CLEARING IT. Only render() clears. Baruch:
+    // "the word movement came on top of the screen, but nothing changed". Exactly that.
+    //
+    // ⚑ navToParent, NOT ftGo. The pill row is LATERAL movement between siblings, so it
+    // REPLACES the top stack frame rather than pushing a new one. ftGo would push, and tapping
+    // Workouts → Movements → Timers → Logbook would build a four-deep stack of screens that are
+    // all one level down from the hub. Back still goes to the hub either way — fitnessHome sets
+    // that target explicitly — but the stack stays flat, which is what it describes.
+    pills.querySelectorAll('[data-m]').forEach(b => b.onclick = () => navToParent(() => ftScreen(b.dataset.m)));
     wrap.insertBefore(pills, body);
   }
-  ({ hub: ftHub, log: ftLogbook, level: ftLevel, workouts: ftWorkouts, movements: ftMovements, weight: ftWeight, water: ftWater, diet: ftDiet, sleep: ftSleep, timers: ftTimers })[ftMode](body);
+  ({ hub: ftHub, log: ftLogbook, level: ftLevel, workouts: ftWorkouts, movements: ftMovements, stats: ftStatsScreen, weight: ftWeight, water: ftWater, diet: ftDiet, sleep: ftSleep, timers: ftTimers })[ftMode](body);
 }
 
 // ⚑ THE TRAINING STREAK (open-threads §3). Weeks, not days — his constraint was that he
@@ -13292,12 +13569,16 @@ function ftStreakCard() {
         <span class="muted" style="font-size:12px">Gap days</span>
         <input data-s="g" inputmode="numeric" value="${s.gapDays}" style="width:64px;${FIN};text-align:center">
       </div>`);
+    // ⚑ SAME FRAGMENT DEFECT AS ftLevel, found by the same scan. `row` is emptied by the append
+    // below, so reading it inside the Save handler threw and the streak settings could not be
+    // changed at all — the one thing the sheet exists to do. Capture the element first.
+    const rowEl = row.firstElementChild;
     b.append(row);
     const btn = h(`<button class="btn" style="margin-top:10px">Save</button>`);
     btn.firstChild.onclick = () => {
       FT.setStreakSettings({
-        weeklyTarget: Number(row.querySelector('[data-s=t]').value) || FT.STREAK_DEFAULTS.weeklyTarget,
-        gapDays: Number(row.querySelector('[data-s=g]').value) || FT.STREAK_DEFAULTS.gapDays,
+        weeklyTarget: Number(rowEl.querySelector('[data-s=t]').value) || FT.STREAK_DEFAULTS.weeklyTarget,
+        gapDays: Number(rowEl.querySelector('[data-s=g]').value) || FT.STREAK_DEFAULTS.gapDays,
       });
       [...document.querySelectorAll('[data-a=x]')].forEach(x => x.onclick && x.onclick());
       rerender();
@@ -13330,6 +13611,17 @@ function fmtBench(item) {
 // Ring radial (Phase 8 chunk c): number centered, brass progress arc around it (folio —
 // arc is a hairline, never a fill). Optional `best` draws a brass notch marking the
 // all-time best as a target to chase. Locked domains show a lock in a plain track ring.
+// ⚑ A LOCKED RING SHOWS A DASH, NOT A PADLOCK (twenty-fourth session). His words: "I want the
+// domains to just have a line in the middle of the circle when they're not unlocked like they
+// are in the dashboard instead of the lock symbol." ftRadial has always drawn `–`; this drew 🔒,
+// so the same fact had two glyphs depending on which screen you were on.
+//
+// ⚑ Q6's REASONING SURVIVES THIS UNCHANGED, and that is the thing to check rather than the
+// glyph. Q6's rule is that every domain not counting right now renders IDENTICALLY — no number,
+// no fade — so that "expired with history" and "never unlocked" cannot be mistaken for two
+// different kinds of broken. A dash satisfies that exactly as a padlock did. The distinction
+// between them lives where Q6 put it: the sub-line, which reads either "Nothing in the last 12
+// months — tap to see what you had" or "N more to unlock". Nothing about that moved.
 function levelRing(level, size, { best = null, stroke = 4 } = {}) {
   const r = size / 2 - stroke, cx = size / 2, cy = size / 2, c = 2 * Math.PI * r;
   const locked = level == null;
@@ -13347,7 +13639,7 @@ function levelRing(level, size, { best = null, stroke = 4 } = {}) {
     ${locked ? '' : `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--gold)" stroke-width="${stroke}" stroke-linecap="round"
       stroke-dasharray="${(pct * c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${cx} ${cy})"/>`}
     ${notch}
-    <text x="${cx}" y="${(cy + fs * 0.35).toFixed(1)}" text-anchor="middle" style="font-family:var(--serif-display);font-size:${fs}px;font-weight:700;fill:${locked ? 'var(--text-3)' : 'var(--text)'}">${locked ? '🔒' : level}</text>
+    <text x="${cx}" y="${(cy + fs * 0.35).toFixed(1)}" text-anchor="middle" style="font-family:var(--serif-display);font-size:${fs}px;font-weight:700;fill:${locked ? 'var(--text-3)' : 'var(--text)'}">${locked ? '–' : level}</text>
   </svg>`;
 }
 function tierTag(t) { return t === 'E' ? ' <span class="muted" style="font-size:10px">(modeled)</span>' : t === 'P' ? ' <span class="muted" style="font-size:10px">(personal)</span>' : ''; }
@@ -13409,10 +13701,22 @@ function ftLevel(body) {
           ? `Nothing logged in the last 12 months. <b>All-time you were ${a.alltime.overall}</b> — every domain below is faded because none of it counts right now.`
           : 'Not enough data yet.'}</div>
     </div>`);
+  // ⚑ BIND BEFORE APPEND. h() returns a DocumentFragment and append() MOVES its children out,
+  // so the fragment is EMPTY afterwards and `.firstElementChild` is null. Reading it after the
+  // append threw, killing ftLevel between the overall card and the domain loop — the seven
+  // domain cards, the repeat nudge and the notes all disappeared while the overall still showed.
+  //
+  // ⚑ AND THE GUARD IS WHY IT HID FOR TWENTY-THREE SESSIONS. The binding is conditional on
+  // `view.overall != null`, which is null until a domain unlocks inside the 12-month window.
+  // Baruch had nothing live, so the line never ran. Unlocking Speed executed it for the first
+  // time and the screen broke on the spot — "this happened when I unlocked the speed domain".
+  // Every fixture in the render suites had either everything unlocked or nothing, so no test
+  // ever rendered this screen in the one state that reaches the bug.
+  const overallEl = overallCard.firstElementChild;
   body.append(overallCard);
   body.append(ftStreakCard());
 
-  if (view.overall != null) overallCard.firstElementChild.onclick = () => openSheet('How solid is this number?', b2 => {
+  if (view.overall != null) overallEl.onclick = () => openSheet('How solid is this number?', b2 => {
     const mixOrder = ['A1', "A1'", 'A2', "A2'", 'B', 'C', 'E'];
     const mixTotal = Object.values(view.tierMix).reduce((s, c) => s + c, 0);
     b2.append(h(`<div style="font-family:var(--serif-display);font-size:34px;font-weight:700;text-align:center">${view.overall}<span style="font-size:17px;font-weight:400;color:var(--text-2)"> ± ${view.overallSe ?? '—'}</span></div>
@@ -13887,6 +14191,7 @@ function logRow(l, { showName = true } = {}) {
         <div class="sub">${showName ? esc(l.result) + ' · ' : ''}${new Date(l.ts).toLocaleDateString()}${l.rx ? ' · ' + esc(l.rx) : ''}${l.weights ? ' · ' + esc(l.weights) : ''}</div>
         ${(l.details || []).map(x => `<div class="sub">↳ ${esc(x.exercise)}${x.weight ? ' · ' + esc(x.weight) + ' lb' : ''}${x.reps ? ' · ' + esc(x.reps) + ' reps' : ''}${x.sets ? ' × ' + esc(x.sets) + ' sets' : ''}</div>`).join('')}
         ${l.notes ? `<div class="sub" style="font-style:italic">${esc(l.notes)}</div>` : ''}
+        ${(() => { const c = FT.cardForLog(l.id); return c ? `<div class="sub" style="color:var(--gold)">⛓ ${esc(FT.cardPartLabel(c.parts.findIndex(p => p.logId === l.id)))} of “${esc(c.name)}”</div>` : ''; })()}
       </div>
       ${l.user ? '<button data-a="del" style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button>' : ''}
       ${showName ? '<span class="chev">›</span>' : ''}
@@ -13931,9 +14236,21 @@ function ftLogbook(body) {
   const btn = h(`<button class="btn" style="margin-bottom:8px">＋ Log a workout</button>`);
   btn.firstChild.onclick = () => render(workoutPicker);
   body.append(btn);
-  const cbtn = h(`<button class="btn secondary" style="margin-bottom:14px">＋ Build a workout (multi-part)</button>`);
+  const cbtn = h(`<button class="btn secondary" style="margin-bottom:8px">＋ Build a workout (multi-part)</button>`);
   cbtn.firstChild.onclick = () => { cardDraft = null; render(workoutTemplatePicker); };
   body.append(cbtn);
+
+  // ⚑ THE OTHER DIRECTION. Building a card FORWARDS has always worked; his ask was the reverse
+  // — "I need to be able to group them together in a workout AFTER I've entered them". The
+  // button only appears when there is actually a day with more than one entry to group, because
+  // an action that is always dead is worse than no action.
+  const days = FT.groupableDays().filter(d => d.grouped < d.logs.length);
+  if (days.length) {
+    const gbtn = h(`<button class="btn secondary" style="margin-bottom:14px">⛓ Group entries into one workout</button>`);
+    gbtn.firstChild.onclick = () => render(cardGroupDayPicker);
+    body.append(gbtn);
+  }
+
   const cards = FT.allCards();
   if (cards.length) {
     body.append(sectionTitle('Workouts'));
@@ -13965,6 +14282,93 @@ function workoutTemplatePicker() {
   });
   main().append(wrap);
 }
+// ---------------------------------------------------------------------------------------
+// ⚑ RETROACTIVE GROUPING — pick a day, tick the entries, name it. Two screens, because the
+// day is the unit he thinks in ("all adding up to one workout for that day") and putting every
+// log in one flat list would make him hunt.
+//
+// ⚑ NOTHING HERE EDITS A LOG, AND THE SCREEN SAYS SO IN WORDS. That is the whole reason this
+// is safe to run over seven years of history: a card is a view, the logs underneath are
+// untouched, and deleting the card leaves them exactly as they were.
+function cardGroupDayPicker() {
+  setHeader('Group entries', { back: true });
+  const wrap = document.createElement('div');
+  wrap.append(h(`<div class="muted" style="font-size:12px;line-height:1.6;margin:2px 4px 10px">
+    Pick a day you logged more than once. Grouping records that those entries were <b>one session</b> —
+    it does not edit, merge or delete any of them, and your stats and PRs keep reading the individual
+    entries exactly as they do now.</div>`));
+
+  const days = FT.groupableDays().filter(d => d.grouped < d.logs.length);
+  if (!days.length) {
+    wrap.append(h(`<div class="empty">Nothing to group — no day has more than one ungrouped entry.</div>`));
+    main().append(wrap);
+    return;
+  }
+  days.forEach(d => {
+    const free = d.logs.length - d.grouped;
+    const names = d.logs.map(l => (FT.getWorkout(l.wid) || {}).name).filter(Boolean);
+    const el = h(`<div class="list-item"><div class="grow">
+        <div class="title" style="font-size:14px">${new Date(d.ts).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</div>
+        <div class="sub">${free} entr${free === 1 ? 'y' : 'ies'} to group${d.grouped ? ` · ${d.grouped} already in a workout` : ''} — ${esc(names.slice(0, 3).join(', '))}${names.length > 3 ? '…' : ''}</div>
+      </div><span class="chev">›</span></div>`);
+    el.querySelector('.list-item').onclick = () => render(() => cardGroupDay(d.dk));
+    wrap.append(el);
+  });
+  main().append(wrap);
+}
+
+function cardGroupDay(dk) {
+  const day = FT.groupableDays().find(d => d.dk === dk);
+  if (!day) { goBack(); return; }
+  setHeader('Group entries', { back: () => cardGroupDayPicker() });
+  const wrap = document.createElement('div');
+
+  // ⚑ A log already in a card is SHOWN AND DISABLED, not hidden. Hiding it would leave him
+  // wondering where an entry went; showing it says which workout claimed it.
+  const free = day.logs.filter(l => !FT.cardForLog(l.id));
+  const picked = new Set(free.map(l => l.id));   // everything ticked by default — the common case
+
+  const card = h(`<div class="card">
+      <input data-a="name" placeholder="${esc(FT.defaultCardName(day.ts))}" style="width:100%;${FIN};margin-bottom:10px">
+      <div data-a="rows"></div>
+      <button class="btn" data-a="save" style="margin-top:10px">Group as one workout</button>
+      <div class="muted" style="font-size:11px;margin-top:8px;line-height:1.55">Your ${day.logs.length} entries stay exactly as they are. This adds a workout card that points at them, labelled Part A, Part B and so on in the order you logged them.</div>
+    </div>`).firstElementChild;
+
+  const rowsBox = card.querySelector('[data-a=rows]');
+  const saveBtn = card.querySelector('[data-a=save]');
+  const refresh = () => { saveBtn.textContent = picked.size < 2 ? 'Pick at least two' : `Group ${picked.size} entries as one workout`; };
+
+  day.logs.forEach(l => {
+    const w = FT.getWorkout(l.wid);
+    const owner = FT.cardForLog(l.id);
+    const el = h(`<div class="row" data-log="${l.id}" style="gap:10px;padding:8px 0;align-items:flex-start;${owner ? 'opacity:.45' : 'cursor:pointer'};border-top:1px solid var(--line)">
+        <span data-a="box" style="font-size:16px;line-height:1.2">${owner ? '·' : '☑'}</span>
+        <div class="grow"><div style="font-size:13.5px">${esc(w ? w.name : 'Unknown workout')}</div>
+          <div class="muted" style="font-size:11.5px">${esc(l.result || '—')}${owner ? ` · already in “${esc(owner.name)}”` : ''}</div></div>
+      </div>`).firstElementChild;
+    if (!owner) el.onclick = () => {
+      if (picked.has(l.id)) picked.delete(l.id); else picked.add(l.id);
+      el.querySelector('[data-a=box]').textContent = picked.has(l.id) ? '☑' : '☐';
+      refresh();
+    };
+    rowsBox.append(el);
+  });
+  refresh();
+
+  saveBtn.onclick = () => {
+    if (picked.size < 2) { toast('Pick at least two entries'); return; }
+    const order = day.logs.filter(l => picked.has(l.id)).map(l => l.id);
+    const c = FT.cardFromLogs({ logIds: order, name: card.querySelector('[data-a=name]').value, ts: day.ts });
+    if (!c) { toast('Could not group those entries'); return; }
+    toast(`Grouped ${order.length} entries`);
+    render(() => workoutCardDetail(c));
+  };
+
+  wrap.append(card);
+  main().append(wrap);
+}
+
 function workoutCardBuilder() {
   setHeader('Build a workout', { back: true });
   if (!cardDraft) cardDraft = { name: '', ts: Date.now(), parts: [], slots: [] };
@@ -14054,8 +14458,13 @@ function workoutCardDetail(card) {
     if (lb) lb.onclick = () => render(() => logForm(w, '', { cardId: card.id, partIdx: i }));
     wrap.append(c);
   });
-  const del = h(`<button class="btn danger" style="margin-top:12px">Delete workout</button>`);
-  del.firstChild.onclick = () => { FT.removeCard(card.id); toast('Workout deleted'); goBack(); };
+  // ⚑ SAY WHAT DELETE ACTUALLY DOES. A card owns nothing, so removing it only removes the
+  // grouping — every entry underneath survives. That was always true and was never stated,
+  // and it matters much more now that cards can be made retroactively out of real history:
+  // "Delete workout" on a card built from seven-year-old logs reads like it deletes them.
+  wrap.append(h(`<div class="muted" style="font-size:11px;margin:14px 4px 0;line-height:1.55">Deleting this workout removes the grouping only. All ${card.parts.filter(p => p.logId).length || card.parts.length} entries stay in your logbook, and your stats and PRs are unaffected either way.</div>`));
+  const del = h(`<button class="btn danger" style="margin-top:6px">Ungroup / delete this workout</button>`);
+  del.firstChild.onclick = () => { FT.removeCard(card.id); toast('Grouping removed — entries kept'); goBack(); };
   wrap.append(del);
   main().append(wrap);
 }
@@ -14282,6 +14691,104 @@ function logForm(w, prefillResult = '', ctx = null, prefillFields = null, prompt
 // They were about to be built as one screen. They are not one screen.
 let mvSelected = [];
 let mvCat = 'all';
+
+// ---------------------------------------------------------------------------------------
+// ⚑ THE STATS SCREEN. Baruch, twenty-fourth session: "in the Fitness home screen there should
+// be a stats page. I thought we already built this, but maybe we haven't. That's where max
+// stats will live, max load, total load, the calisthenics stats, the fastest runs."
+//
+// He half-remembered it because a `statsScreen` DOES exist — the Scripture one, corpus and mode
+// filters. Nothing fitness-side ever aggregated across movements.
+//
+// ⚑ EVERY NUMBER HERE IS READ BACK FROM movementStats VIA MV.statsSummary. Nothing is computed
+// a second time. The attribution guards the audit installed — a bare load on a multi-set piece
+// is tonnage not a set weight; an AMRAP is not a max set; a time belongs to a movement only
+// when that movement is the only thing being timed — therefore apply here for free, and cannot
+// drift, because there is no second implementation to drift from.
+//
+// ⚑ "THE STATS PAGE DOESN'T HAVE TO HAVE EVERY MOVEMENT ON IT" — his words, and the reason
+// each list is a top 8 with a tap through to the movement rather than a full table.
+//
+// ⚑ NAMED ftStatsScreen BECAUSE FT.ftStats() ALREADY EXISTS — a four-field dashboard summary
+// (total logs, total workouts, last log, count this year). build_preview.py's duplicate-name
+// guard caught the collision on the first build: module scope hides it and the flattened file
+// does not, which is the whole reason that guard was written.
+function ftStatsScreen(body) {
+  const s = MV.statsSummary();
+  const T = s.totals;
+  const n = x => Number(x).toLocaleString();
+  const when = ts => ts ? new Date(ts).toLocaleDateString() : '—';
+
+  body.append(h(`<div class="card" style="text-align:center;padding:18px 14px">
+      <div style="font-family:var(--serif-display);font-size:30px;font-weight:700">${n(T.sessionDays)}</div>
+      <div style="font-weight:700;font-size:13px">training days logged</div>
+      <div class="muted" style="font-size:12px;margin-top:2px">${T.firstTs ? when(T.firstTs) + ' — ' + when(T.lastTs) : 'nothing logged yet'}${T.logs !== T.sessionDays ? ` · ${n(T.logs)} entries` : ''}</div>
+    </div>`));
+
+  // ⚑ THE SAME PROVENANCE BANNER AS THE MOVEMENT SCREEN, in the same words on purpose. These
+  // are derived numbers, and a screen that gathers them all into one place makes them look MORE
+  // authoritative, not less — which is exactly when the caveat matters most.
+  body.append(h(`<div class="card" style="padding:11px 13px">
+      <div class="muted" style="font-size:11.5px;line-height:1.6">Everything here is <b>read back out of your logs</b>, not entered as a record. Nothing on this screen sets a PR or moves any Level. Tap a row to see where the number came from and to confirm it.</div>
+    </div>`));
+
+  // ---- lifetime totals, each with its own denominator ----
+  const row = (k, v, sub) => `<div style="padding:4px 0"><div class="row" style="justify-content:space-between"><span class="muted">${k}</span><b>${v}</b></div>${sub ? `<div class="muted" style="font-size:11px;margin-top:1px">${sub}</div>` : ''}</div>`;
+  body.append(sectionTitle('Lifetime totals'));
+  body.append(h(`<div class="card" style="padding:10px 13px;font-size:13px">
+    ${T.tonnageLifetime !== null
+      ? row('Total load moved', n(Math.round(T.tonnageLifetime)) + ' lb',
+            `across ${T.tonnageMovements} movement${T.tonnageMovements === 1 ? '' : 's'} · last 12 months ${n(Math.round(T.tonnageWindow))} lb`)
+      : row('Total load moved', '—', 'no session states a load that can be read without guessing')}
+    ${T.repsLifetime !== null
+      ? row('Total reps', n(T.repsLifetime), `across ${T.repsMovements} movement${T.repsMovements === 1 ? '' : 's'}`)
+      : row('Total reps', '—', 'no session states a rep count that can be read without guessing')}
+    ${row('Movements you have trained', `${T.movementsSeen} of ${T.movementsTotal}`)}
+    ${T.sessionsUnknown ? `<div class="muted" style="font-size:11px;margin-top:7px;line-height:1.55">⚑ These totals are read from <b>${n(T.sessionsCounted)}</b> movement-sessions. Another <b>${n(T.sessionsUnknown)}</b> do not state reps in a form that can be read without guessing, so they are <b>left out rather than estimated in</b>. The totals are floors, not full accounts.</div>` : ''}
+  </div>`));
+
+  // ---- the four boards ----
+  // Each row taps through to the movement it came from, so provenance is always one tap away.
+  const board = (title, items, fmt, note, empty) => {
+    body.append(sectionTitle(title));
+    if (!items.length) {
+      body.append(h(`<div class="card" style="padding:11px 13px"><div class="muted" style="font-size:11.5px;line-height:1.6">${empty}</div></div>`));
+      return;
+    }
+    const card = h(`<div class="card" style="padding:6px 13px 10px">${items.map((x, i) =>
+      `<div class="row" data-i="${i}" style="justify-content:space-between;padding:7px 0;cursor:pointer;${i ? 'border-top:1px solid var(--line)' : ''}">
+         <div class="grow"><div style="font-size:13.5px">${esc(x.name)}${x.at ? ` <span class="muted" style="font-size:11px">${esc(String(x.at))}</span>` : ''}</div>
+           <div class="muted" style="font-size:11px">${when(x.ts)}</div></div>
+         <b style="font-size:14px">${fmt(x)}</b>
+       </div>`).join('')}
+      ${note ? `<div class="muted" style="font-size:11px;margin-top:7px;line-height:1.5">${note}</div>` : ''}</div>`).firstElementChild;
+    card.querySelectorAll('[data-i]').forEach(r => r.onclick = () => render(() => mvDetailScreen(items[Number(r.dataset.i)].id)));
+    body.append(card);
+  };
+
+  board('Heaviest', s.heaviest, x => n(x.value) + ' lb',
+    'A measured single, or the heaviest loaded rep of a movement that was the only thing in the workout.',
+    'No workout in your history states a single-rep load that can be attributed to one movement.');
+
+  // ⚑ THE EMPTY STATE HERE IS THE CORRECT STATE AND MUST SAY SO. The twenty-second session's
+  // audit emptied this board on purpose: every max set in the app had come from an AMRAP, and
+  // the pull-up record of 33 was a six-minute AMRAP's combined strict-HSPU-and-pull-up total.
+  // A blank section with no explanation reads as a bug, which is the §Q6 lesson again.
+  board('Max unbroken sets', s.maxSets, x => n(x.value) + ' reps',
+    'Read only from a workout whose entire result is one set of one movement.',
+    'Empty on purpose. A max set can only be read from a workout whose whole result <b>is</b> one unbroken set — an AMRAP is many sets by definition, and a workout with two movements cannot attribute its reps to either. Everything that used to sit here was an AMRAP total. The max tests in the library are how you fill it with real ones.');
+
+  board('Fastest by distance', s.fastest, x => SC.fmtSecs(x.value),
+    'A time counts for a movement only when that movement is the only thing being timed.',
+    'No workout in your history times a single distance on its own.');
+
+  board('Longest efforts', s.efforts, x => SC.fmtSecs(x.value), null,
+    'No workout in your history scores one unbroken effort by duration — a plank, a dead hang, a loaded carry.');
+
+  board('Most load moved', s.tonnageBy, x => n(Math.round(x.tonnage)) + ' lb',
+    'Reps × load, summed over every session it could be read from. No rep is counted against two movements.',
+    'No session states reps and load in a form that can be read without guessing.');
+}
 
 function ftMovements(body) {
   const counts = MV.movementCounts();
@@ -14616,11 +15123,78 @@ function workoutDetail(w) {
   if (delPill) delPill.onclick = () => workoutRemoveSheet(w);
   wrap.append(pills);
 
+  const ladder = ftLevelLadderCard(w);
+  if (ladder) { wrap.append(sectionTitle('What each level looks like')); wrap.append(ladder); }
+
   if (logs.length) {
     wrap.append(sectionTitle('History'));
     logs.forEach(l => wrap.append(logRow(l, { showName: false })));
   }
   main().append(wrap);
+}
+
+// ---------------------------------------------------------------------------------------
+// ⚑ THE LEVEL LADDER (twenty-fourth session). Baruch: "when I look at a workout that is used
+// for assessment I want to be able to see the results or stats of different levels."
+//
+// ⚑ IT SAYS "LEVEL", NOT "PERCENTILE", AND THAT IS NOT PEDANTRY. He asked in percentiles, and
+// on the 39 tier-B/C benchmarks they ARE percentiles — Clean & Jerk's source reads "the
+// 1/10/25/50/80 percentile reads" and stores [99,90,75,50,20], an exact inversion. But on the
+// 63 tier-A curves `l99` is "median of the top 10 of the same ranking": an ELITE ANCHOR pinned
+// above the distribution, not a 99th percentile. Run 5 km is the single exception and carries
+// a flag saying so. Headed "percentile" this ladder would be wrong on 63 benchmarks, and wrong
+// in the direction that flatters — which is the worst direction.
+//
+// ⚑ NO SECOND CONFIDENCE MARKER. How soft a curve is already has a vocabulary here — tier and
+// σ, with tier E at 20.52 against tier A1's 5 — and the source flag already renders it. A
+// parallel "estimated" badge would say the same thing in a different language, which is exactly
+// how the two renderings of "not counting right now" became a bug in Q6.
+function ftLevelLadderCard(w) {
+  const key = FT.benchmarkFor(w);
+  const b = key ? FT.BENCHMARKS[key] : null;
+  if (!b) return null;
+
+  const rungs = FT.levelLadder(key);
+  if (!rungs) {
+    // The 18 weight-0 personal benchmarks. They score nothing, so there is no curve to read
+    // backwards. Say that rather than showing an empty card — the Q6 lesson.
+    return h(`<div class="card" style="padding:11px 13px"><div class="muted" style="font-size:11.5px;line-height:1.6">
+      <b>${esc(b.label)}</b> is a personal benchmark — it is logged and trended, it is 100% accurate about you,
+      and it votes for nothing. There is no population curve behind it, so there are no levels to show.</div></div>`).firstElementChild;
+  }
+
+  // where he stands today, if anywhere — read from the same assessment the Level screen uses
+  const a = FT.assessment();
+  let mine = null;
+  FT.ASSESS_DOMAINS.forEach(([d]) => {
+    const it = (a.alltime.domains[d].items || []).find(x => x.key === key);
+    if (it) mine = it;
+  });
+
+  const fmt = v => fmtBench({ rtype: b.rtype, best: v, unit: b.unit, key });
+
+  // ⚑ HIS RESULT GETS ITS OWN ROW, IN ORDER — it is not a marker on the nearest rung, and the
+  // first version was. Row 500 m proved why: he has rowed 1:42, valueAtLevel(50) is 101.7s
+  // which ALSO formats as 1:42, and levelFromCurve rounds his 102s to 49. So the card showed
+  // "Level 50 — 1:42", "you did 1:42", and put the marker on Level 20, which reads as a bug
+  // even though every number in it is right. Slotting him into the ladder by level removes the
+  // ambiguity entirely: 99, 80, 50, YOU 49, 20 says exactly where he stands and needs no
+  // explaining. Display rounding is allowed to collide; the ORDER must still be truthful.
+  const entries = rungs.map(r => ({ level: r.level, value: r.value, you: false }));
+  if (mine && mine.level != null) entries.push({ level: mine.level, value: mine.best, you: true });
+  entries.sort((x, y) => (y.level - x.level) || (x.you ? 1 : -1));
+
+  const rows = entries.map((r, i) => `<div class="row" style="justify-content:space-between;padding:6px 0;${r.you ? 'color:var(--gold);font-weight:700' : ''}${i ? ';border-top:1px solid var(--line)' : ''}">
+      <span>${r.you ? '▸ You — Level ' + r.level : 'Level ' + r.level}${!r.you && r.level === 99 ? ' <span class="muted" style="font-size:11px;font-weight:400">top of the scale</span>' : ''}</span>
+      <b>${esc(r.you ? fmtBench(mine) : fmt(r.value))}</b></div>`).join('');
+
+  const el = h(`<div class="card" style="padding:8px 13px 11px;font-size:13.5px">
+    ${rows}
+    ${mine && mine.level != null ? '' : `<div class="muted" style="font-size:11.5px;margin-top:8px;line-height:1.55">You have no counting result on this one yet.</div>`}
+    <div class="muted" style="font-size:11px;margin-top:6px;line-height:1.55">These are read off the same curve that scores you: a result landing between two published points already scores on the line between them, so these are the numbers the engine would return for each level.${srcFlag(b.room)}</div>
+  </div>`).firstElementChild;
+  bindSrcFlags(el);
+  return el;
 }
 
 // Delete-workout confirm sheet (custom workouts only)
