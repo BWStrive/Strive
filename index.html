@@ -540,6 +540,17 @@ const COMPETITION_WORKOUTS = [
   {"name": "Max Walking Lunge Time", "movements": "One unbroken effort of walking lunges, scored by how long you kept going.\nBack knee touches the floor, hips fully open at the top of every step.\nThe effort ends when you stop moving. Score the time, not the steps.\nScore: time.", "resultType": "time", "id": "comx_lungetime", "domain": "bodyweight", "bkey": "mx_lungetime", "format": "fortime"},
   {"name": "Max Plank Hold", "movements": "One unbroken front plank on the elbows.\nShoulders over the elbows, hips in line with shoulders and heels.\nThe effort ends when the hips drop or rise out of line.\nScore: time.", "resultType": "time", "id": "comx_plank", "domain": "bodyweight", "bkey": "mx_plank", "format": "fortime"},
   {"name": "Max Dead Hang", "movements": "One unbroken dead hang, arms straight, feet off the floor.\nThe effort ends when you come off the bar.\nScore: time.", "resultType": "time", "id": "comx_deadhang", "domain": "bodyweight", "bkey": "mx_deadhang", "format": "fortime"},
+  {"name": "5RM: Deadlift", "movements": "Work up to the heaviest set of 5 you can complete with good form.\nScore: heaviest set of 5, in pounds.\nScored as an estimated 1RM, which carries less weight than a measured single — a real 1RM is still worth more.", "resultType": "load", "id": "codeadlift5rm", "domain": "lifts", "bkey": "deadlift", "format": "strength"},
+  {"name": "10RM: Deadlift", "movements": "Work up to the heaviest set of 10 you can complete with good form.\nScore: heaviest set of 10, in pounds.\nScored as an estimated 1RM, which carries less weight than a measured single — a real 1RM is still worth more.", "resultType": "load", "id": "codeadlift10rm", "domain": "lifts", "bkey": "deadlift", "format": "strength"},
+  {"name": "10RM: Back Squat", "movements": "Work up to the heaviest set of 10 you can complete with good form.\nScore: heaviest set of 10, in pounds.\nScored as an estimated 1RM, which carries less weight than a measured single — a real 1RM is still worth more.", "resultType": "load", "id": "cobacksquat10rm", "domain": "lifts", "bkey": "backsquat", "format": "strength"},
+  {"name": "3RM: Bench Press", "movements": "Work up to the heaviest set of 3 you can complete with good form.\nScore: heaviest set of 3, in pounds.\nScored as an estimated 1RM, which carries less weight than a measured single — a real 1RM is still worth more.", "resultType": "load", "id": "cobenchpress3rm", "domain": "lifts", "bkey": "benchpress", "format": "strength"},
+  {"name": "10RM: Bench Press", "movements": "Work up to the heaviest set of 10 you can complete with good form.\nScore: heaviest set of 10, in pounds.\nScored as an estimated 1RM, which carries less weight than a measured single — a real 1RM is still worth more.", "resultType": "load", "id": "cobenchpress10rm", "domain": "lifts", "bkey": "benchpress", "format": "strength"},
+  {"name": "3RM: Shoulder Press", "movements": "Work up to the heaviest set of 3 you can complete with good form.\nScore: heaviest set of 3, in pounds.\nScored as an estimated 1RM, which carries less weight than a measured single — a real 1RM is still worth more.", "resultType": "load", "id": "coshoulderpress3rm", "domain": "lifts", "bkey": "shoulderpress", "format": "strength"},
+  {"name": "5RM: Shoulder Press", "movements": "Work up to the heaviest set of 5 you can complete with good form.\nScore: heaviest set of 5, in pounds.\nScored as an estimated 1RM, which carries less weight than a measured single — a real 1RM is still worth more.", "resultType": "load", "id": "coshoulderpress5rm", "domain": "lifts", "bkey": "shoulderpress", "format": "strength"},
+  {"name": "10RM: Shoulder Press", "movements": "Work up to the heaviest set of 10 you can complete with good form.\nScore: heaviest set of 10, in pounds.\nScored as an estimated 1RM, which carries less weight than a measured single — a real 1RM is still worth more.", "resultType": "load", "id": "coshoulderpress10rm", "domain": "lifts", "bkey": "shoulderpress", "format": "strength"},
+  {"name": "3RM: Snatch", "movements": "Work up to the heaviest set of 3 you can complete with good form.\nScore: heaviest set of 3, in pounds.\nScored as an estimated 1RM, which carries less weight than a measured single — a real 1RM is still worth more.", "resultType": "load", "id": "cosnatch3rm", "domain": "lifts", "bkey": "snatch", "format": "strength"},
+  {"name": "5RM: Snatch", "movements": "Work up to the heaviest set of 5 you can complete with good form.\nScore: heaviest set of 5, in pounds.\nScored as an estimated 1RM, which carries less weight than a measured single — a real 1RM is still worth more.", "resultType": "load", "id": "cosnatch5rm", "domain": "lifts", "bkey": "snatch", "format": "strength"},
+  {"name": "5RM: Clean & Jerk", "movements": "Work up to the heaviest set of 5 you can complete with good form.\nScore: heaviest set of 5, in pounds.\nScored as an estimated 1RM, which carries less weight than a measured single — a real 1RM is still worth more.", "resultType": "load", "id": "cocleanjerk5rm", "domain": "lifts", "bkey": "cleanjerk", "format": "strength"},
   {"name": "Regionals 2011 Event 1 - Run 1K / 30 HSPU", "movements": "For time:\nRun 1K\n30 HSPU\nRow 1K\nScore: total reps.", "resultType": "reps", "id": "coreg2011e1", "domain": "bodyweight", "bkey": null, "format": "other"},
   {"name": "Regionals 2011 Event 3 - 21-15-9 reps for time of: / Deadlift 315 lb", "movements": "21-15-9 reps for time of:\nDeadlift 315 lb\nBox jump 30 in\nScore: total reps.", "resultType": "reps", "id": "coreg2011e3", "domain": "heavy", "bkey": null, "format": "other"},
   {"name": "Regionals 2011 Event 4 - 100 pull-ups / 100 kettlebell swings 24 kg", "movements": "For time:\n100 pull-ups\n100 kettlebell swings 24 kg\n100 double-unders\n100 overhead squats 95 lb\nScore: total reps.", "resultType": "reps", "id": "coreg2011e4", "domain": "light", "bkey": null, "format": "other"},
@@ -693,13 +704,13 @@ const BENCHMARKS = {
   open261: { label: "Open 26.1 - wall ball 20 / box jump-over 20-30-40-66", domain: "bodyweight", rtype: "composite", dir: "higher", unit: "pts", levels: [99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1], curve: [379, 275, 258, 239, 225, 214, 202, 190, 179, 165, 148, 133, 101], tier: "A1'", axis: "composite", maxReps: 354, capS: 720, room: "open_lb", source: { curve: "Rx-block percentile read, 2026 worldwide Open leaderboard, fetched 2026-08-05", l99: "L99 = median of top-10 overall-ranked men, converted to composite; curve read within the Rx block, converted to composite. B=102246 Rx men of N=127113 registered, 2026 worldwide leaderboard, fetched 2026-08-05", n: 102246, year: 2026 }, match: /^open ?26\.1$/i },
   open262: { label: "Open 26.2 - DB OH lunge 50 / DB snatch / pull-up-C2B-MU", domain: "light", rtype: "composite", dir: "higher", unit: "pts", levels: [99, 95, 90, 80, 70, 60, 40, 20, 10, 5, 1], curve: [648, 325, 192, 125, 118, 114, 112, 92, 87, 72, 45], tier: "A1'", axis: "composite", maxReps: 132, capS: 900, room: "open_lb", source: { curve: "Rx-block percentile read, 2026 worldwide Open leaderboard, fetched 2026-08-05", l99: "L99 = median of top-10 overall-ranked men, converted to composite; curve read within the Rx block, converted to composite. B=90826 Rx men of N=127113 registered, 2026 worldwide leaderboard, fetched 2026-08-05", n: 90826, year: 2026 }, match: /^open ?26\.2$/i },
   open263: { label: "Open 26.3 - burpee over bar / clean + thruster ladder 95-135", domain: "light", rtype: "composite", dir: "higher", unit: "pts", levels: [99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1], curve: [292, 220, 208, 195, 184, 178, 167, 157, 144, 137, 128, 115, 91], tier: "A1'", axis: "composite", maxReps: 288, capS: 960, room: "open_lb", source: { curve: "Rx-block percentile read, 2026 worldwide Open leaderboard, fetched 2026-08-05", l99: "L99 = median of top-10 overall-ranked men, converted to composite; curve read within the Rx block, converted to composite. B=91191 Rx men of N=127113 registered, 2026 worldwide leaderboard, fetched 2026-08-05", n: 91191, year: 2026 }, match: /^open ?26\.3$/i },
-  row500: { label: "Row 500 m", domain: "speed", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1], curve: [74.2, 83.6, 87.1, 91.6, 95.3, 98.5, 101.7, 105, 109.2, 114.7, 124, 135.4, 172.6], tier: "A1'", sigma: 5.05, room: "c2_row", source: { curve: "log.concept2.com 2025 rankings, men, rank read, N=4907", l99: "median of the top 10 of the same ranking", n: 4907 }, match: /^row 500 ?m$/i },
-  row1k: { label: "Row 1 km", domain: "speed", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1], curve: [168.3, 189.9, 196.4, 205.6, 212.5, 219, 225.8, 232.8, 240.7, 254.3, 280.1, 305.6, 372.1], tier: "A1'", sigma: 5.04, room: "c2_row", source: { curve: "log.concept2.com 2025 rankings, men, rank read, N=5941", l99: "median of the top 10 of the same ranking", n: 5941 }, match: /^row 1 ?km$/i },
-  row2k: { label: "Row 2 km", domain: "endurance", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1], curve: [353.1, 395.5, 408.5, 425.2, 440.7, 453.8, 467, 479, 499.7, 525.3, 566, 602.5, 729.1], tier: "A1'", sigma: 5.03, room: "c2_row", source: { curve: "log.concept2.com 2025 rankings, men, rank read, N=9490", l99: "median of the top 10 of the same ranking", n: 9490 }, match: /^row 2 ?km$/i },
-  ski500: { label: "SkiErg 500 m", domain: "speed", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1], curve: [82.2, 87, 90.7, 95, 100.2, 104.3, 107.6, 112.7, 117.6, 122.7, 134.1, 141.8, 166.3], tier: "A2'", sigma: 5.39, room: "c2_ski", source: { curve: "log.concept2.com 2025 rankings, men, rank read, N=614", l99: "median of the top 10 of the same ranking", n: 614, flag: "level 99 is not independent of the percentile row at this field size" }, match: /^skierg 500 ?m$/i },
-  ski1k: { label: "SkiErg 1 km", domain: "speed", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1], curve: [176, 193.2, 199.9, 208.9, 217.6, 224.7, 232.6, 241.4, 253.1, 268.6, 296.8, 331.9, 425], tier: "A2'", sigma: 5.25, room: "c2_ski", source: { curve: "log.concept2.com 2025 rankings, men, rank read, N=988", l99: "median of the top 10 of the same ranking", n: 988, flag: "level 99 is not independent of the percentile row at this field size" }, match: /^skierg 1 ?km$/i },
-  ski2k: { label: "SkiErg 2 km", domain: "endurance", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1], curve: [376.4, 410.3, 419.8, 442.1, 461.6, 476.5, 494.5, 512.2, 530, 554, 593.2, 638.4, 850.5], tier: "A2'", sigma: 5.33, room: "c2_ski", source: { curve: "log.concept2.com 2025 rankings, men, rank read, N=731", l99: "median of the top 10 of the same ranking", n: 731, flag: "level 99 is not independent of the percentile row at this field size" }, match: /^skierg 2 ?km$/i },
-  run5k: { label: "Run 5 km", domain: "endurance", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1], curve: [1042, 1134, 1199, 1303, 1382, 1457, 1533, 1613, 1709, 1816, 1991, 2197, 2857], tier: "A2'", sigma: 5.03, room: "parkrun", source: { curve: "parkrun UK finisher lists, men 18-54, rank read, N=7832 over 23 event-days", l99: "99th percentile of the same pool - no elite top-10 exists here", n: 7832, flag: "level 99 is a 99th percentile, not an elite read" }, match: /^run 5 ?km$/i },
+  row500: { label: "Row 500 m", domain: "speed", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1], curve: [74.2, 83.6, 87.1, 91.6, 95.3, 98.5, 101.7, 105, 109.2, 114.7, 124, 135.4, 172.6], tier: "A1'", sigma: 5.05, room: "c2_row", source: { curve: "log.concept2.com 2025 rankings, men, rank read, N=4907", l99: "median of the top 10 of the same ranking", n: 4907 }, group: "Row", groupLabel: "Concept2 RowErg", match: /^row 500 ?m$/i },
+  row1k: { label: "Row 1 km", domain: "speed", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1], curve: [168.3, 189.9, 196.4, 205.6, 212.5, 219, 225.8, 232.8, 240.7, 254.3, 280.1, 305.6, 372.1], tier: "A1'", sigma: 5.04, room: "c2_row", source: { curve: "log.concept2.com 2025 rankings, men, rank read, N=5941", l99: "median of the top 10 of the same ranking", n: 5941 }, group: "Row", groupLabel: "Concept2 RowErg", match: /^row 1 ?km$/i },
+  row2k: { label: "Row 2 km", domain: "endurance", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1], curve: [353.1, 395.5, 408.5, 425.2, 440.7, 453.8, 467, 479, 499.7, 525.3, 566, 602.5, 729.1], tier: "A1'", sigma: 5.03, room: "c2_row", source: { curve: "log.concept2.com 2025 rankings, men, rank read, N=9490", l99: "median of the top 10 of the same ranking", n: 9490 }, group: "Row", groupLabel: "Concept2 RowErg", match: /^row 2 ?km$/i },
+  ski500: { label: "SkiErg 500 m", domain: "speed", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1], curve: [82.2, 87, 90.7, 95, 100.2, 104.3, 107.6, 112.7, 117.6, 122.7, 134.1, 141.8, 166.3], tier: "A2'", sigma: 5.39, room: "c2_ski", source: { curve: "log.concept2.com 2025 rankings, men, rank read, N=614", l99: "median of the top 10 of the same ranking", n: 614, flag: "level 99 is not independent of the percentile row at this field size" }, group: "SkiErg", groupLabel: "Concept2 SkiErg", match: /^skierg 500 ?m$/i },
+  ski1k: { label: "SkiErg 1 km", domain: "speed", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1], curve: [176, 193.2, 199.9, 208.9, 217.6, 224.7, 232.6, 241.4, 253.1, 268.6, 296.8, 331.9, 425], tier: "A2'", sigma: 5.25, room: "c2_ski", source: { curve: "log.concept2.com 2025 rankings, men, rank read, N=988", l99: "median of the top 10 of the same ranking", n: 988, flag: "level 99 is not independent of the percentile row at this field size" }, group: "SkiErg", groupLabel: "Concept2 SkiErg", match: /^skierg 1 ?km$/i },
+  ski2k: { label: "SkiErg 2 km", domain: "endurance", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1], curve: [376.4, 410.3, 419.8, 442.1, 461.6, 476.5, 494.5, 512.2, 530, 554, 593.2, 638.4, 850.5], tier: "A2'", sigma: 5.33, room: "c2_ski", source: { curve: "log.concept2.com 2025 rankings, men, rank read, N=731", l99: "median of the top 10 of the same ranking", n: 731, flag: "level 99 is not independent of the percentile row at this field size" }, group: "SkiErg", groupLabel: "Concept2 SkiErg", match: /^skierg 2 ?km$/i },
+  run5k: { label: "Run 5 km", domain: "endurance", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1], curve: [1042, 1134, 1199, 1303, 1382, 1457, 1533, 1613, 1709, 1816, 1991, 2197, 2857], tier: "A2'", sigma: 5.03, room: "parkrun", source: { curve: "parkrun UK finisher lists, men 18-54, rank read, N=7832 over 23 event-days", l99: "99th percentile of the same pool - no elite top-10 exists here", n: 7832, flag: "level 99 is a 99th percentile, not an elite read" }, group: "Run", groupLabel: "Running", match: /^run 5 ?km$/i },
   reg2011e2: { label: "Regionals 2011 E2 - Thruster ladder", domain: "heavy", rtype: "load", dir: "higher", unit: "lb", levels: [99, 0], curve: [275, 0], tier: "E", axis: "load", floor: 0, floorNote: "0 lb (failed the opening load)", elite: 275, eliteRaw: "275 lb", rx: ["Thruster ladder \u2014 ascending load to failure"], room: "regionals", source: { l99: "median of the top 10 pooled across all regions, 2011 Regionals leaderboard (field 632, 0 finishers)", n: 632, fieldMedian: "215 lb", year: 2011 }, match: /^regionals 2011 (event )?2\b/i },
   reg2012e5: { label: "Regionals 2012 E5 - Snatch ladder with double-unders", domain: "heavy", rtype: "load", dir: "higher", unit: "lb", levels: [99, 0], curve: [265, 0], tier: "E", axis: "load", floor: 0, floorNote: "0 lb \u2014 the leaderboard records real 0.00 scores", elite: 265, eliteRaw: "265 lb", rx: ["Snatch ladder with double-unders \u2014 ascending load"], room: "regionals", source: { l99: "median of the top 10 pooled across all regions, 2012 Regionals leaderboard (field 616, 0 finishers)", n: 616, fieldMedian: "195 lb", year: 2012 }, match: /^regionals 2012 (event )?5\b/i },
   reg2013e1: { label: "Regionals 2013 E1 - Jackie", domain: "light", rtype: "adjusted", dir: "lower", unit: "mm:ss", levels: [99, 0], curve: [309.5, 730], tier: "E", axis: "adjusted", capS: 600, floor: 730, floorNote: "cap 10:00 + 130 reps = 12:10 adjusted", elite: 309.5, eliteRaw: "5:09.50", lineage: "Girl benchmark Jackie", rx: ["For time:", "1,000-m row", "45 lb thruster, 50 reps", "30 pull-ups"], room: "regionals", source: { l99: "median of the top 10 pooled across all regions, 2013 Regionals leaderboard (field 753, 753 finishers)", n: 753, fieldMedian: "5:48.10", year: 2013 }, match: /^regionals 2013 (event )?1\b/i },
@@ -732,17 +743,17 @@ const BENCHMARKS = {
   reg2018e6: { label: "Regionals 2018 E6 - 4 rope climbs + 16 thrusters 155 lb / 3 rope climbs + 12 t", domain: "heavy", rtype: "adjusted", dir: "lower", unit: "mm:ss", levels: [99, 0], curve: [213.54, 465], tier: "E", axis: "adjusted", capS: 420, floor: 465, floorNote: "cap 7:00 + 45 reps = 7:45 adjusted", elite: 213.54, eliteRaw: "3:33.54", rx: ["4 rope climbs + 16 thrusters 155 lb", "3 rope climbs + 12 thrusters", "2 rope climbs + 8 thrusters"], room: "regionals", source: { l99: "median of the top 10 pooled across all regions, 2018 Regionals leaderboard (field 343, 331 finishers)", n: 343, fieldMedian: "5:00.20", year: 2018 }, match: /^regionals 2018 (event )?6\b/i },
   cleanjerk: { label: "Clean & Jerk", domain: "lifts", rtype: "load", dir: "higher", unit: "lb", levels: [99, 90, 75, 50, 20], curve: [365, 285, 245, 205, 170], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, match: /clean|jerk/i },
   snatch: { label: "Snatch", domain: "lifts", rtype: "load", dir: "higher", unit: "lb", levels: [99, 90, 75, 50, 20], curve: [300, 230, 190, 154, 126], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, match: /snatch/i },
-  deadlift: { label: "Deadlift", domain: "lifts", rtype: "load", dir: "higher", unit: "lb", levels: [99, 90, 75, 50, 20], curve: [550, 465, 420, 366, 309], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, match: /^deadlift/i },
-  backsquat: { label: "Back Squat", domain: "lifts", rtype: "load", dir: "higher", unit: "lb", levels: [99, 90, 75, 50, 20], curve: [485, 400, 345, 298, 243], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, match: /^back squat/i },
-  benchpress: { label: "Bench Press", domain: "lifts", rtype: "load", dir: "higher", unit: "lb", levels: [99, 90, 75, 50, 20], curve: [355, 295, 265, 225, 185], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, match: /^bench press/i },
-  shoulderpress: { label: "Shoulder Press", domain: "lifts", rtype: "load", dir: "higher", unit: "lb", levels: [99, 90, 75, 50, 20], curve: [225, 185, 165, 146, 126], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, match: /^shoulder press/i },
-  run400: { label: "Run 400 m", domain: "speed", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 90, 75, 50, 20], curve: [54, 62, 68, 76, 90], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, match: /^run 400 ?m/i },
-  mile: { label: "Run 1 mile", domain: "endurance", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 90, 75, 50, 20], curve: [312, 351, 378, 416, 482], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, match: /^run 1 ?mi/i },
+  deadlift: { label: "Deadlift", domain: "lifts", rtype: "load", dir: "higher", unit: "lb", levels: [99, 90, 75, 50, 20], curve: [550, 465, 420, 366, 309], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, match: /^(?:\d+\s*RM:\s*|\d+\s*x\s*\d+:\s*)?deadlift/i },
+  backsquat: { label: "Back Squat", domain: "lifts", rtype: "load", dir: "higher", unit: "lb", levels: [99, 90, 75, 50, 20], curve: [485, 400, 345, 298, 243], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, match: /^(?:\d+\s*RM:\s*|\d+\s*x\s*\d+:\s*)?back squat/i },
+  benchpress: { label: "Bench Press", domain: "lifts", rtype: "load", dir: "higher", unit: "lb", levels: [99, 90, 75, 50, 20], curve: [355, 295, 265, 225, 185], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, match: /^(?:\d+\s*RM:\s*|\d+\s*x\s*\d+:\s*)?bench press/i },
+  shoulderpress: { label: "Shoulder Press", domain: "lifts", rtype: "load", dir: "higher", unit: "lb", levels: [99, 90, 75, 50, 20], curve: [225, 185, 165, 146, 126], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, match: /^(?:\d+\s*RM:\s*|\d+\s*x\s*\d+:\s*)?shoulder press/i },
+  run400: { label: "Run 400 m", domain: "speed", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 90, 75, 50, 20], curve: [54, 62, 68, 76, 90], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, group: "Run", groupLabel: "Running", match: /^run 400 ?m/i },
+  mile: { label: "Run 1 mile", domain: "endurance", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 90, 75, 50, 20], curve: [312, 351, 378, 416, 482], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, group: "Run", groupLabel: "Running", match: /^run 1 ?mi/i },
   fran: { label: "Fran", domain: "light", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 90, 75, 50, 20], curve: [130, 187, 247, 337, 479], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, match: /^fran$/i },
   grace: { label: "Grace", domain: "light", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 90, 75, 50, 20], curve: [80, 131, 163, 214, 313], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, match: /^grace$/i },
   helen: { label: "Helen", domain: "light", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 90, 75, 50, 20], curve: [442, 507, 556, 630, 753], tier: "B", room: "zeitz", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads", n: 66 }, match: /^helen$/i },
-  run800: { label: "Run 800 m", domain: "speed", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 90, 75, 50, 20], curve: [125, 143, 157, 175, 208], tier: "C", room: "coaching", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads" }, match: /^run 800 ?m/i },
-  run10k: { label: "Run 10 km", domain: "endurance", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 90, 75, 50, 20], curve: [2400, 2584, 2755, 3025, 3480], tier: "C", room: "coaching", source: { curve: "fitness-assessment-anchors.md, coaching references. NOT upgraded: no enumerated ranked 10 km population with a published field size was found, and deriving it from the 5 km curve is shape transfer, measured at SD 23.6." }, match: /^run 10 ?km/i },
+  run800: { label: "Run 800 m", domain: "speed", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 90, 75, 50, 20], curve: [125, 143, 157, 175, 208], tier: "C", room: "coaching", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads" }, group: "Run", groupLabel: "Running", match: /^run 800 ?m/i },
+  run10k: { label: "Run 10 km", domain: "endurance", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 90, 75, 50, 20], curve: [2400, 2584, 2755, 3025, 3480], tier: "C", room: "coaching", source: { curve: "fitness-assessment-anchors.md, coaching references. NOT upgraded: no enumerated ranked 10 km population with a published field size was found, and deriving it from the 5 km curve is shape transfer, measured at SD 23.6." }, group: "Run", groupLabel: "Running", match: /^run 10 ?km/i },
   annie: { label: "Annie", domain: "light", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 90, 75, 50, 20], curve: [280, 334, 386, 466, 600], tier: "C", room: "coaching", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads" }, match: /^annie$/i },
   jackie: { label: "Jackie", domain: "light", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 90, 75, 50, 20], curve: [310, 354, 396, 461, 570], tier: "C", room: "coaching", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads" }, match: /^jackie$/i },
   diane: { label: "Diane", domain: "light", rtype: "time", dir: "lower", unit: "mm:ss", levels: [99, 90, 75, 50, 20], curve: [115, 162, 205, 274, 390], tier: "C", room: "coaching", source: { curve: "Zeitz et al. 2021, Sports 9(6):80, Table 3, men (n=66) - the 1/10/25/50/80 percentile reads" }, match: /^diane$/i },
@@ -769,7 +780,7 @@ const BENCHMARKS = {
   db_bmu: { label: "Death By: Bar Muscle-ups", domain: "bodyweight", rtype: "rounds", dir: "higher", unit: "rounds", levels: [99, 90, 75, 50, 20], curve: [15, 12, 10, 7, 4], tier: "P", weight: 0, personal: true, room: "personal", source: { curve: "modelled from coaching references; no distribution exists" }, match: /^death by: bar muscle-ups$/i },
   db_spullup: { label: "Death By: Strict Pull-ups", domain: "bodyweight", rtype: "rounds", dir: "higher", unit: "rounds", levels: [99, 90, 75, 50, 20], curve: [16, 13, 11, 8, 5], tier: "P", weight: 0, personal: true, room: "personal", source: { curve: "modelled from coaching references; no distribution exists" }, match: /^death by: strict pull-ups$/i },
   db_wpullup: { label: "Death By: Weighted Pull-ups", domain: "bodyweight", rtype: "rounds", dir: "higher", unit: "rounds", levels: [99, 90, 75, 50, 20], curve: [15, 12, 10, 7, 4], tier: "P", weight: 0, personal: true, room: "personal", source: { curve: "modelled from coaching references; no distribution exists" }, match: /^death by: weighted pull-ups$/i },
-  airbike_cal: { label: "Assault/Echo air bike - calories", domain: "endurance", rtype: "reps", dir: "higher", unit: "cal", tier: "P", weight: 0, personal: true, machine: "Assault/Echo air bike", room: "airbike", source: { curve: "none - the calorie unit is not a stable ruler; see the room note" }, match: /^(assault|echo)[ \/-]?(air )?bike/i },
+  airbike_cal: { label: "Assault/Echo air bike - calories", domain: "endurance", rtype: "reps", dir: "higher", unit: "cal", tier: "P", weight: 0, personal: true, machine: "Assault/Echo air bike", room: "airbike", source: { curve: "none - the calorie unit is not a stable ruler; see the room note" }, group: "Air bike", groupLabel: "Assault/Echo bike", match: /^(assault|echo)[ \/-]?(air )?bike/i },
   mx_pullup: { label: "Max Pull-ups", domain: "bodyweight", rtype: "reps", dir: "higher", unit: "reps", tier: "P", weight: 0, personal: true, rx: ["One unbroken set of pull-ups. No kipping, no butterfly.", "Arms fully straight at the bottom of every rep, chin over the bar at the top.", "The set ends at the first failed rep or the moment you come off the bar."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max pull-ups$/i },
   mx_wpullup: { label: "Max Weighted Pull-up", domain: "bodyweight", rtype: "load", dir: "higher", unit: "lb", tier: "P", weight: 0, personal: true, rx: ["The heaviest single pull-up you can do with added load.", "Score the ADDED weight, not your bodyweight plus it.", "Arms fully straight at the bottom, chin over the bar at the top."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max weighted pull-up$/i },
   mx_chinup: { label: "Max Chin-ups", domain: "bodyweight", rtype: "reps", dir: "higher", unit: "reps", tier: "P", weight: 0, personal: true, rx: ["One unbroken set of chin-ups \u2014 palms facing you.", "Arms fully straight at the bottom of every rep, chin over the bar at the top.", "The set ends at the first failed rep or the moment you come off the bar."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max chin-ups$/i },
@@ -6635,7 +6646,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260807-0854'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260807-0854';
+const BUILD_ID = '20260807-0914'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260807-0914';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -13504,7 +13515,7 @@ function ftLevel(body) {
     body.append(nudge);
   }
 
-  const notes = [`Every scoring curve here is read from a real population or built from two published anchors — nothing is a plausible guess. Results are combined by inverse-variance weighting, so a better-sourced curve counts for more. Lifts score from true 1RMs only, at absolute load; rep work shows as an estimated target (~lb) to chase. A domain unlocks with ${FT.UNLOCK_MIN} results${liveView ? ' inside the 12-month window' : ''}, and tier C and E results count toward it.`];
+  const notes = [`Every scoring curve here is read from a real population or built from two published anchors — nothing is a plausible guess. Results are combined by inverse-variance weighting, so a better-sourced curve counts for more. Lifts score at absolute load, from a measured 1RM or from a rep max of ${FT.REPMAX_MAX_REPS} or fewer converted to an estimated one — the estimate counts for less, and never displaces a better measured lift. A domain unlocks with ${FT.UNLOCK_MIN} results${liveView ? ' inside the 12-month window' : ''}, and tier C and E results count toward it.`];
   if (liveView && a.alltime.overall != null) notes.push('The brass notch marks your all-time best — a target to chase.');
   body.append(h(`<div class="muted" style="font-size:11px;margin:8px 4px">${notes.join(' ')}</div>`));
   bindSrcFlags(body);
@@ -13512,10 +13523,93 @@ function ftLevel(body) {
 
 // ---- domain screen (§5): tap a domain → its assessment benchmarks + full library ----
 let ftDomainView = 'assess';
+function benchWorkouts(key) {
+  return FT.allWorkouts().filter(w => FT.benchmarkFor(w) === key);
+}
 function workoutForBenchmark(key) {
-  const ws = FT.allWorkouts().filter(w => FT.benchmarkFor(w) === key);
+  const ws = benchWorkouts(key);
   if (!ws.length) return null;
   return ws.find(w => /^1RM:/i.test(w.name)) || ws[0];
+}
+
+// ---------------------------------------------------------------------------------------
+// ⚑ THE REP-SCHEME CHOOSER. Baruch, twenty-third session: "on LIFTS it still only lets me
+// log 1 rep max... I thought we had enabled to do more than just 1 rep maxes."
+//
+// He was right and the cause was one line: workoutForBenchmark preferred /^1RM:/ and there
+// was no way past it. The scoring for rep maxes shipped in §12 and works — this is the
+// INPUT half, the same gap the tier-P max tests filled for the max-set board.
+//
+// ⚑ HE ASKED FOR ONE ROW PER LIFT, NOT ONE PER SCHEME: "one row per lift that opens a
+// chooser". So the row keeps its ring — a lift is ONE benchmark with ONE level however many
+// ways you test it — and the schemes live one tap down.
+//
+// ⚑ AND HE WAS EXPLICIT ABOUT WHAT THIS IS NOT: "I am not looking for a whole different
+// domain. I am just saying the addition of being able to do different rep schemes will help
+// the assessment of lifts." A rep max is a WORSE MEASUREMENT OF THE SAME CAPACITY, never a
+// second capacity. It converts to an estimated 1RM and is scored on the same curve with a
+// wider σ. Nothing here creates a strength-endurance reading, and the sheet says so in
+// words so the distinction survives contact with the screen.
+const REPMAX_RE = /^(\d+)\s*RM:/i;
+const WORKSET_RE = /^(\d+)\s*x\s*(\d+):/i;
+function schemeOf(name) {
+  let m = REPMAX_RE.exec(name || '');
+  if (m) return { reps: +m[1], kind: 'max' };
+  m = WORKSET_RE.exec(name || '');
+  if (m) return { reps: +m[2], kind: 'sets', sets: +m[1] };
+  return null;
+}
+// What one result at this rep scheme is worth against a measured 1RM, as a plain fraction.
+// Derived from precisionOfResult so it can never drift from the scoring engine — the notes
+// quote 0.60 and 0.29 and this recomputes them rather than repeating them.
+function schemeWorth(b, reps) {
+  if (!reps || reps <= 1) return 1;
+  const p1 = FT.precisionOfResult(b, 1, false, 1);
+  const pn = FT.precisionOfResult(b, 1, true, reps);
+  return p1 > 0 ? pn / p1 : 0;
+}
+function schemeNote(reps, worth) {
+  if (reps <= 1) return 'Measured. Counts in full.';
+  const pct = Math.round(worth * 100);
+  return `Converted to an estimated 1RM · counts ${pct}% as much as a measured single`;
+}
+function liftChooser(key) {
+  const b = FT.BENCHMARKS[key];
+  const ws = benchWorkouts(key);
+  const withScheme = ws.map(w => ({ w, s: schemeOf(w.name) }));
+  const maxes = withScheme.filter(x => x.s && x.s.kind === 'max' && x.s.reps <= FT.REPMAX_MAX_REPS)
+    .sort((x, y) => x.s.reps - y.s.reps);
+  const sets = withScheme.filter(x => x.s && x.s.kind === 'sets').sort((x, y) => x.s.reps - y.s.reps);
+  const other = withScheme.filter(x => !x.s);
+  openSheet(b.label, body => {
+    const row = ({ w, s }, sub) => {
+      const n = FT.logsFor(w.id).length, pr = FT.prFor(w.id);
+      const el = h(`<div class="list-item"><div class="grow">
+          <div class="title" style="font-size:14px">${esc(w.name)}</div>
+          <div class="sub">${sub}${pr ? ' · best ' + esc(pr.result) : n ? '' : ' · never done'}</div></div>
+        <span class="chev">›</span></div>`);
+      el.querySelector('.list-item').onclick = () => { render(() => workoutDetail(w)); };
+      body.append(el);
+    };
+    if (maxes.length) {
+      body.append(sectionTitle('Max attempts'));
+      body.append(h(`<div class="muted" style="font-size:11.5px;margin:0 4px 6px;line-height:1.55">The heaviest set you can complete at that rep count. Anything above a single is converted to an estimated 1RM and scored on the <b>same</b> curve — it measures the same strength less precisely, not a different quality. A real 1RM is still worth the most.</div>`));
+      maxes.forEach(x => row(x, schemeNote(x.s.reps, schemeWorth(b, x.s.reps))));
+    }
+    if (sets.length) {
+      body.append(sectionTitle('Working sets from your history'));
+      // ⚑ HIS OWN CAVEAT, ON THE SCREEN WHERE IT MATTERS. From the attribution audit: a
+      // `2RM: Deadlift` at 325 followed five days later by a `5 x 3` topping at 330 means
+      // the prescribed sets were never maximum attempts. They still score off the top set,
+      // so the board can read low, and only he knows which were real efforts.
+      body.append(h(`<div class="muted" style="font-size:11.5px;margin:0 4px 6px;line-height:1.55">Prescribed volume, not a max attempt. These score off the top set, so they can read <b>low</b> — a set you stopped because the programme said five is not the same as one you stopped because you could not do six.</div>`));
+      sets.forEach(x => row(x, `${x.s.sets} sets of ${x.s.reps}`));
+    }
+    if (other.length) {
+      body.append(sectionTitle('Other'));
+      other.forEach(x => row(x, 'no rep scheme in the name · does not score as a rep max'));
+    }
+  });
 }
 // ⚑ THREE STATES, AND THE FADE CARRIES THE MEANING. Baruch, twenty-second session: "any lift
 // that is actively counting towards my score is clear... If I have done it before but it no
@@ -13557,7 +13651,16 @@ function benchRow(key, item, state = 'active') {
       <div class="grow"><div class="title" style="font-size:14px">${esc(b.label)}${faded ? '' : srcFlag(b.room, extra)}</div>
       <div class="sub">${sub}</div></div>
       <span class="chev">›</span></div>`);
-  el.querySelector('.list-item').onclick = () => { if (w) render(() => workoutDetail(w)); else toast('No workout for this benchmark yet — create one'); };
+  // ⚑ ONE ROW PER LIFT, OPENING A CHOOSER — his instruction. Any benchmark with more than
+  // one way to test it gets the sheet; today that is exactly the six lifts and nothing else
+  // (measured: 6 of 162 benchmarks have >1 workout), so this is not a behaviour change
+  // anywhere but Lifts. Everything single-workout still goes straight through.
+  el.querySelector('.list-item').onclick = () => {
+    const ws = benchWorkouts(key);
+    if (ws.length > 1) liftChooser(key);
+    else if (w) render(() => workoutDetail(w));
+    else toast('No workout for this benchmark yet — create one');
+  };
   return el;
 }
 function libRow(w) {
@@ -13605,8 +13708,17 @@ function ftLockedNote(d, label, domL, domA) {
     ? `<b>${esc(label)} is locked, and it has not always been.</b> The ${silenced.length}${esc(family)} workout${silenced.length === 1 ? '' : 's'} in your log stopped counting toward a Level: nobody publishes a distribution for them, so the curve behind them was modelled rather than measured — a made-up ruler was quietly setting this number. They are still logged, still trended and still exactly right about you. They just do not vote any more.`
     : `<b>${esc(label)} is locked.</b> A level needs ${FT.UNLOCK_MIN} results from benchmarks whose curve was read off a real population, and this domain has ${domL.count}.`;
   const window = domA.count > domL.count ? ' in the last 12 months' : '';
+  // ⚑ "listed below" stopped being true the moment Speed and Endurance grouped by modality:
+  // Row 500 m is no longer on this screen, it is one tap into Row. Saying "below" would send
+  // him looking for a row that is not there, which is the same class of mistake as the
+  // "one result short" correction in §18 — copy that was right when written and quietly went
+  // wrong underneath. So the pointer is computed from how the list is actually rendered.
+  const grouped = open.length > 0 && open.every(k => FT.BENCHMARKS[k].group);
+  const where = grouped
+    ? ` — ${orList(names.map(esc))}, under ${orList([...new Set(open.slice(0, 4).map(k => esc(FT.BENCHMARKS[k].group)))])} below`
+    : ` — ${orList(names.map(esc))}${open.length > names.length ? `, and ${open.length - names.length} more below` : ', listed below'}`;
   const path = `The way back is <b>${need} more result${need === 1 ? '' : 's'}</b>${window} from a benchmark that has one`
-    + (names.length ? ` — ${orList(names.map(esc))}${open.length > names.length ? `, and ${open.length - names.length} more below` : ', listed below'}` : '')
+    + (names.length ? where : '')
     + `. A repeat of something already in your log is worth the most of all.`;
   return h(`<div class="card" style="padding:13px 14px;border-color:var(--gold)">
       <div style="font-size:12.5px;line-height:1.65">${why} ${path}</div>
@@ -13658,11 +13770,70 @@ function ftDomainScreenBody(d, label) {
     const expired = scoring.filter(k => !liveByKey[k] && itemByKey[k]).sort(byLevel(itemByKey));
     const never = scoring.filter(k => !liveByKey[k] && !itemByKey[k]);
 
-    if (active.length) {
+    // ⚑ MODALITY ROWS. Baruch, twenty-third session: "instead of showing all the different
+    // distances, it should show Run, Skierg, Row, and then you click those and it shows you
+    // the options of distances." Speed and Endurance carry a `group` on every scoring
+    // benchmark (assigned in build_assessment.py and asserted complete there); every other
+    // domain has none and falls through to the flat list unchanged.
+    //
+    // ⚑ THE GROUP ROW CARRIES NO RING, AND THAT IS THE POINT. Row 500 m and Row 2 km are
+    // two curves with two levels and two independent votes — unlike a lift, where every rep
+    // scheme tests ONE benchmark and the row's ring is that benchmark's real level. There
+    // is no single number behind "Row", so drawing one would mean inventing an aggregate
+    // the scoring engine computes nowhere — the same ghost number §16 just removed. The
+    // levels live one tap down, on the distances that actually own them.
+    const groupsOf = ks => {
+      const g = new Map();
+      ks.forEach(k => {
+        const b = FT.BENCHMARKS[k];
+        if (!g.has(b.group)) g.set(b.group, { label: b.group, sub: b.groupLabel, keys: [] });
+        g.get(b.group).keys.push(k);
+      });
+      return [...g.values()];
+    };
+    const grouped = scoring.length > 0 && scoring.every(k => FT.BENCHMARKS[k].group);
+    if (grouped) {
+      const groups = groupsOf(scoring)
+        .map(g => ({ ...g, live: g.keys.filter(k => liveByKey[k]).length }))
+        // counting first, then the ones with any history, then untouched — the same
+        // active-on-top ordering as the flat list, lifted one level up.
+        .sort((x, y) => y.live - x.live
+          || y.keys.filter(k => itemByKey[k]).length - x.keys.filter(k => itemByKey[k]).length
+          || x.label.localeCompare(y.label));
+      list.append(sectionTitle(label));
+      if (!groups.some(g => g.live)) {
+        list.append(h(`<div class="muted" style="font-size:11.5px;margin:0 4px 6px;line-height:1.55">A result counts toward your level for <b>12 months</b>. Nothing in ${esc(label)} has been logged inside that window, so nothing here is counting right now. Tap any of these to see the distances and what each was last worth.</div>`));
+      }
+      groups.forEach(g => {
+        const done = g.keys.filter(k => itemByKey[k]).length;
+        const sub = g.keys.length + ' distance' + (g.keys.length === 1 ? '' : 's')
+          + ' · ' + (g.live ? g.live + ' counting' : done ? 'none counting · ' + done + ' logged before' : 'never logged');
+        const row = h(`<div class="list-item"><div class="grow">
+            <div class="title" style="font-size:14px">${esc(g.label)}</div>
+            <div class="sub">${esc(sub)}</div></div><span class="chev">›</span></div>`);
+        row.querySelector('.list-item').onclick = () => openSheet(g.sub || g.label, body => {
+          const act = g.keys.filter(k => liveByKey[k]).sort(byLevel(liveByKey));
+          const exp = g.keys.filter(k => !liveByKey[k] && itemByKey[k]).sort(byLevel(itemByKey));
+          const nev = g.keys.filter(k => !liveByKey[k] && !itemByKey[k]);
+          if (act.length) {
+            body.append(sectionTitle('Counting toward ' + label));
+            act.forEach(k => body.append(benchRow(k, liveByKey[k], 'active')));
+          }
+          if (exp.length || nev.length) {
+            if (act.length) body.append(sectionTitle('Not counting'));
+            exp.forEach(k => body.append(benchRow(k, itemByKey[k], 'expired')));
+            nev.forEach(k => body.append(benchRow(k, null, 'never')));
+          }
+          bindSrcFlags(body);
+        });
+        list.append(row);
+      });
+    }
+    if (!grouped && active.length) {
       list.append(sectionTitle('Counting toward ' + label));
       active.forEach(k => list.append(benchRow(k, liveByKey[k], 'active')));
     }
-    if (expired.length || never.length) {
+    if (!grouped && (expired.length || never.length)) {
       list.append(sectionTitle('Not counting'));
       // one line, and only when it is doing work: if NOTHING is active the reason is not
       // obvious and saying it is the difference between a design and a bug.
