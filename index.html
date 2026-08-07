@@ -540,6 +540,8 @@ const COMPETITION_WORKOUTS = [
   {"name": "Max Walking Lunge Time", "movements": "One unbroken effort of walking lunges, scored by how long you kept going.\nBack knee touches the floor, hips fully open at the top of every step.\nThe effort ends when you stop moving. Score the time, not the steps.\nScore: time.", "resultType": "time", "id": "comx_lungetime", "domain": "bodyweight", "bkey": "mx_lungetime", "format": "fortime"},
   {"name": "Max Plank Hold", "movements": "One unbroken front plank on the elbows.\nShoulders over the elbows, hips in line with shoulders and heels.\nThe effort ends when the hips drop or rise out of line.\nScore: time.", "resultType": "time", "id": "comx_plank", "domain": "bodyweight", "bkey": "mx_plank", "format": "fortime"},
   {"name": "Max Dead Hang", "movements": "One unbroken dead hang, arms straight, feet off the floor.\nThe effort ends when you come off the bar.\nScore: time.", "resultType": "time", "id": "comx_deadhang", "domain": "bodyweight", "bkey": "mx_deadhang", "format": "fortime"},
+  {"name": "Run 100 m", "movements": "A single flat-out 100 m from a standing start.\nTime it the SAME WAY every attempt — a phone stopwatch and an electronic gate differ by about a quarter of a second, which is most of a year of improvement.\nFull recovery before any repeat. This is a max effort, not an interval.\nScore: time.", "resultType": "time", "id": "corun100", "domain": "speed", "bkey": "run100", "format": "fortime"},
+  {"name": "Run 200 m", "movements": "A single flat-out 200 m from a standing start.\nTime it the SAME WAY every attempt — see the note on the 100 m.\nFull recovery before any repeat. This is a max effort, not an interval.\nScore: time.", "resultType": "time", "id": "corun200", "domain": "speed", "bkey": "run200", "format": "fortime"},
   {"name": "5RM: Deadlift", "movements": "Work up to the heaviest set of 5 you can complete with good form.\nScore: heaviest set of 5, in pounds.\nScored as an estimated 1RM, which carries less weight than a measured single — a real 1RM is still worth more.", "resultType": "load", "id": "codeadlift5rm", "domain": "lifts", "bkey": "deadlift", "format": "strength"},
   {"name": "10RM: Deadlift", "movements": "Work up to the heaviest set of 10 you can complete with good form.\nScore: heaviest set of 10, in pounds.\nScored as an estimated 1RM, which carries less weight than a measured single — a real 1RM is still worth more.", "resultType": "load", "id": "codeadlift10rm", "domain": "lifts", "bkey": "deadlift", "format": "strength"},
   {"name": "10RM: Back Squat", "movements": "Work up to the heaviest set of 10 you can complete with good form.\nScore: heaviest set of 10, in pounds.\nScored as an estimated 1RM, which carries less weight than a measured single — a real 1RM is still worth more.", "resultType": "load", "id": "cobacksquat10rm", "domain": "lifts", "bkey": "backsquat", "format": "strength"},
@@ -798,6 +800,8 @@ const BENCHMARKS = {
   mx_lungetime: { label: "Max Walking Lunge Time", domain: "bodyweight", rtype: "time", dir: "higher", unit: "s", tier: "P", weight: 0, personal: true, rx: ["One unbroken effort of walking lunges, scored by how long you kept going.", "Back knee touches the floor, hips fully open at the top of every step.", "The effort ends when you stop moving. Score the time, not the steps."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max walking lunge time$/i },
   mx_plank: { label: "Max Plank Hold", domain: "bodyweight", rtype: "time", dir: "higher", unit: "s", tier: "P", weight: 0, personal: true, rx: ["One unbroken front plank on the elbows.", "Shoulders over the elbows, hips in line with shoulders and heels.", "The effort ends when the hips drop or rise out of line."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max plank hold$/i },
   mx_deadhang: { label: "Max Dead Hang", domain: "bodyweight", rtype: "time", dir: "higher", unit: "s", tier: "P", weight: 0, personal: true, rx: ["One unbroken dead hang, arms straight, feet off the floor.", "The effort ends when you come off the bar."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max dead hang$/i },
+  run100: { label: "Run 100 m", domain: "speed", rtype: "time", dir: "lower", unit: "mm:ss", tier: "P", weight: 0, personal: true, rx: ["A single flat-out 100 m from a standing start.", "Time it the SAME WAY every attempt \u2014 a phone stopwatch and an electronic gate differ by about a quarter of a second, which is most of a year of improvement.", "Full recovery before any repeat. This is a max effort, not an interval."], room: "personal", source: { curve: "none - no published percentile distribution of sprint times exists for a general-fitness population with a stated n. Sprint-athlete studies are real data in the wrong room. Logged against yourself only, and it votes for nothing." }, group: "Run", groupLabel: "Running", match: /^run 100 ?m$/i },
+  run200: { label: "Run 200 m", domain: "speed", rtype: "time", dir: "lower", unit: "mm:ss", tier: "P", weight: 0, personal: true, rx: ["A single flat-out 200 m from a standing start.", "Time it the SAME WAY every attempt \u2014 see the note on the 100 m.", "Full recovery before any repeat. This is a max effort, not an interval."], room: "personal", source: { curve: "none - no published percentile distribution of sprint times exists for a general-fitness population with a stated n. Sprint-athlete studies are real data in the wrong room. Logged against yourself only, and it votes for nothing." }, group: "Run", groupLabel: "Running", match: /^run 200 ?m$/i },
 };
 
 // Loggable, trended, shown with "% of elite" - but no curve, so no Level and no vote.
@@ -3994,9 +3998,21 @@ function cardFromLogs({ logIds = [], name = '', ts = null } = {}) {
 function parseResult(result, type) {
   const s = String(result).trim();
   if (type === 'time') {
-    let m = s.match(/(\d+):(\d{1,2}):(\d{1,2})/);
+    // ⚑ FRACTIONAL SECONDS ARE KEPT (twenty-fifth session). The seconds field was `\d{1,2}`, so
+    // "1:07.5" parsed as 67 and the .5 was dropped SILENTLY — no warning, no rounding notice, a
+    // number that simply disagreed with what he wrote. Two of his 431 logs already carry tenths.
+    //
+    // ⚑ AND IT MOVES A LEVEL, DOWNWARD, WHICH IS WHY IT IS CORRECT. `1:07.5` is on run400, a
+    // tier-B SCORING benchmark, so the app has been scoring him on a 400 m he did not run — the
+    // truncation flattered him by half a second. Keeping the tenth is the accurate read, and the
+    // rule this project runs on is a defensible number over a comfortable one. `test-sprint.mjs`
+    // asserts the exact size of the move rather than leaving it to be discovered.
+    //
+    // The bare-number branch below still reads as MINUTES and is deliberately untouched: no seed
+    // log uses it, and changing it would reinterpret an input nothing currently produces.
+    let m = s.match(/(\d+):(\d{1,2}):(\d{1,2}(?:\.\d+)?)/);
     if (m) return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
-    m = s.match(/(\d+):(\d{1,2})/);
+    m = s.match(/(\d+):(\d{1,2}(?:\.\d+)?)/);
     if (m) return Number(m[1]) * 60 + Number(m[2]);
     m = s.match(/^(\d+(?:\.\d+)?)$/);
     return m ? Number(m[1]) * 60 : null;
@@ -6895,7 +6911,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260807-1354'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260807-1354';
+const BUILD_ID = '20260807-1821'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260807-1821';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -12424,7 +12440,11 @@ function tokenize(text) {
   // Dash-joined words (belong—body, only-begotten) split into separate typeable words.
   return text.split('\n').map(line =>
     line.split(/\s+/).filter(w => w).flatMap(chunk =>
-      chunk.replace(/([—–-])(?=\S)/g, '$1 ').split(' ')
+      // ⚑ The sentinel is written as the ESCAPE \u0000, never as a raw NUL byte. Two raw
+      // bytes here made grep classify this whole file as binary, so every grep-based check in
+      // the project silently printed 'binary file matches' instead of lines - and did not fail
+      // while doing it. Identical string at runtime; the source stays ASCII-clean.
+      chunk.replace(/([—–-])(?=\S)/g, '$1\u0000').split('\u0000')
     ).map(raw => {
       const m = raw.toLowerCase().match(/[a-z0-9]/);
       return { raw, key: m ? m[0] : null };
@@ -13591,8 +13611,18 @@ function ftStreakCard() {
 // ---- assessment / Level view ----
 let ftLevelWindow = 'live';   // default Live; locked/empty is fine — a motivator to log fresh (Baruch)
 
+// ⚑ A TIME WITH TENTHS PRINTS ITS TENTHS (twenty-fifth session). Math.round() here was the second
+// half of the truncation in parseResult: even once 1:07.5 parsed as 67.5, this rounded it back to
+// 1:08 on the way to the screen, so the number he saw still disagreed with the number he wrote.
+// Whole seconds are untouched — 102 still prints 1:42, not 1:42.0 — because every existing
+// benchmark stores whole seconds and a trailing .0 everywhere would be noise for one new case.
+function fmtTimeVal(v) {
+  if (Number.isInteger(v)) return SC.fmtSecs(v);
+  const whole = Math.floor(v);
+  return SC.fmtSecs(whole) + (v - whole).toFixed(1).slice(1);
+}
 function fmtBench(item) {
-  if (item.rtype === 'time') return SC.fmtSecs(Math.round(item.best));
+  if (item.rtype === 'time') return fmtTimeVal(item.best);
   // Regionals adjusted time: CrossFit's own axis. Past the cap it reads CAP+n, exactly as
   // the leaderboard prints it, because that is what the number literally is.
   if (item.rtype === 'adjusted') {
