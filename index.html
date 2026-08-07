@@ -523,6 +523,23 @@ const COMPETITION_WORKOUTS = [
   {"name": "Regionals 2018 Event 4 - 2 rounds: 10 snatches 175 lb + 12 burpees / then 2 rounds:", "movements": "2 rounds: 10 snatches 175 lb + 12 burpees\nthen 2 rounds: 10 snatches 115 lb + 12 burpees\nCap 9:00. Score: your finishing time, or CAP+n if you were capped (n = reps not completed, CrossFit's own 1-second-per-rep rule). Enter either \"7:12\" or \"CAP+45\".", "resultType": "time", "id": "coreg2018e4", "domain": "heavy", "bkey": "reg2018e4", "format": "other", "cap": 540},
   {"name": "Regionals 2018 Event 6 - 4 rope climbs + 16 thrusters 155 lb / 3 rope climbs + 12 t", "movements": "4 rope climbs + 16 thrusters 155 lb\n3 rope climbs + 12 thrusters\n2 rope climbs + 8 thrusters\nCap 7:00. Score: your finishing time, or CAP+n if you were capped (n = reps not completed, CrossFit's own 1-second-per-rep rule). Enter either \"7:12\" or \"CAP+45\".", "resultType": "time", "id": "coreg2018e6", "domain": "heavy", "bkey": "reg2018e6", "format": "other", "kit": ["rope"], "needs": ["rope"], "cap": 420},
   {"name": "Run 10 km", "movements": "Run 10 km\nScore: time.", "resultType": "time", "id": "corun10k", "domain": "endurance", "bkey": "run10k", "format": "fortime"},
+  {"name": "Max Pull-ups", "movements": "One unbroken set of pull-ups. No kipping, no butterfly.\nArms fully straight at the bottom of every rep, chin over the bar at the top.\nThe set ends at the first failed rep or the moment you come off the bar.\nScore: total reps.", "resultType": "reps", "id": "comx_pullup", "domain": "bodyweight", "bkey": "mx_pullup", "format": "other"},
+  {"name": "Max Weighted Pull-up", "movements": "The heaviest single pull-up you can do with added load.\nScore the ADDED weight, not your bodyweight plus it.\nArms fully straight at the bottom, chin over the bar at the top.\nScore: heaviest successful lift, in pounds.", "resultType": "load", "id": "comx_wpullup", "domain": "bodyweight", "bkey": "mx_wpullup", "format": "strength"},
+  {"name": "Max Chin-ups", "movements": "One unbroken set of chin-ups — palms facing you.\nArms fully straight at the bottom of every rep, chin over the bar at the top.\nThe set ends at the first failed rep or the moment you come off the bar.\nScore: total reps.", "resultType": "reps", "id": "comx_chinup", "domain": "bodyweight", "bkey": "mx_chinup", "format": "other"},
+  {"name": "Max Push-ups", "movements": "One unbroken set of push-ups.\nChest to the floor, full lockout at the top, body in one line throughout.\nThe set ends at the first failed rep or the moment your knees touch.\nScore: total reps.", "resultType": "reps", "id": "comx_pushup", "domain": "bodyweight", "bkey": "mx_pushup", "format": "other"},
+  {"name": "Max Dips", "movements": "One unbroken set of dips on bars.\nShoulders below the elbows at the bottom, full lockout at the top.\nThe set ends at the first failed rep.\nScore: total reps.", "resultType": "reps", "id": "comx_dip", "domain": "bodyweight", "bkey": "mx_dip", "format": "other"},
+  {"name": "Max Weighted Dip", "movements": "The heaviest single dip you can do with added load.\nScore the ADDED weight, not your bodyweight plus it.\nScore: heaviest successful lift, in pounds.", "resultType": "load", "id": "comx_wdip", "domain": "bodyweight", "bkey": "mx_wdip", "format": "strength"},
+  {"name": "Max Ring Dips", "movements": "One unbroken set of ring dips.\nShoulders below the elbows at the bottom, full lockout with the rings turned out.\nThe set ends at the first failed rep.\nScore: total reps.", "resultType": "reps", "id": "comx_ringdip", "domain": "bodyweight", "bkey": "mx_ringdip", "format": "other", "kit": ["rings"], "needs": ["rings"]},
+  {"name": "Max Handstand Push-ups", "movements": "One unbroken set of handstand push-ups against a wall. No kipping.\nHead to the floor at the bottom, arms locked out at the top.\nThe set ends at the first failed rep or the moment you come off the wall.\nScore: total reps.", "resultType": "reps", "id": "comx_hspu", "domain": "bodyweight", "bkey": "mx_hspu", "format": "other"},
+  {"name": "Max Air Squats", "movements": "One unbroken set of air squats.\nHip crease below the knee at the bottom, hips and knees locked out at the top.\nThe set ends when you stop moving.\nScore: total reps.", "resultType": "reps", "id": "comx_airsquat", "domain": "bodyweight", "bkey": "mx_airsquat", "format": "other"},
+  {"name": "Max Sit-ups", "movements": "One unbroken set of AbMat sit-ups.\nShoulder blades to the floor at the bottom, hands past the feet at the top.\nThe set ends when you stop moving.\nScore: total reps.", "resultType": "reps", "id": "comx_situp", "domain": "bodyweight", "bkey": "mx_situp", "format": "other"},
+  {"name": "Max Toes-to-bar", "movements": "One unbroken set of toes-to-bar.\nBoth feet touch the bar together; arms and hips open at the bottom of every rep.\nThe set ends at the first failed rep or the moment you come off the bar.\nScore: total reps.", "resultType": "reps", "id": "comx_ttb", "domain": "bodyweight", "bkey": "mx_ttb", "format": "other"},
+  {"name": "Max Knees-to-elbow", "movements": "One unbroken set of knees-to-elbow.\nBoth knees touch the elbows together; arms and hips open at the bottom of every rep.\nThe set ends at the first failed rep or the moment you come off the bar.\nScore: total reps.", "resultType": "reps", "id": "comx_k2e", "domain": "bodyweight", "bkey": "mx_k2e", "format": "other"},
+  {"name": "Max Unbroken Double-unders", "movements": "One unbroken set of double-unders.\nThe set ends on the first trip.\nScore: total reps.", "resultType": "reps", "id": "comx_du", "domain": "bodyweight", "bkey": "mx_du", "format": "other"},
+  {"name": "Max Walking Lunges", "movements": "One unbroken set of walking lunges, counted per leg.\nBack knee touches the floor, hips fully open at the top of every step.\nThe set ends when you stop moving.\nScore: total reps.", "resultType": "reps", "id": "comx_lunge", "domain": "bodyweight", "bkey": "mx_lunge", "format": "other"},
+  {"name": "Max Walking Lunge Time", "movements": "One unbroken effort of walking lunges, scored by how long you kept going.\nBack knee touches the floor, hips fully open at the top of every step.\nThe effort ends when you stop moving. Score the time, not the steps.\nScore: time.", "resultType": "time", "id": "comx_lungetime", "domain": "bodyweight", "bkey": "mx_lungetime", "format": "fortime"},
+  {"name": "Max Plank Hold", "movements": "One unbroken front plank on the elbows.\nShoulders over the elbows, hips in line with shoulders and heels.\nThe effort ends when the hips drop or rise out of line.\nScore: time.", "resultType": "time", "id": "comx_plank", "domain": "bodyweight", "bkey": "mx_plank", "format": "fortime"},
+  {"name": "Max Dead Hang", "movements": "One unbroken dead hang, arms straight, feet off the floor.\nThe effort ends when you come off the bar.\nScore: time.", "resultType": "time", "id": "comx_deadhang", "domain": "bodyweight", "bkey": "mx_deadhang", "format": "fortime"},
   {"name": "Regionals 2011 Event 1 - Run 1K / 30 HSPU", "movements": "For time:\nRun 1K\n30 HSPU\nRow 1K\nScore: total reps.", "resultType": "reps", "id": "coreg2011e1", "domain": "bodyweight", "bkey": null, "format": "other"},
   {"name": "Regionals 2011 Event 3 - 21-15-9 reps for time of: / Deadlift 315 lb", "movements": "21-15-9 reps for time of:\nDeadlift 315 lb\nBox jump 30 in\nScore: total reps.", "resultType": "reps", "id": "coreg2011e3", "domain": "heavy", "bkey": null, "format": "other"},
   {"name": "Regionals 2011 Event 4 - 100 pull-ups / 100 kettlebell swings 24 kg", "movements": "For time:\n100 pull-ups\n100 kettlebell swings 24 kg\n100 double-unders\n100 overhead squats 95 lb\nScore: total reps.", "resultType": "reps", "id": "coreg2011e4", "domain": "light", "bkey": null, "format": "other"},
@@ -753,6 +770,23 @@ const BENCHMARKS = {
   db_spullup: { label: "Death By: Strict Pull-ups", domain: "bodyweight", rtype: "rounds", dir: "higher", unit: "rounds", levels: [99, 90, 75, 50, 20], curve: [16, 13, 11, 8, 5], tier: "P", weight: 0, personal: true, room: "personal", source: { curve: "modelled from coaching references; no distribution exists" }, match: /^death by: strict pull-ups$/i },
   db_wpullup: { label: "Death By: Weighted Pull-ups", domain: "bodyweight", rtype: "rounds", dir: "higher", unit: "rounds", levels: [99, 90, 75, 50, 20], curve: [15, 12, 10, 7, 4], tier: "P", weight: 0, personal: true, room: "personal", source: { curve: "modelled from coaching references; no distribution exists" }, match: /^death by: weighted pull-ups$/i },
   airbike_cal: { label: "Assault/Echo air bike - calories", domain: "endurance", rtype: "reps", dir: "higher", unit: "cal", tier: "P", weight: 0, personal: true, machine: "Assault/Echo air bike", room: "airbike", source: { curve: "none - the calorie unit is not a stable ruler; see the room note" }, match: /^(assault|echo)[ \/-]?(air )?bike/i },
+  mx_pullup: { label: "Max Pull-ups", domain: "bodyweight", rtype: "reps", dir: "higher", unit: "reps", tier: "P", weight: 0, personal: true, rx: ["One unbroken set of pull-ups. No kipping, no butterfly.", "Arms fully straight at the bottom of every rep, chin over the bar at the top.", "The set ends at the first failed rep or the moment you come off the bar."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max pull-ups$/i },
+  mx_wpullup: { label: "Max Weighted Pull-up", domain: "bodyweight", rtype: "load", dir: "higher", unit: "lb", tier: "P", weight: 0, personal: true, rx: ["The heaviest single pull-up you can do with added load.", "Score the ADDED weight, not your bodyweight plus it.", "Arms fully straight at the bottom, chin over the bar at the top."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max weighted pull-up$/i },
+  mx_chinup: { label: "Max Chin-ups", domain: "bodyweight", rtype: "reps", dir: "higher", unit: "reps", tier: "P", weight: 0, personal: true, rx: ["One unbroken set of chin-ups \u2014 palms facing you.", "Arms fully straight at the bottom of every rep, chin over the bar at the top.", "The set ends at the first failed rep or the moment you come off the bar."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max chin-ups$/i },
+  mx_pushup: { label: "Max Push-ups", domain: "bodyweight", rtype: "reps", dir: "higher", unit: "reps", tier: "P", weight: 0, personal: true, rx: ["One unbroken set of push-ups.", "Chest to the floor, full lockout at the top, body in one line throughout.", "The set ends at the first failed rep or the moment your knees touch."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max push-ups$/i },
+  mx_dip: { label: "Max Dips", domain: "bodyweight", rtype: "reps", dir: "higher", unit: "reps", tier: "P", weight: 0, personal: true, rx: ["One unbroken set of dips on bars.", "Shoulders below the elbows at the bottom, full lockout at the top.", "The set ends at the first failed rep."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max dips$/i },
+  mx_wdip: { label: "Max Weighted Dip", domain: "bodyweight", rtype: "load", dir: "higher", unit: "lb", tier: "P", weight: 0, personal: true, rx: ["The heaviest single dip you can do with added load.", "Score the ADDED weight, not your bodyweight plus it."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max weighted dip$/i },
+  mx_ringdip: { label: "Max Ring Dips", domain: "bodyweight", rtype: "reps", dir: "higher", unit: "reps", tier: "P", weight: 0, personal: true, rx: ["One unbroken set of ring dips.", "Shoulders below the elbows at the bottom, full lockout with the rings turned out.", "The set ends at the first failed rep."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max ring dips$/i },
+  mx_hspu: { label: "Max Handstand Push-ups", domain: "bodyweight", rtype: "reps", dir: "higher", unit: "reps", tier: "P", weight: 0, personal: true, rx: ["One unbroken set of handstand push-ups against a wall. No kipping.", "Head to the floor at the bottom, arms locked out at the top.", "The set ends at the first failed rep or the moment you come off the wall."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max handstand push-ups$/i },
+  mx_airsquat: { label: "Max Air Squats", domain: "bodyweight", rtype: "reps", dir: "higher", unit: "reps", tier: "P", weight: 0, personal: true, rx: ["One unbroken set of air squats.", "Hip crease below the knee at the bottom, hips and knees locked out at the top.", "The set ends when you stop moving."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max air squats$/i },
+  mx_situp: { label: "Max Sit-ups", domain: "bodyweight", rtype: "reps", dir: "higher", unit: "reps", tier: "P", weight: 0, personal: true, rx: ["One unbroken set of AbMat sit-ups.", "Shoulder blades to the floor at the bottom, hands past the feet at the top.", "The set ends when you stop moving."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max sit-ups$/i },
+  mx_ttb: { label: "Max Toes-to-bar", domain: "bodyweight", rtype: "reps", dir: "higher", unit: "reps", tier: "P", weight: 0, personal: true, rx: ["One unbroken set of toes-to-bar.", "Both feet touch the bar together; arms and hips open at the bottom of every rep.", "The set ends at the first failed rep or the moment you come off the bar."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max toes-to-bar$/i },
+  mx_k2e: { label: "Max Knees-to-elbow", domain: "bodyweight", rtype: "reps", dir: "higher", unit: "reps", tier: "P", weight: 0, personal: true, rx: ["One unbroken set of knees-to-elbow.", "Both knees touch the elbows together; arms and hips open at the bottom of every rep.", "The set ends at the first failed rep or the moment you come off the bar."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max knees-to-elbow$/i },
+  mx_du: { label: "Max Unbroken Double-unders", domain: "bodyweight", rtype: "reps", dir: "higher", unit: "reps", tier: "P", weight: 0, personal: true, rx: ["One unbroken set of double-unders.", "The set ends on the first trip."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max unbroken double-unders$/i },
+  mx_lunge: { label: "Max Walking Lunges", domain: "bodyweight", rtype: "reps", dir: "higher", unit: "reps", tier: "P", weight: 0, personal: true, rx: ["One unbroken set of walking lunges, counted per leg.", "Back knee touches the floor, hips fully open at the top of every step.", "The set ends when you stop moving."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max walking lunges$/i },
+  mx_lungetime: { label: "Max Walking Lunge Time", domain: "bodyweight", rtype: "time", dir: "higher", unit: "s", tier: "P", weight: 0, personal: true, rx: ["One unbroken effort of walking lunges, scored by how long you kept going.", "Back knee touches the floor, hips fully open at the top of every step.", "The effort ends when you stop moving. Score the time, not the steps."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max walking lunge time$/i },
+  mx_plank: { label: "Max Plank Hold", domain: "bodyweight", rtype: "time", dir: "higher", unit: "s", tier: "P", weight: 0, personal: true, rx: ["One unbroken front plank on the elbows.", "Shoulders over the elbows, hips in line with shoulders and heels.", "The effort ends when the hips drop or rise out of line."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max plank hold$/i },
+  mx_deadhang: { label: "Max Dead Hang", domain: "bodyweight", rtype: "time", dir: "higher", unit: "s", tier: "P", weight: 0, personal: true, rx: ["One unbroken dead hang, arms straight, feet off the floor.", "The effort ends when you come off the bar."], room: "personal", source: { curve: "none - no published distribution puts this movement in the same room as every other curve in the app, and the offset between the rooms cannot be measured. Logged against yourself only." }, match: /^max dead hang$/i },
 };
 
 // Loggable, trended, shown with "% of elite" - but no curve, so no Level and no vote.
@@ -4428,6 +4462,9 @@ const PICKER = {
   seconds:  { values: SEC_STEPS, unit: 'sec', fmt: v => fmtClock(v) },
   interval: { values: SEC_STEPS.filter(v => v >= 15), unit: 'sec', fmt: v => fmtClock(v) },
   lead:     { values: [0, 3, 5, 10, 15, 20, 30], unit: 'sec', fmt: v => (v ? v + ' seconds' : 'no countdown') },
+  // Death By: where the ladder starts, and how much it climbs each round.
+  reps:     { values: Array.from({ length: 30 }, (_, i) => i + 1), unit: '', fmt: v => v + (v === 1 ? ' rep' : ' reps') },
+  step:     { values: [1, 2, 3, 4, 5], unit: '', fmt: v => '+' + v + (v === 1 ? ' rep' : ' reps') },
 };
 
 function fmtClock(s) {
@@ -4458,12 +4495,75 @@ function pickerValues(field, value) {
   return vs;
 }
 
+// ---------------------------------------------------------------------------------------
+// ⚑ DEATH BY — a VARIANT OF EMOM, not a sixth kind (Baruch's call, twenty-first session).
+//
+// Round n asks for one more rep than round n-1, and the piece ends when you cannot finish
+// the round. That failure is the only end condition in this entire module that is not
+// derived from a clock, and it is the reason the shape is worth naming: everything else
+// about a Death By already IS an EMOM — same intervals, same beeps, same round taps.
+//
+// ⚑ IT REUSES THE ROUND TAP RATHER THAN INVENTING A COUNTER. He already taps when a round
+// is done; `taps.length` is therefore already "rounds completed", which is already the
+// score. Death By needed exactly one new interaction — a "failed" button — and nothing else.
+//
+// His log has fourteen of these and they are the workouts that re-locked Bodyweight:
+// db_pullup, db_pushup, db_pushup2 (step 2), db_burpee, db_situp, db_boxjump, db_du,
+// db_hspu, db_bmu, db_spullup and the rest, all scored in `rounds` at tier P.
+const DEATH_BY_DEFAULTS = { start: 1, step: 1, interval: 60, rounds: 60 };
+
+function isDeathBy(cfg) { return !!(cfg && cfg.kind === 'emom' && cfg.deathBy); }
+
+// ⚑ WHEN THE SETUP SCREEN CAN BE SKIPPED, and the rule is narrow on purpose. Baruch's ask:
+// "when I do an EMOM workout, will it just be automatic that I get an EMOM timer built in
+// accordance with that workout, so I do not have to look at the workout, then go to the
+// timer, then set up the timer, then double-check I had the workout right".
+//
+// The answer is yes WHERE THE WORKOUT ANSWERS EVERY QUESTION THE SETUP SCREEN ASKS, and no
+// otherwise — because starting a wrongly-configured EMOM costs far more than one extra tap.
+//   Death By  → the interval is a minute and there is no round target, only a safety ceiling.
+//   for time  → a stopwatch, with the published cap if there is one. Nothing to decide.
+//   AMRAP     → only when the workout carries its own published cap; otherwise the window
+//               is a guess and 15:00 is not it.
+//   EMOM      → NEVER, unless it is a Death By: a plain EMOM needs an interval and a round
+//               count, and neither is in the workout data. Same for tabata and intervals.
+function timerFullySpecified(cfg, w) {
+  if (!cfg || !w) return false;
+  if (isDeathBy(cfg)) return true;
+  // ⚑ 'stopwatch' is also the FALLBACK kind for anything whose format we do not recognise, so
+  // testing the kind alone would have started a silent stopwatch on strength work and on every
+  // 'other'-format entry. The workout has to say outright that it is a for-time piece.
+  if (cfg.kind === 'stopwatch') return w.format === 'fortime' || w.format === 'chipper';
+  if (cfg.kind === 'countdown') return !!(w.cap && cfg.total === w.cap);
+  return false;
+}
+
+// Reps required in round n (1-based). His log carries both shapes: "Death By: Push-ups"
+// ascends 1,2,3… and "Death By: Push-ups [x2]" ascends 2,4,6… — which is step 2, not a
+// different workout. Modelling it as start+step covers both without a second config.
+function deathByReps(cfg, round) {
+  if (!(round >= 1)) return 0;
+  const start = Number(cfg && cfg.start != null ? cfg.start : DEATH_BY_DEFAULTS.start);
+  const step  = Number(cfg && cfg.step  != null ? cfg.step  : DEATH_BY_DEFAULTS.step);
+  return start + step * (Math.floor(round) - 1);
+}
+
+// Total reps performed through round n — the number that makes a Death By feel expensive,
+// and the one nobody computes in their head mid-workout. Round 15 of a 1-step is 120 reps.
+function deathByVolume(cfg, round) {
+  let n = Math.floor(round), v = 0;
+  for (let r = 1; r <= n; r++) v += deathByReps(cfg, r);
+  return v;
+}
+
 // Total scheduled length in seconds, or null for an open-ended stopwatch.
 function timerTotal(cfg) {
   if (!cfg) return null;
   if (cfg.kind === 'countdown') return Math.max(0, cfg.total || 0);
   if (cfg.kind === 'stopwatch') return cfg.cap ? cfg.cap : null;
-  if (cfg.kind === 'emom') return timerIntervals(cfg).reduce((a, b) => a + b, 0);
+  // ⚑ A Death By has no scheduled length — it ends when you fail. `cfg.rounds` is a safety
+  // ceiling, not a target, so it must not become an 'end' cue or a progress denominator.
+  if (cfg.kind === 'emom') return isDeathBy(cfg) ? null : timerIntervals(cfg).reduce((a, b) => a + b, 0);
   if (cfg.kind === 'tabata' || cfg.kind === 'intervals') {
     return ((cfg.work || 0) + (cfg.rest || 0)) * (cfg.rounds || 0);
   }
@@ -4558,8 +4658,19 @@ function timerState(cfg, session, now) {
     let acc = 0, i = 0;
     for (; i < iv.length; i++) { if (el < acc + iv[i]) break; acc += iv[i]; }
     if (i >= iv.length) return finish({ display: 0, fraction: 0 });
-    return { ...base, phase: 'work', display: acc + iv[i] - el, round: i + 1,
-             roundLength: iv[i], remaining: total - el, fraction: (acc + iv[i] - el) / iv[i] };
+    const st = { ...base, phase: 'work', display: acc + iv[i] - el, round: i + 1,
+                 roundLength: iv[i], remaining: total - el, fraction: (acc + iv[i] - el) / iv[i] };
+    if (isDeathBy(cfg)) {
+      // ⚑ The rep target is the whole screen in a Death By. Round 14 is not "round 14",
+      // it is "14 reps in the next 60 seconds", and that is the number you look down at.
+      st.reps = deathByReps(cfg, i + 1);
+      st.nextReps = deathByReps(cfg, i + 2);
+      st.volume = deathByVolume(cfg, (session.taps || []).length);
+      st.remaining = null;   // open-ended: `total` is null and the ceiling is not a target
+      st.deathBy = true;
+      if (session.failedAt != null) { st.phase = 'done'; st.failedAt = session.failedAt; }
+    }
+    return st;
   }
   if (cfg.kind === 'tabata' || cfg.kind === 'intervals') {
     const cyc = (cfg.work || 0) + (cfg.rest || 0);
@@ -4665,6 +4776,30 @@ function timerTap(session, cfg, now) {
   return { ...session, taps: [...(session.taps || []), elapsedSec(session, now, cfg)] };
 }
 
+// ⚑ THE FAILURE TAP — the one interaction Death By adds, and the only way any piece in this
+// module ends on something other than a clock. It stops the session AND records which round
+// you could not complete, which are two different facts: `taps.length` is what you finished,
+// `failedAt` is where you stopped. Keeping them apart is what makes the result unambiguous
+// when a session is reloaded, because "round 15" alone never says whether 15 was done.
+function timerFail(session, cfg, now) {
+  if (!session || session.stoppedAt != null) return session;
+  if (inLead(cfg, session, now)) return session;
+  const st = timerState(cfg, session, now);
+  return { ...timerStop(session, now), failedAt: st.round || 1 };
+}
+
+// What a Death By actually scored. `rounds` is the tapped count — the same number the
+// tier-P curves in assessment.js are expressed in (db_pullup reads 22 rounds at level 99).
+function deathByResult(cfg, session) {
+  const rounds = (session && session.taps || []).length;
+  return {
+    rounds,
+    failedAt: session && session.failedAt != null ? session.failedAt : null,
+    reps: deathByVolume(cfg, rounds),
+    lastReps: rounds ? deathByReps(cfg, rounds) : 0,
+  };
+}
+
 // Splits: how long each tapped round actually took.
 function timerSplits(session) {
   const t = session.taps || [];
@@ -4699,6 +4834,26 @@ function timerToLogFields(cfg, session, w, now) {
     out.fields = st.capped && !taps ? { capped: true, reps: '' } : { time: mmss(el) };
   } else if (fmt === 'amrap' || fmt === 'emom') {
     out.fields = { rounds: taps, reps: '', min: cfg.kind === 'countdown' ? Math.round((cfg.total || 0) / 60) : undefined };
+    // ⚑ A Death By scores in ROUNDS and nothing else — that is the unit every db_* curve in
+    // assessment.js is expressed in. The total rep count goes in as detail because it is the
+    // number worth seeing afterwards, not the number being scored.
+    if (isDeathBy(cfg)) {
+      const r = deathByResult(cfg, session);
+      out.deathBy = r;
+      out.fields = { rounds: r.rounds, reps: '' };
+      out.detail = `${r.rounds} rounds · ${r.reps} reps` +
+                   (r.failedAt ? ` · failed on round ${r.failedAt} (${deathByReps(cfg, r.failedAt)} reps)` : '');
+      // ⚑ THE BLANK FIELD HAS TO ASK FOR ITSELF. Failing on round 3 scores two rounds, but
+      // you almost certainly got SOME of round 3 before the minute ran out, and that number
+      // is the one thing the timer cannot know. It was already left blank for you and nothing
+      // on the screen said what it was for — Baruch's report, twenty-second session. Now it
+      // asks, in words, and names the round's requirement so the answer has a ceiling.
+      if (r.failedAt) {
+        const need = deathByReps(cfg, r.failedAt);
+        out.prompt = `You finished ${r.rounds} round${r.rounds === 1 ? '' : 's'}, then failed on round ` +
+                     `${r.failedAt} (${need} reps). How many of those ${need} did you get?`;
+      }
+    }
   } else if (fmt === 'tabata' || fmt === 'intervals') {
     out.fields = { per: timerSplits(session).map(s => mmss(s)) };
   } else {
@@ -4707,7 +4862,7 @@ function timerToLogFields(cfg, session, w, now) {
   return out;
 }
 
-const TM = {PICKER,PICKER_SCALE,TIMER_COLOR,TIMER_KINDS,cueAt,cuesBetween,elapsedSec,fmtClock,inLead,isPaused,leadSec,pausedMs,pickerIndex,pickerValues,rawSec,splitDeltas,timerIntervals,timerPause,timerResume,timerSplits,timerStart,timerState,timerStop,timerTap,timerToLogFields,timerTotal,toPick,toStore};
+const TM = {DEATH_BY_DEFAULTS,PICKER,PICKER_SCALE,TIMER_COLOR,TIMER_KINDS,cueAt,cuesBetween,deathByReps,deathByResult,deathByVolume,elapsedSec,fmtClock,inLead,isDeathBy,isPaused,leadSec,pausedMs,pickerIndex,pickerValues,rawSec,splitDeltas,timerFail,timerFullySpecified,timerIntervals,timerPause,timerResume,timerSplits,timerStart,timerState,timerStop,timerTap,timerToLogFields,timerTotal,toPick,toStore};
 // Strive — the movement registry. D2, twentieth session.
 //
 // ⚑ THE MODEL, settled in strive-fitness-open-threads.md §1 (Baruch's answer to 1.1):
@@ -4748,6 +4903,10 @@ const PR_TYPES = {
   distance: { label: 'Best time by distance', hint: 'fastest at each distance' },
   calories: { label: 'Best time by calories', hint: 'fastest to a calorie target' },
   volume:   { label: 'Volume', hint: 'total reps, and tonnage where there is a load' },
+  // ⚑ "effort", not "hold". A plank is a hold; twenty minutes of walking lunges is not, and
+  // both are the same measurement — one unbroken piece of work, scored by how long it lasted.
+  // Baruch's call: one type rather than two nearly identical ones.
+  effort:   { label: 'Longest effort', hint: 'one unbroken effort, timed' },
 };
 
 // id · name · category · loadable · PR types · benchmark link · alias patterns
@@ -4791,7 +4950,13 @@ const MOVEMENTS = [
   // stopped matching Pull-up at all. Form lives in FORMS below; load lives in the log.
   M('pullup', 'Pull-up', 'gymnastics', true, ['maxset', 'weighted', 'volume'], null, ['(?<!chest[- ]to[- ]bar |c2b )pull[- ]?ups?']),
   M('c2b', 'Chest-to-bar Pull-up', 'gymnastics', false, ['maxset', 'volume'], null, ['chest[- ]to[- ]bar( pull[- ]?ups?)?', '\\bc2b\\b', '\\bc b\\b']),
-  M('pushup', 'Push-up', 'gymnastics', false, ['maxset', 'volume'], null, ['push[- ]?ups?']),
+  // ⚑ THE LOOKBEHIND IS NOT COSMETIC. Without it "Handstand Push-ups" resolved to hspu AND
+  // pushup, so every handstand session in six years of history was also counted as a push-up
+  // session — inflating push-up counts and volume. Caught twenty-second session while
+  // checking the max-test names. Same guard shape as `dip` (?<!ring ) and pullup (?<!c2b ).
+  // Deficit, decline and diamond push-ups ARE push-ups and are deliberately still matched.
+  M('pushup', 'Push-up', 'gymnastics', false, ['maxset', 'volume'], null, ['(?<!handstand |hs )push[- ]?ups?']),
+  M('chinup', 'Chin-up', 'gymnastics', true, ['maxset', 'weighted', 'volume'], null, ['chin[- ]?ups?']),
   M('hspu', 'Handstand Push-up', 'gymnastics', false, ['maxset', 'volume'], null, ['handstand push[- ]?ups?', '\\bhspu\\b', 'chest[- ]to[- ]wall handstand push[- ]?ups?']),
   M('ringmu', 'Ring Muscle-up', 'gymnastics', false, ['maxset', 'volume'], null, ['ring muscle[- ]?ups?', 'ring mu\\b', '(?<!bar )muscle[- ]?ups?']),
   M('barmu', 'Bar Muscle-up', 'gymnastics', false, ['maxset', 'volume'], null, ['bar muscle[- ]?ups?', 'bar mu\\b']),
@@ -4811,12 +4976,22 @@ const MOVEMENTS = [
   M('wallwalk', 'Wall Walk', 'gymnastics', false, ['volume'], null, ['wall ?walks?']),
   M('hswalk', 'Handstand Walk', 'gymnastics', false, ['distance', 'volume'], null, ['handstand ?walks?', '\\bhs walk']),
   M('ropeclimb', 'Rope Climb', 'gymnastics', false, ['volume'], null, ['rope ?climbs?', 'rope ?ascents?', 'legless rope']),
-  M('lunge', 'Lunge', 'other', true, ['volume'], null, ['(?<!db |dumbbell )lunges?']),
+  // A walking lunge is a Lunge done walking — a modifier, not a second movement (his 1.1
+  // ruling). It carries BOTH a max set and a longest effort, because he does both: "sometimes
+  // I lunged for 20 minutes, sometimes I did 200 lunges".
+  M('lunge', 'Lunge', 'other', true, ['maxset', 'effort', 'volume'], null, ['(?<!db |dumbbell )lunges?']),
   M('boxsquat', 'Box Squat', 'barbell', true, ['repmax', 'volume'], null, ['box ?squats?']),
   M('sandbag', 'Sandbag', 'other', true, ['repmax', 'volume'], null, ['sandbags?', 'bag over shoulders?', 'sandbag[- ]to[- ]shoulder']),
   M('swim', 'Swim', 'mono', false, ['distance', 'volume'], null, ['swims?\\b', 'swimming']),
   M('sled', 'Sled', 'other', true, ['volume'], null, ['sled ?(push(es)?|pulls?|drags?)?']),
   M('farmer', 'Farmer Carry', 'other', true, ['volume'], null, ['farmer(\'?s)? ?(carry|carries|walk)']),
+
+  // ⚑ Two HOLDS, added with the tier-P max tests (twenty-second session). They carry `effort`
+  // and NOT `volume`: a plank has no rep count, and a volume card reading "0 reps" would be
+  // claiming something false rather than declining to claim anything. Sessions and last-done
+  // still come from the row scan, which every movement gets.
+  M('plank', 'Plank', 'gymnastics', false, ['effort'], null, ['planks?\\b', 'front leaning rest']),
+  M('deadhang', 'Dead Hang', 'gymnastics', false, ['effort'], null, ['dead[- ]?hangs?', 'bar hangs?']),
 
   // ---- machine and running: the movements that already carry curves ----
   M('run', 'Run', 'mono', false, ['distance', 'volume'], null, ['runs?\\b', 'running', 'sprints?\\b', 'shuttle runs?']),
@@ -4876,6 +5051,7 @@ const FORM_SENSITIVE = new Set(['pullup', 'hspu', 'ringmu', 'barmu']);
 //     feeds Level. Not now, and not until a confirmation flow exists.
 //
 // The Engine 1 hook (`bench` on a movement) is present and deliberately unused.
+
 
 
 
@@ -4942,12 +5118,143 @@ function repSchemeOf(name = '') {
 // ⚑ 1.2(b). A pre-2026 Pull-up log did not record whether it was strict or kipping, so it
 // may not stand as a strict PR. It is still shown, still counted for volume, and still
 // completely real — it just carries form:'unspecified' and is barred from the PR slot.
+// ⚑ SHARPENED, twenty-second session, at Baruch's instruction: "we just ignore the difference
+// between Kipping and Strict in the old logs and start fresh." The name exception is GONE.
+// Thirteen of his sixty pull-up sessions say "Strict" in the workout name, and until now that
+// let them stand as strict records whatever the date. His ruling is that a pre-2026 log is
+// pre-2026 whatever it happens to be called, because the naming was never consistent enough
+// to trust. They still count toward lifetime reps — they are barred only from the PR slot.
+// Nothing he logged is rewritten; what changed is what we are willing to conclude from it.
 function formOf(movementId, log, w) {
   if (!FORM_SENSITIVE.has(movementId)) return 'specified';
-  // if the workout says outright which form it was, that settles it whatever the date
-  const tags = formTagsIn((w && w.name) || '');
-  if (tags.includes('strict') || tags.includes('kipping')) return 'specified';
+  void w;
   return (log && log.ts >= STRICT_FORM_CUTOFF_TS) ? 'specified' : 'unspecified';
+}
+
+// ---------------------------------------------------------------------------------------
+// ⚑ VOLUME — reps and tonnage. The honest part of this block is what it REFUSES to count.
+//
+// PR_TYPES.volume has always promised "total reps, and tonnage where there is a load". Until
+// the twenty-second session it returned session COUNTS only: a label that was not a number,
+// which is the same defect as a curve with no source.
+//
+// Reps are the hardest read in this module, because a prescription says how many reps the
+// workout ASKED FOR, and for anything scored in rounds that is not how many you did. Three
+// rules, and the third is the one that matters:
+//
+//   1. A rep total is counted only when it can be READ OUTRIGHT — an integer immediately
+//      before the movement on its own line, or a "21-15-9" ladder heading the piece. Never
+//      inferred, never apportioned between two movements sharing a line.
+//   2. Round-scored work takes its rounds from the RESULT, not from the prescription. A Death
+//      By takes its ladder from `deathByVolume` — the same function the timer runs — so the
+//      registry and the timer cannot disagree about what round 15 cost.
+//   3. Everything else is counted as UNKNOWN and travels beside the total. A number reading
+//      "4,120 reps" while silently covering a third of the history is worse than no number,
+//      because it looks complete. `sessionsCounted` / `sessionsUnknown` go out with every
+//      total so the screen can say how much of your history it actually saw.
+const NUM_WORD = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+
+// "3 rounds for time:", "Three rounds of:", "x5 rounds" — a multiplier on every segment.
+function roundsHeader(text) {
+  const m = /(?:^|\n|,|\bx)\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+rounds?\b/i.exec(String(text || ''));
+  if (!m) return null;
+  const t = m[1].toLowerCase();
+  const n = /^\d+$/.test(t) ? Number(t) : NUM_WORD[t];
+  return n > 0 ? n : null;
+}
+
+// "21-15-9 reps for time:" — 45 reps of EACH movement listed under it.
+function ladderHeader(text) {
+  const m = /(?:^|\n)\s*(\d+(?:\s*-\s*\d+)+)\s*(?:reps?\b|for time)/i.exec(String(text || ''));
+  if (!m) return null;
+  const parts = m[1].split('-').map(s => Number(s.trim()));
+  if (!parts.length || parts.some(n => !isFinite(n) || n <= 0)) return null;
+  return parts.reduce((a, b) => a + b, 0);
+}
+
+// ⚑ THE COUNT MUST BELONG TO THE MOVEMENT. The first probe against the real 431 logs caught
+// this reading "4 rounds each for time: Run 400m" as FOUR RUNS — a leading integer that was
+// the round count, not a rep count, silently multiplied by the round count again. So the
+// integer is taken only from the text immediately BEFORE the movement, and only when
+// everything before THAT is either nothing or a header ending in a colon:
+//     "100 Pull-ups"                     → 100    (nothing before)
+//     "12:00 AMRAP: 50 Air Squats"       → 50     ("12:00 AMRAP:" is a header)
+//     "4 rounds each for time: Run 400m" → refuse (no integer between the header and "Run")
+//     "Run 1mi"                          → refuse (a distance is not a rep count)
+function countBefore(seg, index) {
+  const m = /^\s*(?:.*:\s*)?(\d+)\s*$/.exec(String(seg).slice(0, index));
+  return m ? Number(m[1]) : null;
+}
+const segLoad = s => { const m = /(\d+(?:\.\d+)?)\s*(?:lbs?|pounds?)\b/i.exec(String(s || '')); return m ? Number(m[1]) : null; };
+// "15 Air Squats x3" and "2x[5 Pull-ups+10 Push-ups]" carry a second multiplier whose scope
+// is not stated. Refused rather than resolved one way and hoped for.
+const hasInnerMultiplier = s => /\bx\s*\d+\b|\d+\s*x\b/i.test(String(s || ''));
+// An AMRAP scored in total reps says how many reps ONE round asked for and nothing about how
+// many rounds happened. The two cannot be bridged without inventing the round count.
+const isAmrapNotScoredInRounds = w =>
+  /amrap|amreps|as many/i.test((w.name || '') + ' ' + (w.movements || '')) && w.resultType !== 'rounds';
+// only an explicit "NRM:" states its own rep count. "5 x 5:" states reps PER SET, and the
+// number of sets is not in the name, so it is left uncounted rather than undercounted.
+const scoredReps = name => { const m = /^(\d+)\s*RM:/i.exec(String(name || '')); return m ? Number(m[1]) : null; };
+
+// Reps (and the load they moved) for ONE movement in ONE logged session, or null when the
+// number cannot be read. Exported because the refusals are the interesting part and a test
+// asserts them one by one.
+function repsIn(id, w, log) {
+  if (!w || !MOVEMENT_BY_ID[id]) return null;
+  const entry = MOVEMENT_RE.find(m => m.id === id);
+  if (!entry) return null;
+  const name = w.name || '';
+
+  // A Death By ladder is exact and already implemented once. "[x2]" ascends 2,4,6 — step 2,
+  // which is also its start — so start and step are the same number in both shapes.
+  if (/^death by:/i.test(name)) {
+    const r = log ? parseResult(log.result, 'rounds') : null;
+    if (r === null || !isFinite(r) || r < 1) return null;
+    if (!movementsOf(w).includes(id)) return null;
+    const m = /\[x(\d+)\]/i.exec(name);
+    const step = m ? Number(m[1]) : 1;
+    return { reps: deathByVolume({ start: step, step }, Math.floor(r)), load: null };
+  }
+
+  // A lift scored in load: the rep scheme is in the name, the weight is in the result.
+  if (w.resultType === 'load') {
+    const n = scoredReps(name);
+    const v = log ? parseResult(log.result, 'load') : null;
+    if (!n || v === null || !isFinite(v)) return null;
+    return { reps: n, load: v };
+  }
+
+  if (isAmrapNotScoredInRounds(w)) return null;
+
+  // ⚑ Segments, not lines. The seed database is a Beyond the Whiteboard and it writes
+  // a whole prescription on ONE line, comma-separated — "12:00 AMRAP: 50 Air Squats, 30
+  // Push-ups, 15 Pull-ups". Splitting on newlines alone saw three movements in one line and
+  // refused all of them, which is why the first probe read only 12 of 60 pull-up sessions.
+  const ladder = ladderHeader(w.movements);
+  let per = 0, seen = false, blocked = false, load = null;
+  String(w.movements || '').split(/[\n,]/).forEach(seg => {
+    if (blocked) return;
+    const hit = entry.re.exec(seg);
+    if (!hit) return;
+    if (movementsIn(seg).length > 1) { blocked = true; return; }   // two movements, one segment
+    if (hasInnerMultiplier(seg)) { blocked = true; return; }
+    const n = countBefore(seg, hit.index);
+    if (n !== null) per += n;
+    else if (ladder !== null) per += ladder;
+    else { blocked = true; return; }
+    seen = true;
+    const l = segLoad(seg);
+    if (l !== null) load = Math.max(load || 0, l);
+  });
+  if (!seen || blocked || per <= 0) return null;
+
+  if (w.resultType === 'rounds') {                 // AMRAP / EMOM: rounds come from the result
+    const r = log ? parseResult(log.result, 'rounds') : null;
+    if (r === null || !isFinite(r) || r < 1) return null;
+    return { reps: per * Math.floor(r), load };
+  }
+  return { reps: per * (roundsHeader(w.movements) || 1), load };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -4994,11 +5301,22 @@ function movementStats(id, { windowDays = 365 } = {}) {
   // maxset — the honest version is small: we can only read a max unbroken set from a
   // workout whose whole result IS one set. Anything else would be a guess, so it is left out
   // rather than filled with a plausible number.
+  //
+  // ⚑ AN AMRAP IS NOT A MAX SET, and until the twenty-second session this accepted one.
+  // The detector matched /^(max|amrap|unbroken)/, and a probe against the real 431 logs
+  // found that EVERY max-set in the app came from an AMRAP — the pull-up record of 33 was
+  // the combined strict-HSPU-and-pull-up total of a six-minute AMRAP, credited as one
+  // unbroken set of pull-ups. Two guards now, and they empty the board:
+  //   * an AMRAP is many sets by definition, so the name must say max or unbroken;
+  //   * a workout with more than one movement cannot attribute its reps to any of them.
+  // Emptying it is the correct state. The tier-P max tests exist to fill it with real ones.
   if (mv.pr.includes('maxset')) {
     let best = null;
     rows.forEach(r => {
-      if (!/^(max|amrap|unbroken)/i.test(r.w.name || '')) return;
+      if (!/^(max|unbroken)/i.test(r.w.name || '')) return;
+      if (/amrap|amreps|as many/i.test(r.w.name || '')) return;
       if (r.w.resultType !== 'reps') return;
+      if (movementsOf(r.w).length !== 1) return;
       const v = parseResult(r.log.result, 'reps');
       if (v === null || !isFinite(v)) return;
       if (r.form === 'unspecified') return;            // ⚑ 1.2(b)
@@ -5011,6 +5329,7 @@ function movementStats(id, { windowDays = 365 } = {}) {
     let best = null;
     rows.forEach(r => {
       if (!/weighted/i.test(r.w.name || '') || r.w.resultType !== 'load') return;
+      if (movementsOf(r.w).length !== 1) return;   // same attribution rule as maxset
       const v = parseResult(r.log.result, 'load');
       if (v === null || !isFinite(v)) return;
       if (!best || v > best.value) best = { value: v, ts: r.log.ts, wid: r.w.id };
@@ -5032,13 +5351,55 @@ function movementStats(id, { windowDays = 365 } = {}) {
     out.stats.distance = Object.values(by);
   }
 
-  // volume — always available, and the one number that is safe to derive: it is a count of
-  // sessions and reps, not a claim about a best effort.
-  out.stats.volume = {
-    sessionsLifetime: rows.length,
-    sessionsWindow: rows.filter(r => r.log.ts >= cutoff).length,
-    firstTs: rows.length ? rows[rows.length - 1].log.ts : null,
-  };
+  // effort — one unbroken piece of work scored by duration: a plank, a dead hang, twenty
+  // minutes of walking lunges. Same shape as maxset and the same refusal.
+  if (mv.pr.includes('effort')) {
+    let best = null;
+    rows.forEach(r => {
+      if (!/^(max|longest)/i.test(r.w.name || '')) return;
+      if (r.w.resultType !== 'time') return;
+      if (movementsOf(r.w).length !== 1) return;
+      const v = parseResult(r.log.result, 'time');
+      if (v === null || !isFinite(v)) return;
+      if (!best || v > best.value) best = { value: v, ts: r.log.ts, wid: r.w.id };
+    });
+    out.stats.effort = best;
+  }
+
+  // volume — sessions always; reps and tonnage wherever repsIn() could READ them, with the
+  // count of sessions it could not read travelling alongside. See the block above.
+  if (mv.pr.includes('volume')) {
+    const loadable = !!mv.loadable;
+    let repsAll = 0, repsWin = 0, counted = 0, unknown = 0;
+    let tonAll = 0, tonWin = 0, tonSessions = 0;
+    rows.forEach(r => {
+      const v = repsIn(id, r.w, r.log);
+      if (!v) { unknown++; return; }
+      counted++;
+      repsAll += v.reps;
+      if (r.log.ts >= cutoff) repsWin += v.reps;
+      if (loadable && v.load) {
+        const t = v.reps * v.load;
+        tonAll += t; tonSessions++;
+        if (r.log.ts >= cutoff) tonWin += t;
+      }
+    });
+    out.stats.volume = {
+      sessionsLifetime: rows.length,
+      sessionsWindow: rows.filter(r => r.log.ts >= cutoff).length,
+      firstTs: rows.length ? rows[rows.length - 1].log.ts : null,
+      // ⚑ null, never 0, when nothing was countable. "No reps could be read" and "you did
+      // zero reps" are different claims and the screen must not print the second meaning
+      // the first — that is the whole defect this block exists to fix.
+      repsLifetime: counted ? repsAll : null,
+      repsWindow: counted ? repsWin : null,
+      sessionsCounted: counted,
+      sessionsUnknown: unknown,
+      tonnageLifetime: tonSessions ? tonAll : null,
+      tonnageWindow: tonSessions ? tonWin : null,
+      tonnageSessions: tonSessions,
+    };
+  }
   return out;
 }
 
@@ -5122,8 +5483,9 @@ function withConfirmation(st) {
   if (s.distance) out.stats.distance = s.distance.map(d => mark(d, 'distance', d.at));
   if (s.maxset) out.stats.maxset = mark(s.maxset, 'maxset', null);
   if (s.weighted) out.stats.weighted = mark(s.weighted, 'weighted', null);
+  if (s.effort) out.stats.effort = mark(s.effort, 'effort', null);
   const all = [...(out.stats.repmax || []), ...(out.stats.distance || []),
-               out.stats.maxset, out.stats.weighted].filter(Boolean);
+               out.stats.maxset, out.stats.weighted, out.stats.effort].filter(Boolean);
   out.confirmable = all.length;
   out.confirmedCount = all.filter(x => x.confirmed).length;
   out.confirmed = out.confirmable > 0 && out.confirmedCount === out.confirmable;
@@ -5140,7 +5502,7 @@ function movementCoverage() {
            unmatched: ws.filter(w => movementsOf(w).length === 0).map(w => w.name).slice(0, 40) };
 }
 
-const MV = {MOVEMENTS,MOVEMENT_BY_ID,MOVEMENT_CATS,PR_TYPES,confirmDerived,confirmKey,confirmedList,eligibleForLevel,formOf,isConfirmed,logsWithAll,movementCounts,movementCoverage,movementStats,movementsIn,movementsOf,repSchemeOf,unconfirmDerived,withConfirmation,workoutsWithAll};
+const MV = {MOVEMENTS,MOVEMENT_BY_ID,MOVEMENT_CATS,PR_TYPES,confirmDerived,confirmKey,confirmedList,eligibleForLevel,formOf,isConfirmed,ladderHeader,logsWithAll,movementCounts,movementCoverage,movementStats,movementsIn,movementsOf,repSchemeOf,repsIn,roundsHeader,unconfirmDerived,withConfirmation,workoutsWithAll};
 // Strive — Bible reading plans: any scope, canonical order, pace by chapters/day
 // or target date. Missed days roll forward. Multiple plans can run at once.
 
@@ -6062,7 +6424,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260806-1910'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260806-1910';
+const BUILD_ID = '20260807-0755'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260807-0755';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -13285,10 +13647,19 @@ function ftApplyPrefill(form, f) {
   });
 }
 
-function logForm(w, prefillResult = '', ctx = null, prefillFields = null) {
+function logForm(w, prefillResult = '', ctx = null, prefillFields = null, prompt = '') {
   setHeader(w.name, { back: true });
   const wrap = document.createElement('div');
   const pr = FT.prFor(w.id);
+  // ⚑ THE ONE NUMBER THE TIMER CANNOT KNOW, ASKED FOR IN WORDS. Failing on round 3 of a Death
+  // By scores two rounds — but you got some of round 3 before the minute ran out, and that
+  // partial went into a blank field with nothing on screen saying what it was for. Baruch's
+  // report, twenty-second session: "it wasn't clear that... you still have to enter what you
+  // got on the third round."
+  if (prompt) wrap.append(h(`<div class="card" style="padding:11px 13px;border-color:var(--brass)">
+      <div style="font-size:13px;line-height:1.6"><b>${esc(prompt)}</b></div>
+      <div class="muted" style="font-size:11.5px;margin-top:5px">Put it in the reps box below. Leave it blank if you got none — the rounds are already filled in and they are what scores.</div>
+    </div>`));
   wrap.append(h(`
     <div class="card">
       ${w.movements ? `<div style="font-size:14px;line-height:1.6;white-space:pre-line">${esc(w.movements)}</div>` : '<div class="muted">No description</div>'}
@@ -13503,6 +13874,9 @@ function mvDetailScreen(id) {
   if (st.stats.maxset) {
     sec('Max unbroken set', `<div class="card" style="padding:10px 13px">${mvConfirmRow(id, st.stats.maxset, 'Best set', v => v + ' reps')}</div>`);
   }
+  if (st.stats.effort) {
+    sec('Longest effort', `<div class="card" style="padding:10px 13px">${mvConfirmRow(id, st.stats.effort, 'Longest', v => SC.fmtSecs(v))}</div>`);
+  }
   if (st.stats.weighted) {
     sec('Heaviest weighted rep', `<div class="card" style="padding:10px 13px">${mvConfirmRow(id, st.stats.weighted, 'Heaviest', v => v + ' lb')}</div>`);
   }
@@ -13510,11 +13884,25 @@ function mvDetailScreen(id) {
     sec('Best time by distance', `<div class="card" style="padding:10px 13px">${st.stats.distance.map(d =>
       mvConfirmRow(id, d, d.at, v => SC.fmtSecs(v))).join('')}</div>`);
   }
-  sec('Volume', `<div class="card" style="padding:10px 13px;font-size:13px">
-      <div class="row" style="justify-content:space-between;padding:3px 0"><span class="muted">Sessions, last 12 months</span><b>${st.stats.volume.sessionsWindow}</b></div>
-      <div class="row" style="justify-content:space-between;padding:3px 0"><span class="muted">Sessions, lifetime</span><b>${st.stats.volume.sessionsLifetime}</b></div>
-      <div class="row" style="justify-content:space-between;padding:3px 0"><span class="muted">First logged</span><b>${when(st.stats.volume.firstTs)}</b></div>
+  // ⚑ Reps and tonnage print ONLY where they were read, and the coverage line prints
+  // whenever anything was not. A total that looks like all-time while covering a third of
+  // the history is the failure this section was rebuilt to avoid.
+  if (st.stats.volume) {
+    const V = st.stats.volume;
+    const n = x => Number(x).toLocaleString();
+    const row = (k, v) => `<div class="row" style="justify-content:space-between;padding:3px 0"><span class="muted">${k}</span><b>${v}</b></div>`;
+    sec('Volume', `<div class="card" style="padding:10px 13px;font-size:13px">
+      ${row('Sessions, last 12 months', V.sessionsWindow)}
+      ${row('Sessions, lifetime', V.sessionsLifetime)}
+      ${V.repsLifetime !== null ? row('Reps, last 12 months', n(V.repsWindow)) : ''}
+      ${V.repsLifetime !== null ? row('Reps, lifetime', n(V.repsLifetime)) : ''}
+      ${V.tonnageLifetime !== null ? row('Tonnage, last 12 months', n(Math.round(V.tonnageWindow)) + ' lb') : ''}
+      ${V.tonnageLifetime !== null ? row('Tonnage, lifetime', n(Math.round(V.tonnageLifetime)) + ' lb') : ''}
+      ${row('First logged', when(V.firstTs))}
+      ${V.sessionsUnknown ? `<div class="muted" style="font-size:11px;margin-top:6px">Reps counted from <b>${V.sessionsCounted} of ${V.sessionsLifetime}</b> sessions. The other ${V.sessionsUnknown} do not state a rep count that can be read without guessing, so they are left out of the total rather than estimated into it.</div>` : ''}
+      ${V.repsLifetime === null ? `<div class="muted" style="font-size:11px;margin-top:6px">No session states a rep count that can be read without guessing, so there is no rep total — not a total of zero.</div>` : ''}
     </div>`);
+  }
 
   // ⚑ 1.2(b) on the screen. Never rewrite what he logged; do not let it sit in a PR slot.
   if (st.unspecifiedForm) {
@@ -13585,12 +13973,26 @@ function workoutDetail(w) {
   wrap.append(logBtn);
 
   // secondary actions collapse into a pill row
+  // ⚑ ONE TAP TO A RUNNING CLOCK, where the workout leaves nothing to decide. His words:
+  // "I do not have to look at the workout, then go to the timer, then set up the timer, then
+  // double-check that I had the workout right, then start the timer, and then go back to the
+  // workout." A Death By, a for-time piece, or an AMRAP with a published cap all configure
+  // themselves completely — so those go straight to the clock, with the prescription printed
+  // under it. Everything else still opens the setup screen, because a plain EMOM's interval
+  // and round count are not in the workout data and starting one wrong costs far more than a
+  // tap. The setup screen stays one tap away either way, so nothing becomes unreachable.
+  const seedCfg = ftTimerCfgFor(w).cfg;
+  const oneTap = TM.timerFullySpecified(seedCfg, w);
   const pills = h(`<div class="pillrow" style="margin-top:12px">
-    <button class="pill" data-s="timer">⏱ Timer</button>
+    <button class="pill" data-s="timer">⏱ ${oneTap ? 'Start' : 'Timer'}</button>
+    ${oneTap ? '<button class="pill" data-s="tmsetup">Adjust first</button>' : ''}
     <button class="pill" data-s="addcard">Add to card</button>
     ${w.custom ? '<button class="pill" data-s="delete" style="color:var(--danger)">Delete</button>' : ''}
   </div>`);
-  pills.querySelector('[data-s=timer]').onclick = () => render(() => ftTimersScreen(w));
+  pills.querySelector('[data-s=timer]').onclick = () =>
+    render(() => (oneTap ? timerRun(seedCfg, w) : ftTimersScreen(w)));
+  const setupPill = pills.querySelector('[data-s=tmsetup]');
+  if (setupPill) setupPill.onclick = () => render(() => ftTimersScreen(w));
   pills.querySelector('[data-s=addcard]').onclick = () => { if (!cardDraft) cardDraft = { name: '', ts: Date.now(), parts: [] }; cardDraft.parts.push(w.id); toast('Added — build the card'); render(workoutCardBuilder); };
   const delPill = pills.querySelector('[data-s=delete]');
   if (delPill) delPill.onclick = () => workoutRemoveSheet(w);
@@ -14016,8 +14418,11 @@ function ftTimersScreen(w) {
 // render. test-timer-render.mjs asserts every value on this screen sits in labelled text.
 const TM_TITLE = { stopwatch: 'FOR TIME', countdown: 'AMRAP', emom: 'EMOM', tabata: 'TABATA', intervals: 'INTERVALS' };
 
-function ftTimerConfig(body, w) {
-  tmPickerStyles();
+// ⚑ EXTRACTED so the workout screen can build a config WITHOUT rendering the setup screen.
+// Baruch's ask, twenty-second session: an EMOM workout should hand him a running EMOM, not a
+// form to fill in about the workout he is already looking at. `timerFullySpecified` decides
+// whether that is safe; this is the thing that produces the config either way.
+function ftTimerCfgFor(w) {
   const d = w && w.custom ? w : {};
   // ⚑ Default the timer to the workout's OWN format, not just custom ones. A Regionals event
   // or an Open workout knows it is capped for time; opening a stopwatch on it is a wasted tap
@@ -14037,7 +14442,36 @@ function ftTimerConfig(body, w) {
     work: d.work || 20,
     rest: d.rest || 10,
     lead: F.timerLead == null ? 5 : F.timerLead,
+    // ⚑ Death By lives on the EMOM config rather than as a sixth kind (his call). `rounds`
+    // stops being a target and becomes a safety ceiling the moment this is on.
+    deathBy: !!(w && /^death by:/i.test(w.name || '')),
+    start: d.start || 1,
+    step: d.step || (/\[x2\]/i.test((w && w.name) || '') ? 2 : 1),
   };
+  // ⚑ Tapping a "Death By: …" workout should open a Death By, not a plain EMOM. The fourteen
+  // in his log are all named this way, so the name IS the format and reading it saves two taps
+  // at the one moment — standing over a barbell about to start — when taps cost most.
+  // (cfg.kind is re-set too: it was not, so a Death By whose workout carried a non-EMOM
+  // format would have moved the pill and left the config on the old kind.)
+  if (cfg.deathBy) { kind = 'emom'; cfg.kind = 'emom'; }
+  return { cfg, kind };
+}
+
+function ftTimerConfig(body, w) {
+  tmPickerStyles();
+  const d = w && w.custom ? w : {};
+  const F = state.fitness || (state.fitness = {});
+  const seed = ftTimerCfgFor(w);
+  const cfg = seed.cfg;
+  let kind = seed.kind;
+
+  // ⚑ THE PRESCRIPTION BELONGS ON THIS SCREEN TOO. It was on the running screen only, so the
+  // one moment you are checking the timer matches the workout was the one moment the workout
+  // was not in front of you — which is exactly the round trip Baruch described.
+  if (w) body.append(h(`<div class="card" style="padding:11px 13px;margin-bottom:12px">
+      <div style="font-weight:600;font-size:13px">${esc(w.name)}</div>
+      ${w.movements ? `<div class="muted" style="font-size:12px;line-height:1.6;white-space:pre-line;margin-top:4px">${esc(w.movements)}</div>` : ''}
+    </div>`));
 
   const card = h(`
     <div class="card" style="text-align:center;padding:20px 14px 18px">
@@ -14086,6 +14520,24 @@ function ftTimerConfig(body, w) {
   const mins = v => String(Math.round((v || 0) / 60));
   const num = v => String(v);
 
+  // The Death By switch, plus the one line that makes the ladder concrete before you start it.
+  function dbToggle() {
+    const color = TM.TIMER_COLOR.emom;
+    const row = document.createElement('div');
+    row.className = 'tm-field';
+    const b = document.createElement('button');
+    b.className = 'tm-box';
+    b.style.cssText = `border:1px solid ${color};box-shadow:inset 0 0 0 1px var(--card)` +
+      (cfg.deathBy ? `;background:${color};color:var(--card)` : '');
+    b.textContent = cfg.deathBy ? 'ON' : 'OFF';
+    b.onclick = () => { cfg.deathBy = !cfg.deathBy; draw(); };
+    const l = document.createElement('span');
+    l.className = 'tm-lab';
+    l.textContent = 'Death By';
+    row.append(b, l);
+    return row;
+  }
+
   function draw() {
     card.querySelectorAll('[data-k]').forEach(x => x.classList.toggle('on', x.dataset.k === kind));
     const color = TM.TIMER_COLOR[kind];
@@ -14099,6 +14551,7 @@ function ftTimerConfig(body, w) {
       tabata: 'Work / rest intervals',
       intervals: 'Work / rest, a result per round',
     }[kind];
+    if (kind === 'emom' && cfg.deathBy) $('cap').textContent = 'Ascending, until you fail';
     const f = $('fields');
     f.innerHTML = '';
     if (kind === 'stopwatch') {
@@ -14107,15 +14560,30 @@ function ftTimerConfig(body, w) {
       f.append(field('Minutes', 'minutes', 'total', mins));
     } else if (kind === 'emom') {
       f.append(field('Every', 'interval', 'interval', TM.fmtClock));
-      f.append(field('Rounds', 'rounds', 'rounds', num));
+      // ⚑ The toggle that turns an EMOM into a Death By. It swaps ROUNDS (a target you are
+      // working toward) for the ladder (a thing that happens to you), because in a Death By
+      // the round count is the OUTPUT, not an input — setting it up front is the one thing
+      // that would make the screen lie about what the workout is.
+      f.append(dbToggle());
+      if (cfg.deathBy) {
+        f.append(field('Start at', 'reps', 'start', num));
+        f.append(field('Each round', 'step', 'step', v => '+' + v));
+      } else {
+        f.append(field('Rounds', 'rounds', 'rounds', num));
+      }
     } else {
       f.append(field('Rounds', 'rounds', 'rounds', num));
       f.append(field('Work', 'seconds', 'work', TM.fmtClock));
       f.append(field('Rest', 'seconds', 'rest', TM.fmtClock));
     }
     f.append(field('Countdown', 'lead', 'lead', num));
-    const tot = TM.timerTotal(build());
-    $('tot').textContent = tot ? 'Total time: ' + SC.fmtSecs(tot) : 'No time cap';
+    const b = build();
+    const tot = TM.timerTotal(b);
+    // ⚑ "No time cap" is true of a Death By and tells you nothing. What you actually want to
+    // know before you start is what the ladder does to you — round 10 is 55 reps deep.
+    $('tot').textContent = TM.isDeathBy(b)
+      ? `${[1, 2, 3].map(r => TM.deathByReps(b, r)).join(' · ')} … round 10 = ${TM.deathByReps(b, 10)} reps (${TM.deathByVolume(b, 10)} total)`
+      : tot ? 'Total time: ' + SC.fmtSecs(tot) : 'No time cap';
   }
 
   // The config the engine actually receives. Kept separate from the edit model so that, for
@@ -14124,7 +14592,18 @@ function ftTimerConfig(body, w) {
     const out = { kind, lead: cfg.lead };
     if (kind === 'stopwatch' && cfg.cap) out.cap = cfg.cap;
     if (kind === 'countdown') out.total = cfg.total;
-    if (kind === 'emom') { out.interval = cfg.interval || 60; out.rounds = cfg.rounds || 10; }
+    if (kind === 'emom') {
+      out.interval = cfg.interval || 60;
+      out.rounds = cfg.rounds || 10;
+      if (cfg.deathBy) {
+        out.deathBy = true;
+        out.start = cfg.start || 1;
+        out.step = cfg.step || 1;
+        // ⚑ Sixty rounds is an hour, and it is a SAFETY CEILING rather than a target —
+        // timerTotal() returns null for a death-by precisely so this cannot be read as one.
+        out.rounds = TM.DEATH_BY_DEFAULTS.rounds;
+      }
+    }
     if (kind === 'tabata' || kind === 'intervals') {
       out.work = cfg.work || 20; out.rest = cfg.rest || 10; out.rounds = cfg.rounds || 8;
     }
@@ -14266,11 +14745,13 @@ function timerRun(cfg, w) {
         </div>
       </div>
       <div class="muted" id="tm-sub" style="margin-top:2px"></div>
+      <div id="tm-reps" style="display:none;margin-top:8px;font-weight:700;letter-spacing:.04em;color:${COLOR}"></div>
       <button class="btn" id="tm-tap" style="margin-top:16px;background:${COLOR}">Round done</button>
       <div class="row" style="gap:8px;margin-top:8px">
         <button class="btn secondary grow" id="tm-pause">Pause</button>
         <button class="btn secondary grow" id="tm-done">Finish</button>
       </div>
+      <button class="btn secondary" id="tm-fail" style="display:none;margin-top:8px;width:100%">Couldn't finish the round</button>
       <div class="muted" id="tm-splits" style="margin-top:10px;font-size:12px;line-height:1.7"></div>
     </div>`).firstElementChild;
   const el = document.createElement('div'); el.append(wrap);
@@ -14332,13 +14813,34 @@ function timerRun(cfg, w) {
 
     clock.textContent = st.phase === 'lead' ? String(st.display) : SC.fmtSecs(st.display);
     clock.style.fontSize = st.phase === 'lead' ? '84px' : '';
+    // ⚑ A Death By must NEVER render "3/60". The 60 is a safety ceiling, and showing it as a
+    // denominator turns an open-ended piece into one with a finish line it does not have —
+    // which is the single way this screen could misrepresent the workout.
+    const dbi = TM.isDeathBy(cfg);
     const phase = st.phase === 'lead' ? 'Get ready'
       : st.phase === 'done' ? 'Done'
       : st.round ? (cfg.kind === 'tabata' || cfg.kind === 'intervals' ? st.phase.toUpperCase() + ' · ' : '')
-                   + st.round + (st.rounds ? '/' + st.rounds : '')
+                   + st.round + (st.rounds && !dbi ? '/' + st.rounds : '')
       : '';
     q('#tm-phase').textContent = st.paused ? 'Paused' : phase;
     q('#tm-tap').style.display = st.phase === 'lead' ? 'none' : '';
+
+    // The rep target is the number he looks down at. It is bigger than the round number
+    // because it is the one he has to act on.
+    const repsEl = q('#tm-reps'), failEl = q('#tm-fail');
+    if (dbi && st.phase !== 'lead' && st.phase !== 'done') {
+      repsEl.style.display = '';
+      repsEl.textContent = `${st.reps} reps this minute · next ${st.nextReps}`;
+      failEl.style.display = '';
+    } else {
+      repsEl.style.display = 'none';
+      failEl.style.display = 'none';
+      if (dbi && st.phase === 'done') {
+        const r = TM.deathByResult(cfg, session);
+        repsEl.style.display = '';
+        repsEl.textContent = `${r.rounds} rounds · ${r.reps} reps`;
+      }
+    }
     q('#tm-sub').textContent = st.phase === 'lead' ? ''
       : st.total ? 'Total time: ' + SC.fmtSecs(Math.max(0, st.total - st.elapsed))
       : 'elapsed ' + SC.fmtSecs(st.elapsed);
@@ -14381,6 +14883,24 @@ function timerRun(cfg, w) {
     beep(1200, 90);
     view(false);
   };
+  // ⚑ THE FAILURE TAP — the only way a piece in this app ends on something other than a clock.
+  // It goes straight to the log rather than leaving the screen sitting on a stopped timer,
+  // because the moment you cannot finish a round is the moment the workout is over and there
+  // is nothing left to decide. Same argument as the round tap writing the log.
+  wrap.querySelector('#tm-fail').onclick = () => {
+    if (!session) return;
+    const now = Date.now();
+    session = TM.timerFail(session, cfg, now);
+    clearInterval(iv);
+    document.removeEventListener('visibilitychange', wake);
+    beep(440, 700);
+    F.timerSession = null; save();
+    const r = TM.deathByResult(cfg, session);
+    if (!w) { view(false); toast(`${r.rounds} rounds · ${r.reps} reps`); return; }
+    const out = TM.timerToLogFields(cfg, session, w, now);
+    render(() => logForm(w, '', null, out.fields, out.prompt || ''), false);
+    toast(`${r.rounds} rounds · ${r.reps} reps — check it and save`);
+  };
   wrap.querySelector('#tm-pause').onclick = () => {
     if (!session) return;
     const now = Date.now();
@@ -14402,7 +14922,7 @@ function timerRun(cfg, w) {
     // and every round you tapped, so the log is ALREADY WRITTEN — you confirm it, you do not
     // enter it. Logging stops being a second act you have to remember after training.
     const out = TM.timerToLogFields(cfg, session, w, now);
-    render(() => logForm(w, out.fields.time || '', null, out.fields), false);
+    render(() => logForm(w, out.fields.time || '', null, out.fields, out.prompt || ''), false);
     toast(`${SC.fmtSecs(out.elapsed)}${out.taps ? ' · ' + out.taps + ' rounds' : ''} — check it and save`);
   };
   view(false);
