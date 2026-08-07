@@ -4107,6 +4107,40 @@ function repsFromName(name = '') {
 const epley = (load, reps) => (reps && reps > 1) ? load * (1 + reps / 30) : load;
 const tierOf = b => b.tier || 'C';
 
+// ---------------------------------------------------------------------------------------
+// ⚑ ESTIMATED 1RMs NOW SCORE. This REVERSES the fifteenth-session ruling ("Lifts scores true
+// 1RMs only; Epley estimates are informational, never scored"), at Baruch's instruction, and
+// the reason the reversal is allowed is specific rather than a change of mind:
+//
+//     THAT RULING WAS MADE BEFORE ANYBODY MEASURED THE CONVERSION ERROR.
+//
+// Every other fork in this project that was DECLINED — OpenPowerlifting, the distance-rep
+// rule, the Quarterfinals rebase, tier G for calisthenics — was declined because a number
+// had to be INVENTED. This one is different in exactly that respect: the rep-max→1RM
+// conversion error is published and measured.
+//
+//   Published (Epley/Brzycki validation literature): SEE ≈ ±5% across 2-10 reps, rising to
+//   ±15-20% above 10. Epley is most accurate at 3RM, Brzycki at 5RM; accuracy degrades
+//   monotonically as reps rise.
+//
+//   MEASURED HERE, against the six real lift curves in this app (mean |Δlevel| sampled at
+//   levels 20-95 on cleanjerk, snatch, deadlift, backsquat, benchpress, shoulderpress):
+//       3% → 3.9 levels    5% → 6.5    10% → 12.5    15% → 17.7    20% → 22.2
+//
+// So a converted rep max carries its own extra variance and is weighted accordingly:
+//     σ_result = √(σ_tier² + σ_conversion²)
+//   2-5 reps:  √(7.97² + 6.5²)  = 10.28  →  0.60 of a true 1RM
+//   6-10 reps: √(7.97² + 12.5²) = 14.82  →  0.29 of a true 1RM
+//   >10 reps:  ±15-20% is 17.7-22.2 levels — WORSE THAN TIER C, the weakest curve class in
+//              the app. Declined, on the same grounds every other weak reading was declined.
+//
+// ⚑ The 6-10 band is deliberately CONSERVATIVE. The sources say ±5% "across 2-10 reps" but
+// also say error rises with reps; taking the upper half at ~10% costs precision we might be
+// entitled to, and that is the direction to be wrong in.
+const REPMAX_MAX_REPS = 10;
+const SIGMA_EST_1RM = { near: 6.5, far: 12.5 };
+const estBand = reps => (reps <= 5 ? 'near' : 'far');
+
 // σ for ONE result of this benchmark, in levels. Per-entry override first (the A2′ erg and
 // run curves carry their own measured σ), else the tier table.
 function sigmaOf(b) {
@@ -4128,6 +4162,22 @@ function sigmaOf(b) {
 function precisionOf(b, count) {
   if (b.weight === 0) return 0;
   const s = sigmaOf(b);
+  const repeats = Math.max(0, (count || 1) - 1);
+  return 1 / (s * s) + repeats / (SIGMA_REPEAT * SIGMA_REPEAT);
+}
+
+// σ and precision for a result that may be a CONVERTED rep max rather than a measured one.
+// A repeat still cancels only σ_curve, never the conversion bias — estimating from a 5RM
+// twice carries the same systematic offset both times — so SIGMA_REPEAT is unchanged.
+function sigmaOfResult(b, est, reps) {
+  const s = sigmaOf(b);
+  if (!est) return s;
+  const c = SIGMA_EST_1RM[estBand(reps || 1)];
+  return Math.sqrt(s * s + c * c);
+}
+function precisionOfResult(b, count, est, reps) {
+  if (b.weight === 0) return 0;
+  const s = sigmaOfResult(b, est, reps);
   const repeats = Math.max(0, (count || 1) - 1);
   return 1 / (s * s) + repeats / (SIGMA_REPEAT * SIGMA_REPEAT);
 }
@@ -4164,18 +4214,26 @@ function assessment(windowDays = 365) {
       const b = BENCHMARKS[k];
       const v = axisValue(b, l.result);
       if (v === null || !isFinite(v)) return;
+      // ⚑ A LIFT'S VALUE MAY NOW BE CONVERTED FROM A REP MAX. See SIGMA_EST_1RM above.
+      let value = v, estimated = false, estReps = 1;
       if (b.rtype === 'load') {
-        // Epley target from any lift work (rep schemes included) — a number to chase.
-        const reps = repsFromName(w.name) || (isTrue1RM(w) ? 1 : 1);
-        const est = Math.round(epley(v, reps));
-        if (!estByKey[k] || est > estByKey[k]) estByKey[k] = est;
-        // D3: the live level counts TRUE 1RMs only; rep work feeds the target, not the number.
-        if (!isTrue1RM(w)) return;
+        const reps = repsFromName(w.name);
+        // A load lifted inside a metcon names no rep scheme and is not a rep max. It never
+        // scored before and it must not start now — that was the whole point of §6.
+        if (reps === null) return;
+        if (reps > REPMAX_MAX_REPS) return;         // conversion worse than tier C
+        if (reps > 1) { value = Math.round(epley(v, reps)); estimated = true; estReps = reps; }
+        const shown = Math.round(value);
+        if (!estByKey[k] || shown > estByKey[k]) estByKey[k] = shown;
       }
-      if (!per[k]) per[k] = { best: v, count: 0, ts: l.ts };
+      if (!per[k]) per[k] = { best: value, count: 0, ts: l.ts, estimated, estReps };
       per[k].count++;
-      const isBetter = b.dir === 'lower' ? v < per[k].best : v > per[k].best;
-      if (isBetter) { per[k].best = v; per[k].ts = l.ts; }
+      const isBetter = b.dir === 'lower' ? value < per[k].best : value > per[k].best;
+      // ⚑ An estimate never DISPLACES a better true result — the comparison is on the value,
+      // so a true 125 lb snatch keeps its place over a 7RM at 45 lb that converts to 56.
+      // When an estimate does win, it wins because it is a better performance, and it brings
+      // its own wider σ with it rather than borrowing the true result's.
+      if (isBetter) { per[k].best = value; per[k].ts = l.ts; per[k].estimated = estimated; per[k].estReps = estReps; }
     });
     const domains = {};
     ASSESS_DOMAINS.forEach(([d]) => domains[d] = {
@@ -4190,8 +4248,12 @@ function assessment(windowDays = 365) {
       const dom = domains[b.domain];
       const item = {
         key: k, label: b.label, best: r.best, level, count: r.count, repeats: r.count - 1,
-        rtype: b.rtype, unit: b.unit, tier, sigma: sigmaOf(b),
-        precision: precisionOf(b, r.count),
+        rtype: b.rtype, unit: b.unit, tier,
+        sigma: +sigmaOfResult(b, r.estimated, r.estReps).toFixed(2),
+        precision: precisionOfResult(b, r.count, r.estimated, r.estReps),
+        // ⚑ provenance on the item, so the screen can say "estimated from a 5RM" rather than
+        // presenting a converted number as a measured one.
+        estimated: !!r.estimated, estReps: r.estimated ? r.estReps : null,
         room: b.room, roomLabel: (ROOMS[b.room] || {}).label,
         machine: b.machine || null,
         modelled: MODELED_TIERS.has(tier),
@@ -4231,7 +4293,7 @@ function assessment(windowDays = 365) {
         .map(it => ({
           key: it.key, label: it.label, tier: it.tier, repeats: it.repeats,
           done: true,
-          gain: +((precisionOf(BENCHMARKS[it.key], it.count + 1) - it.precision) /
+          gain: +((precisionOfResult(BENCHMARKS[it.key], it.count + 1, it.estimated, it.estReps) - it.precision) /
                   (1 / (TIER_SIGMA.A1 * TIER_SIGMA.A1))).toFixed(2)
         }))
         .sort((a, b2) => b2.gain - a.gain).slice(0, 3);
@@ -4406,7 +4468,7 @@ function ftStats() {
   };
 }
 
-const FT = {ASSESS_DOMAINS,BENCHMARKS,FORMATS,LIBRARY,RESULT_TYPES,ROOMS,RX_STATES,SIGMA_REPEAT,STREAK_DEFAULTS,TIER_SIGMA,UNLOCK_MIN,WORKOUT_TEMPLATES,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,assessment,axisValue,benchmarkFor,buildResult,byDomain,cardAddPart,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,dietTargets,formatOf,ftStats,getCard,getWorkout,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,libraryFor,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,prFor,precisionOf,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,rxLabel,rxStatusOf,sessionText,setDietTargets,setStreakSettings,setWaterGoal,setWeightGoal,sigmaFromPrecision,sigmaOf,sleepForDate,sleepList,streakSettings,trainingStreak,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights,workoutsBetween};
+const FT = {ASSESS_DOMAINS,BENCHMARKS,FORMATS,LIBRARY,REPMAX_MAX_REPS,RESULT_TYPES,ROOMS,RX_STATES,SIGMA_EST_1RM,SIGMA_REPEAT,STREAK_DEFAULTS,TIER_SIGMA,UNLOCK_MIN,WORKOUT_TEMPLATES,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,assessment,axisValue,benchmarkFor,buildResult,byDomain,cardAddPart,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,dietTargets,estBand,formatOf,ftStats,getCard,getWorkout,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,libraryFor,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,prFor,precisionOf,precisionOfResult,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,rxLabel,rxStatusOf,sessionText,setDietTargets,setStreakSettings,setWaterGoal,setWeightGoal,sigmaFromPrecision,sigmaOf,sigmaOfResult,sleepForDate,sleepList,streakSettings,trainingStreak,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights,workoutsBetween};
 // Strive — the workout timer engine. Pure, no DOM, no clock of its own.
 //
 // ⚑ WHY THIS IS A SEPARATE MODULE, AND WHY IT TAKES `now` AS AN ARGUMENT.
@@ -4914,7 +4976,13 @@ const M = (id, name, cat, loadable, pr, bench, alias) => ({ id, name, cat, loada
 
 const MOVEMENTS = [
   // ---- barbell: the six lifts that already have curves, plus their variants ----
-  M('deadlift', 'Deadlift', 'barbell', true, ['repmax', 'volume'], 'deadlift', ['deadlifts?', '\\bdl\\b']),
+  // ⚑ AUDIT, twenty-second session. A Romanian deadlift and a dumbbell suitcase deadlift were
+  // both matching plain `deadlift`, so his BARBELL deadlift PR board carried a 6RM of 205 lb
+  // (an RDL) and a 10RM of 75 lb (a dumbbell). Both are real lifts and both are now their own
+  // movement, so nothing loses coverage and the barbell board stops lying.
+  M('deadlift', 'Deadlift', 'barbell', true, ['repmax', 'volume'], 'deadlift', ['(?<!romanian |suitcase |db |dumbbell |single arm |single db )deadlifts?', '\\bdl\\b']),
+  M('rdl', 'Romanian Deadlift', 'barbell', true, ['repmax', 'volume'], null, ['romanian ?deadlifts?', '\\brdls?\\b']),
+  M('dbdeadlift', 'Dumbbell Deadlift', 'dumbbell', true, ['repmax', 'volume'], null, ['(db|dumbbell|single db|single arm) ?(suitcase )?deadlifts?', 'suitcase ?deadlifts?']),
   M('backsquat', 'Back Squat', 'barbell', true, ['repmax', 'volume'], 'backsquat', ['back ?squats?']),
   M('frontsquat', 'Front Squat', 'barbell', true, ['repmax', 'volume'], null, ['front ?squats?']),
   M('overheadsquat', 'Overhead Squat', 'barbell', true, ['repmax', 'volume'], null, ['overhead ?squats?', '\\bohs\\b']),
@@ -4922,14 +4990,17 @@ const MOVEMENTS = [
   M('shoulderpress', 'Shoulder Press', 'barbell', true, ['repmax', 'volume'], 'shoulderpress', ['shoulder ?press(es)?', 'strict press']),
   M('pushpress', 'Push Press', 'barbell', true, ['repmax', 'volume'], null, ['push ?press(es)?']),
   M('pushjerk', 'Push Jerk', 'barbell', true, ['repmax', 'volume'], null, ['push ?jerks?', 'split ?jerks?']),
-  M('clean', 'Clean', 'barbell', true, ['repmax', 'volume'], null, ['(?<!power |squat |hang )cleans?\\b']),
+  // ⚑ AUDIT: a clean & jerk is limited by the JERK, so reading a clean 1RM off one understates
+  // the clean. His Clean 1RM read 175 lb straight off "1RM: Clean & Jerk" — the same number as
+  // his Clean & Jerk 1RM, which is the tell.
+  M('clean', 'Clean', 'barbell', true, ['repmax', 'volume'], null, ['(?<!power |squat |hang )cleans?\\b(?! ?(and|&|\\+) ?jerk)']),
   M('powerclean', 'Power Clean', 'barbell', true, ['repmax', 'volume'], null, ['power ?cleans?']),
   M('squatclean', 'Squat Clean', 'barbell', true, ['repmax', 'volume'], null, ['squat ?cleans?']),
-  M('cleanjerk', 'Clean & Jerk', 'barbell', true, ['repmax', 'volume'], 'cleanjerk', ['clean (and|&|\\+) jerks?', 'c\\s*&\\s*j\\b']),
+  M('cleanjerk', 'Clean & Jerk', 'barbell', true, ['repmax', 'volume'], 'cleanjerk', ['(?<!db |dumbbell )clean ?(and|&|\\+) ?jerks?', '(?<!db |dumbbell )c\\s*&\\s*j\\b']),
   M('snatch', 'Snatch', 'barbell', true, ['repmax', 'volume'], 'snatch', ['(?<!power |squat |hang |db |dumbbell )snatch(es)?\\b']),
   M('powersnatch', 'Power Snatch', 'barbell', true, ['repmax', 'volume'], null, ['power ?snatch(es)?']),
   M('squatsnatch', 'Squat Snatch', 'barbell', true, ['repmax', 'volume'], null, ['squat ?snatch(es)?']),
-  M('thruster', 'Thruster', 'barbell', true, ['repmax', 'volume'], null, ['thrusters?']),
+  M('thruster', 'Thruster', 'barbell', true, ['repmax', 'volume'], null, ['(?<!db |dumbbell )thrusters?']),
   M('s2oh', 'Shoulder to Overhead', 'barbell', true, ['repmax', 'volume'], null, ['s2oh', 'shoulder[- ]to[- ]overhead', 'ground[- ]to[- ]overhead', 'g2oh']),
 
   // ---- dumbbell / kettlebell ----
@@ -4939,7 +5010,13 @@ const MOVEMENTS = [
   M('dblunge', 'Dumbbell Lunge', 'dumbbell', true, ['volume'], null, ['(db|dumbbell) ?(overhead |oh )?lunges?']),
   M('dbboxstepup', 'Dumbbell Box Step-up', 'dumbbell', true, ['volume'], null, ['(db|dumbbell) ?box ?step[- ]?ups?', 'box ?step[- ]?ups?']),
   M('dbsquat', 'Dumbbell Squat', 'dumbbell', true, ['repmax', 'volume'], null, ['(db|dumbbell) ?squats?']),
-  M('dbpress', 'Dumbbell Press', 'dumbbell', true, ['repmax', 'volume'], null, ['(db|dumbbell) ?(shoulder |overhead |strict |seated |single arm |floor )*press(es)?', 'single arm dumbbell', '(db|dumbbell) ?high ?pulls?']),
+  // ⚑ AUDIT: a SINGLE-ARM dumbbell press is a different lift from a two-arm one and was
+  // sharing a PR board with it — a 10RM of 30 lb (one arm) sat below a 15RM of 50 lb (two),
+  // which is what the plausibility pass caught. Split, same as the high pull above.
+  // The 'single arm dumbbell' alias was also bare, and swallowed the high pull entirely.
+  M('dbpress', 'Dumbbell Press', 'dumbbell', true, ['repmax', 'volume'], null, ['(?<!single[- ]arm |sa |seated single[- ]arm )(db|dumbbell) ?(shoulder |overhead |strict |seated |floor )*press(es)?']),
+  M('sadbpress', 'Single-arm Dumbbell Press', 'dumbbell', true, ['repmax', 'volume'], null, ['(single[- ]arm|sa) ?(seated )?(db|dumbbell) ?press(es)?', '(seated )?(single[- ]arm|sa) ?(db|dumbbell) ?press(es)?']),
+  M('dbhighpull', 'Dumbbell High Pull', 'dumbbell', true, ['repmax', 'volume'], null, ['(db|dumbbell|single arm) ?high ?pulls?', '\\bsa db high pulls?']),
   M('kbswing', 'Kettlebell Swing', 'kettlebell', true, ['volume'], null, ['(kb|kettlebell) ?swings?']),
   M('gobletsquat', 'Goblet Squat', 'kettlebell', true, ['repmax', 'volume'], null, ['goblet ?squats?']),
 
@@ -5197,6 +5274,28 @@ const isAmrapNotScoredInRounds = w =>
 // number of sets is not in the name, so it is left uncounted rather than undercounted.
 const scoredReps = name => { const m = /^(\d+)\s*RM:/i.exec(String(name || '')); return m ? Number(m[1]) : null; };
 
+// ⚑ AUDIT, twenty-second session — THE ONE THE AUTOMATED CHECKS PASSED AND THE EYE CAUGHT.
+// His weighted pull-up record read 700 lb, then 600 lb after the first fix. He weighs 195.
+//
+// The Beyond the Whiteboard writes SESSION TONNAGE into the load field whenever the
+// entry had no per-set breakdown: "600 lbs" against a ten-minute E2MOM of weighted pull-ups
+// is 5 rounds x 3 reps x 40 lb, not a 600 lb rep. Every weighted-pull-up record in the app
+// was one of these; the single entry with a real breakdown, "25/25/25 lbs (300 lbs)", reads
+// 25 lb and is the only believable number on the board.
+//
+// So a bare load is a SET WEIGHT only when the workout is one set. Anything else must carry
+// its own qualifier — a per-set list, a parenthetical total, "all sets", or "xN" — and
+// without one it is refused rather than shown. Measured against his real history this
+// rejects exactly the four weighted-pull-up tonnages and keeps all 110 qualified results.
+//
+// (`parseResult` itself is untouched: it sits on the path that feeds Level, and this is the
+// registry's defect to fix, not the engine's.)
+const isSingleSetTest = name => /^\s*\d+\s*RM:/i.test(String(name || '')) || /^\s*max /i.test(String(name || ''));
+const isQualifiedLoad = result => /[/(]|all sets|x\s*\d/i.test(String(result || ''));
+const loadIsAmbiguous = (result, name) =>
+  /\btotal\b/i.test(String(result || '')) ? !isQualifiedLoad(result)
+    : !isSingleSetTest(name) && !isQualifiedLoad(result);
+
 // Reps (and the load they moved) for ONE movement in ONE logged session, or null when the
 // number cannot be read. Exported because the refusals are the interesting part and a test
 // asserts them one by one.
@@ -5291,6 +5390,7 @@ function movementStats(id, { windowDays = 365 } = {}) {
     rows.forEach(r => {
       const n = repSchemeOf(r.w.name || '');
       if (!n || r.w.resultType !== 'load') return;
+      if (loadIsAmbiguous(r.log.result, r.w.name)) return;
       const v = parseResult(r.log.result, 'load');
       if (v === null || !isFinite(v)) return;
       if (!by[n] || v > by[n].value) by[n] = { reps: n, value: v, ts: r.log.ts, wid: r.w.id };
@@ -5330,6 +5430,7 @@ function movementStats(id, { windowDays = 365 } = {}) {
     rows.forEach(r => {
       if (!/weighted/i.test(r.w.name || '') || r.w.resultType !== 'load') return;
       if (movementsOf(r.w).length !== 1) return;   // same attribution rule as maxset
+      if (loadIsAmbiguous(r.log.result, r.w.name)) return;   // a bare load on a multi-set piece is tonnage
       const v = parseResult(r.log.result, 'load');
       if (v === null || !isFinite(v)) return;
       if (!best || v > best.value) best = { value: v, ts: r.log.ts, wid: r.w.id };
@@ -5338,11 +5439,17 @@ function movementStats(id, { windowDays = 365 } = {}) {
   }
 
   // distance / calories — best time at each distance the workout NAME states outright.
+  //
+  // ⚑ AUDIT, twenty-second session: this had no attribution guard, so "3 RFT: Rows and 400m"
+  // put a 400 m ROW record of 12:01 on the board — the whole workout's time, for a workout
+  // containing a run as well. Same for an 800 m row of 19:54 read off a five-part chipper.
+  // A time only belongs to a movement when that movement is the ONLY thing being timed.
   if (mv.pr.includes('distance') || mv.pr.includes('calories')) {
     const by = {};
     rows.forEach(r => {
       const m = /(\d+(?:\.\d+)?)\s*(m|km|mi|mile|miles|cal|calories)\b/i.exec(r.w.name || '');
       if (!m || r.w.resultType !== 'time') return;
+      if (movementsOf(r.w).length !== 1) return;
       const v = parseResult(r.log.result, 'time');
       if (v === null || !isFinite(v)) return;
       const key = m[1] + ' ' + m[2].toLowerCase();
@@ -6424,7 +6531,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260807-0755'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260807-0755';
+const BUILD_ID = '20260807-0836'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260807-0836';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -6963,7 +7070,7 @@ function dashboard() {
   `));
   main().querySelector('#d-stats').onclick = () => render(statsScreen);   // D-AB: Stats sits ABOVE Trends
   main().querySelector('#d-trends').onclick = () => render(trendsScreen);
-  main().querySelector('#d-fitness').onclick = () => { ftMode = 'level'; render(fitnessHome); };   // 7B.1 title→home resets to Level
+  main().querySelector('#d-fitness').onclick = () => ftGo('level');   // the dashboard ring goes straight to the assessment
   { // 7B.2 dashboard-as-hub — Scripture card clickable targets
     const scT = main().querySelector('#d-sc-title'); if (scT) scT.onclick = () => render(scriptureHome);
     main().querySelectorAll('[data-corpus]').forEach(r => r.onclick = () => { const k = r.dataset.corpus; render(() => corpusBooks(k === 'all' ? null : k)); });
@@ -7228,7 +7335,7 @@ function navPace(g) {
   else if (g.t === 'memHome') render(scriptureHome);
   else if (g.t === 'creedsHome') render(creedsHome);
   else if (g.t === 'plans') render(plansScreen);
-  else if (g.t === 'fitness') { ftMode = 'level'; render(fitnessHome); }
+  else if (g.t === 'fitness') { ftGo('level'); }
 }
 
 // green/red schedule-position dot (9.4). null → nothing; 0 → on pace; ± → days ahead/behind.
@@ -12938,7 +13045,7 @@ function practiceSummary(d, mode, lines, count, stats = null) {
 }
 
 // ---------- Fitness ----------
-let ftMode = 'level';
+let ftMode = 'hub';   // ⚑ Fitness opens on the hub, not on the assessment
 let ftSearch = '';
 
 const FIN = 'padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px';
@@ -12956,28 +13063,88 @@ const FT_GROUPS = [
 ];
 const ftGroupOf = mode => (FT_GROUPS.find(g => g[2].some(t => t[0] === mode)) || FT_GROUPS[0])[0];
 
+// ⚑ THE HUB. Baruch, twenty-second session: "when I click Fitness Level I want to just see my
+// overall fitness level and all the various domains... The ability to navigate within Fitness
+// is different than here is my Fitness Level."
+//
+// Nine pills across two rows sat above every fitness screen, including the one screen that is
+// meant to be a single number. Navigation and the assessment were competing for the same
+// space, and the assessment was losing. So Fitness now opens on a HUB: the Level as one
+// tappable card, then everything else as its own entry. The Level screen itself carries no
+// pills at all, which is the whole point of it.
+const FT_HUB = [
+  ['workouts', 'Workouts', 'Browse, build and log every workout'],
+  ['movements', 'Movements', 'Rep maxes, max sets, volume and tonnage per movement'],
+  ['log', 'Logbook', 'Everything you have logged, newest first'],
+  ['timers', 'Timers', 'Stopwatch, AMRAP, EMOM, Tabata, Death By'],
+  ['weight', 'Weight', 'Bodyweight log and goal'],
+  ['water', 'Water', 'Daily intake'],
+  ['diet', 'Macros', 'Protein, carbs, fat and calories'],
+  ['sleep', 'Sleep', 'Hours and quality'],
+];
+
+function ftHub(body) {
+  const a = FT.assessment();
+  const live = a.live.overall, all = a.alltime.overall;
+  const card = h(`<div class="card" style="text-align:center;padding:22px 14px;cursor:pointer">
+      <div style="display:flex;justify-content:center">${levelRing(live ?? null, 96, { best: live == null ? null : all, stroke: 5 })}</div>
+      <div style="font-weight:700;margin-top:8px">Fitness Level</div>
+      <div class="muted" style="font-size:12px">${live != null
+        ? a.live.unlockedCount + ' of 7 domains unlocked'
+        : all != null ? `Nothing in the last 12 months — all-time you were <b>${all}</b>` : 'Not enough data yet'}</div>
+    </div>`);
+  card.firstElementChild.onclick = () => ftGo('level');
+  body.append(card);
+  body.append(ftStreakCard());
+
+  body.append(sectionTitle('Training'));
+  FT_HUB.slice(0, 4).forEach(([m, l, sub]) => body.append(ftHubRow(m, l, sub)));
+  body.append(sectionTitle('Health'));
+  FT_HUB.slice(4).forEach(([m, l, sub]) => body.append(ftHubRow(m, l, sub)));
+}
+
+function ftHubRow(mode, label, sub) {
+  const el = h(`<div class="list-item"><div class="grow">
+      <div class="title" style="font-size:14px">${esc(label)}</div>
+      <div class="sub">${esc(sub)}</div></div><span class="chev">›</span></div>`);
+  el.querySelector('.list-item').onclick = () => ftGo(mode);
+  return el;
+}
+
+// ⚑ THE MODE MUST TRAVEL WITH THE STACK ENTRY, NOT SIT BESIDE IT.
+// The hub introduced a real BACK target inside Fitness for the first time, and that exposed
+// a latent bug the pill rows had hidden: `back` closures are stored as the stack's top frame
+// and re-invoked by `rerender()`, so a back target that mutated `ftMode` and called
+// `rerender()` called ITSELF — an infinite loop, caught by the render suite the moment the
+// hub existed. And popping the stack would have re-rendered the previous frame against the
+// CURRENT ftMode, which is the same class of bug pointing the other way.
+//
+// So a fitness screen is pushed as a closure that carries its own mode. Going back pops to a
+// frame that re-asserts the mode it was rendered with, and nothing depends on module state
+// surviving a navigation.
+function ftScreen(mode) { ftMode = mode; return fitnessHome(); }
+const ftGo = mode => render(() => ftScreen(mode));
+
 function fitnessHome() {
-  const group = ftGroupOf(ftMode);
-  const groupDef = FT_GROUPS.find(g => g[0] === group);
-  setHeader('Fitness', { back: () => switchTab('home') });
+  const onHub = ftMode === 'hub';
+  const onLevel = ftMode === 'level';
+  const label = onHub ? 'Fitness' : (FT_HUB.find(x => x[0] === ftMode) || [null, 'Fitness Level'])[1];
+  setHeader(label, { back: onHub ? () => switchTab('home') : () => ftScreen('hub') });
   const wrap = document.createElement('div');
-
-  const gpills = h(`<div class="pillrow">${FT_GROUPS.map(([g, l, tabs]) =>
-    `<button class="pill ${group === g ? 'on' : ''}" data-g="${g}">${l}</button>`).join('')}</div>`);
-  gpills.querySelectorAll('[data-g]').forEach(b => b.onclick = () => {
-    const gd = FT_GROUPS.find(g => g[0] === b.dataset.g);
-    ftMode = gd[2][0][0];                       // entering a group lands on its first screen
-    rerender();
-  });
-  wrap.append(gpills);
-
-  const pills = h(`<div class="pillrow">${groupDef[2].map(([m, l]) => `<button class="pill ${ftMode === m ? 'on' : ''}" data-m="${m}">${l}</button>`).join('')}</div>`);
-  pills.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { ftMode = b.dataset.m; rerender(); });
-  wrap.append(pills);
   const body = document.createElement('div');
   wrap.append(body);
   main().append(wrap);
-  ({ log: ftLogbook, level: ftLevel, workouts: ftWorkouts, movements: ftMovements, weight: ftWeight, water: ftWater, diet: ftDiet, sleep: ftSleep, timers: ftTimers })[ftMode](body);
+  // ⚑ No pill row on the hub and none on Level. The other screens keep a row so you can move
+  // between Workouts / Movements / Logbook / Timers without going back out each time — that
+  // is navigation doing its job on a navigation screen, which was never the complaint.
+  if (!onHub && !onLevel) {
+    const group = ftGroupOf(ftMode);
+    const groupDef = FT_GROUPS.find(g => g[0] === group);
+    const pills = h(`<div class="pillrow">${groupDef[2].filter(([m]) => m !== 'level').map(([m, l]) => `<button class="pill ${ftMode === m ? 'on' : ''}" data-m="${m}">${l}</button>`).join('')}</div>`);
+    pills.querySelectorAll('[data-m]').forEach(b => b.onclick = () => ftScreen(b.dataset.m));
+    wrap.insertBefore(pills, body);
+  }
+  ({ hub: ftHub, log: ftLogbook, level: ftLevel, workouts: ftWorkouts, movements: ftMovements, weight: ftWeight, water: ftWater, diet: ftDiet, sleep: ftSleep, timers: ftTimers })[ftMode](body);
 }
 
 // ⚑ THE TRAINING STREAK (open-threads §3). Weeks, not days — his constraint was that he
@@ -13101,16 +13268,19 @@ function bindSrcFlags(root) {
   });
 }
 
+// ⚑ THE LIVE / ALL-TIME TOGGLE IS GONE, and it is not a deletion so much as a relocation.
+// Baruch, twenty-second session: "when I click Fitness Level I want to just see my overall
+// fitness level and all the various domains" — and separately, that an expired result should
+// be FADED rather than hidden behind a pill.
+//
+// Those two asks are the same ask. The window was only ever a filter over one list; making
+// expiry visible in the list makes the toggle redundant. So the Level screen now shows the
+// LIVE number — the honest answer to "what is my fitness level" — with the all-time number
+// stated underneath as context rather than as a second mode you have to remember to check.
 function ftLevel(body) {
   const a = FT.assessment();
-  const view = a[ftLevelWindow];
-  const liveView = ftLevelWindow === 'live';
-  const toggle = h(`<div class="pillrow">
-    <button class="pill ${ftLevelWindow === 'live' ? 'on' : ''}" data-w="live">Live (12 mo)</button>
-    <button class="pill ${ftLevelWindow === 'alltime' ? 'on' : ''}" data-w="alltime">All-time</button>
-  </div>`);
-  toggle.querySelectorAll('[data-w]').forEach(b => b.onclick = () => { ftLevelWindow = b.dataset.w; rerender(); });
-  body.append(toggle);
+  const view = a.live;
+  const liveView = true;
 
   // ⚑ Q12 ✅ — the Overall is a BARE NUMBER. No ±, no tier mix, nothing hedging it.
   // Everything that qualifies it lives one tap down, on the card itself.
@@ -13120,7 +13290,9 @@ function ftLevel(body) {
       <div style="font-weight:700;margin-top:8px">Fitness Level</div>
       <div class="muted" style="font-size:12px">${view.overall != null
         ? view.unlockedCount + ' of 7 domains unlocked · 99 ≈ average professional'
-        : liveView ? 'No results in the last 12 months — log fresh benchmarks or view All-time.' : 'Not enough data yet.'}</div>
+        : a.alltime.overall != null
+          ? `Nothing logged in the last 12 months. <b>All-time you were ${a.alltime.overall}</b> — every domain below is faded because none of it counts right now.`
+          : 'Not enough data yet.'}</div>
     </div>`);
   body.append(overallCard);
   body.append(ftStreakCard());
@@ -13160,13 +13332,18 @@ function ftLevel(body) {
          + (dom.unlocked ? (nModelled ? ' · ' + nModelled + ' modelled' : '')
                          : ' — ' + Math.max(1, FT.UNLOCK_MIN - dom.count) + ' more to unlock'))
       : 'No scored results yet — tap to find benchmarks';
+    // ⚑ The same three states as the benchmark rows, one level up: a domain counting right
+    // now is at full contrast; one that only has expired results is faded but still shows
+    // what it was. The fade is the whole explanation — no pill, no second screen.
+    const domA2 = a.alltime.domains[d];
+    const expiredOnly = !dom.unlocked && domA2 && domA2.unlocked;
     const card = h(`
-      <div class="card" style="padding:12px 14px;cursor:pointer">
+      <div class="card" style="padding:12px 14px;cursor:pointer${expiredOnly ? ';opacity:.45' : ''}">
         <div class="row">
-          <div style="flex-shrink:0">${levelRing(dom.unlocked ? dom.level : null, 46, { best: bestLvl })}</div>
+          <div style="flex-shrink:0">${levelRing(dom.unlocked ? dom.level : (expiredOnly ? domA2.level : null), 46, { best: bestLvl })}</div>
           <div class="grow">
             <div style="font-weight:700">${label}</div>
-            <div class="muted" style="font-size:12px">${sub}</div>
+            <div class="muted" style="font-size:12px">${expiredOnly ? `Was ${domA2.level} · nothing in the last 12 months` : sub}</div>
           </div>
           <span class="chev">›</span>
         </div>
@@ -13219,7 +13396,18 @@ function workoutForBenchmark(key) {
   if (!ws.length) return null;
   return ws.find(w => /^1RM:/i.test(w.name)) || ws[0];
 }
-function benchRow(key, item) {
+// ⚑ THREE STATES, AND THE FADE CARRIES THE MEANING. Baruch, twenty-second session: "any lift
+// that is actively counting towards my score is clear... If I have done it before but it no
+// longer is valid, I would like it to be grayed out. I can see what my former score was, but
+// it is clear that it does not count."
+//
+//   ACTIVE   full contrast — logged inside the 12-month window, counting right now
+//   EXPIRED  faded, ring still shows the old level — you did it, it no longer counts
+//   NEVER    faded, empty ring
+//
+// The fade replaces the "Try these to raise X" heading entirely, which was his other point:
+// a faded row already says "this is not counting" without a sentence telling you to go do it.
+function benchRow(key, item, state = 'active') {
   const b = FT.BENCHMARKS[key];
   const w = workoutForBenchmark(key);
   const badge = b.weight === 0 ? 'personal · does not score'
@@ -13232,10 +13420,21 @@ function benchRow(key, item) {
     : (b.source && b.source.flag) ? 'Flagged: ' + b.source.flag : null;
   const repeated = item && item.repeats > 0
     ? ` <span style="color:var(--accent);font-size:11px">· done ${item.count}×</span>` : '';
-  const el = h(`<div class="list-item">
+  // ⚑ "Estimated from a 5RM" is said on the row, never implied. A converted 1RM is a real
+  // result carrying a wider σ, and presenting it as a measured lift would be the exact kind
+  // of authoritative-looking wrong number the provenance rule exists to prevent.
+  const est = item && item.estimated
+    ? ` <span class="muted" style="font-size:11px">· est. from a ${item.estReps}RM</span>` : '';
+  const faded = state !== 'active';
+  const when = item && item.ts ? new Date(item.ts).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : '';
+  const sub = state === 'expired'
+    ? `Was ${fmtBench(item)}${when ? ' · ' + when : ''} · no longer counting`
+    : item ? 'Best ' + fmtBench(item) + ' · ' + item.count + ' log' + (item.count === 1 ? '' : 's') + ' · ' + badge + repeated + est
+    : 'Not done yet · ' + badge;
+  const el = h(`<div class="list-item"${faded ? ' style="opacity:.42"' : ''}>
       <div style="flex-shrink:0;margin-right:4px">${levelRing(item && item.level != null ? item.level : null, 38, { stroke: 3 })}</div>
-      <div class="grow"><div class="title" style="font-size:14px">${esc(b.label)}${srcFlag(b.room, extra)}</div>
-      <div class="sub">${item ? 'Best ' + fmtBench(item) + ' · ' + item.count + ' log' + (item.count === 1 ? '' : 's') : 'Not done yet'} · ${badge}${repeated}</div></div>
+      <div class="grow"><div class="title" style="font-size:14px">${esc(b.label)}${faded ? '' : srcFlag(b.room, extra)}</div>
+      <div class="sub">${sub}</div></div>
       <span class="chev">›</span></div>`);
   el.querySelector('.list-item').onclick = () => { if (w) render(() => workoutDetail(w)); else toast('No workout for this benchmark yet — create one'); };
   return el;
@@ -13251,7 +13450,7 @@ function libRow(w) {
 }
 function ftDomainScreen(d) {
   const label = (FT.ASSESS_DOMAINS.find(x => x[0] === d) || ['', d])[1];
-  setHeader(label, { back: fitnessHome });
+  setHeader(label, { back: () => ftScreen('level') });
   ftDomainScreenBody(d, label);
 }
 
@@ -13317,17 +13516,38 @@ function ftDomainScreenBody(d, label) {
   wrap.append(toggle);
   const list = document.createElement('div');
   if (ftDomainView === 'assess') {
+    // ⚑ ONE SCORING LIST, ORDERED BY WHETHER IT IS COUNTING. His instruction: "all the
+    // workouts that are used for assessment should be under one category... The top of that
+    // list should only be ones that are active. Beneath them should be ones that are grayed
+    // out." Active is read from the LIVE assessment, expired from the all-time one — so the
+    // 12-month window stops being a toggle at the top of the screen and becomes the thing
+    // you can see at a glance, which is what it was always for.
     const keys = Object.keys(FT.BENCHMARKS).filter(k => FT.BENCHMARKS[k].domain === d);
     const itemByKey = {}; domA.items.forEach(it => itemByKey[it.key] = it);
-    const done = keys.filter(k => itemByKey[k]).sort((x, y) => itemByKey[y].level - itemByKey[x].level);
-    const todo = keys.filter(k => !itemByKey[k]);
+    const liveByKey = {}; (domL.items || []).forEach(it => liveByKey[it.key] = it);
     const personalByKey = {}; (domA.personal || []).forEach(it => personalByKey[it.key] = it);
     const scoring = keys.filter(k => FT.BENCHMARKS[k].weight !== 0);
     const personalKeys = keys.filter(k => FT.BENCHMARKS[k].weight === 0);
-    const doneS = scoring.filter(k => itemByKey[k]).sort((x, y) => itemByKey[y].level - itemByKey[x].level);
-    const todoS = scoring.filter(k => !itemByKey[k]);
-    if (doneS.length) { list.append(sectionTitle('Your benchmarks')); doneS.forEach(k => list.append(benchRow(k, itemByKey[k]))); }
-    if (todoS.length) { list.append(sectionTitle('Try these to raise ' + label)); todoS.forEach(k => list.append(benchRow(k, null))); }
+
+    const byLevel = (m) => (x, y) => (m[y].level || 0) - (m[x].level || 0);
+    const active = scoring.filter(k => liveByKey[k]).sort(byLevel(liveByKey));
+    const expired = scoring.filter(k => !liveByKey[k] && itemByKey[k]).sort(byLevel(itemByKey));
+    const never = scoring.filter(k => !liveByKey[k] && !itemByKey[k]);
+
+    if (active.length) {
+      list.append(sectionTitle('Counting toward ' + label));
+      active.forEach(k => list.append(benchRow(k, liveByKey[k], 'active')));
+    }
+    if (expired.length || never.length) {
+      list.append(sectionTitle('Not counting'));
+      // one line, and only when it is doing work: if NOTHING is active the reason is not
+      // obvious and saying it is the difference between a design and a bug.
+      if (!active.length) {
+        list.append(h(`<div class="muted" style="font-size:11.5px;margin:0 4px 6px;line-height:1.55">A result counts toward your level for <b>12 months</b>. Nothing in ${esc(label)} has been logged inside that window, so everything here is faded — the levels shown are what they were, not what they count for. Logging any one of them brings it back to the top.</div>`));
+      }
+      expired.forEach(k => list.append(benchRow(k, itemByKey[k], 'expired')));
+      never.forEach(k => list.append(benchRow(k, null, 'never')));
+    }
     if (personalKeys.length) {
       list.append(sectionTitle('Personal benchmarks'));
       list.append(h(`<div class="muted" style="font-size:11.5px;margin:0 4px 6px;line-height:1.55">Tracked and trended, and completely accurate about you — they just do not vote. Nobody publishes a distribution for these, and a plausible-looking curve would have been the worst outcome.</div>`));
@@ -13350,7 +13570,7 @@ function ftDomainScreenBody(d, label) {
         list.append(row);
       });
     }
-    list.append(h(`<div class="muted" style="font-size:11px;margin:8px 4px">These are the workouts that move ${label}'s level. Do one and log it to add it to your assessment. Tap the ✻ beside any name to see exactly which population its curve was read from.</div>`));
+    list.append(h(`<div class="muted" style="font-size:11px;margin:8px 4px">Tap the ✻ beside any name to see exactly which population its curve was read from.</div>`));
   } else {
     const pool = FT.byDomain(d);
     list.append(h(`<div class="muted" style="font-size:12px;margin:2px 4px 8px">${pool.length} workouts tagged ${label} — every one you can browse or log, scored or not.</div>`));
@@ -14938,7 +15158,7 @@ function areas() {
     ['Scripture Reading', 'Bible reading plans · daily portions', () => render(plansScreen)],
     ['Creeds, Catechisms & Confessions', `All ${CR.docs().length} documents · read or memorize`, () => render(creedsHome)],
     ['Reading', 'Library · Up Next (5) · notes', () => render(readingHome)],
-    ['Fitness', 'Workouts · logbook · timers · weight', () => { ftMode = 'level'; render(fitnessHome); }],
+    ['Fitness', 'Level · workouts · logbook · timers · health', () => ftGo('hub')],
   ];
   const wrap = document.createElement('div');
   items.forEach(([t, sub, fn]) => {
