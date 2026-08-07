@@ -4399,12 +4399,21 @@ const TIMER_KINDS = [
   ['intervals', 'Intervals', 'work / rest, a result per round'],
 ];
 
-// One accent colour per kind, as on the timer Baruch actually uses. This is not decoration:
-// mid-workout the colour is legible from further away than the label is.
+// One accent per kind — mid-workout the colour is legible from further away than the label.
+// ⚑ These are Folio's own palette, not the source app's. Lifting SmartWOD's saturated RGB into
+// a warm letterpress theme was the mistake: the idea was worth copying, the colours were not.
 const TIMER_COLOR = {
-  stopwatch: '#4a6cf7', countdown: '#e8912a', emom: '#a020e0',
-  tabata: '#12b886', intervals: '#12b886',
+  stopwatch: 'var(--midnight)', countdown: 'var(--ember)', emom: 'var(--accent)',
+  tabata: 'var(--forest)', intervals: 'var(--forest)',
 };
+
+// ⚑ MINUTES ARE NOT SECONDS. The picker offers minutes; cfg.total and cfg.cap are seconds.
+// Storing the picked number directly set a 20-minute cap to 20 SECONDS and then displayed
+// round(20/60) = 0 — the "I choose a time and it stays at zero" bug. The conversion belongs
+// next to the field list so a new field cannot forget it.
+const PICKER_SCALE = { minutes: 60 };
+const toStore = (field, v) => Number(v) * (PICKER_SCALE[field] || 1);
+const toPick = (field, v) => Math.round(Number(v || 0) / (PICKER_SCALE[field] || 1));
 
 // ---------------------------------------------------------------------------------------
 // ⚑ PICKER VALUES ARE DATA, for the same reason cues are: the drum itself is scroll physics
@@ -4698,7 +4707,7 @@ function timerToLogFields(cfg, session, w, now) {
   return out;
 }
 
-const TM = {PICKER,TIMER_COLOR,TIMER_KINDS,cueAt,cuesBetween,elapsedSec,fmtClock,inLead,isPaused,leadSec,pausedMs,pickerIndex,pickerValues,rawSec,splitDeltas,timerIntervals,timerPause,timerResume,timerSplits,timerStart,timerState,timerStop,timerTap,timerToLogFields,timerTotal};
+const TM = {PICKER,PICKER_SCALE,TIMER_COLOR,TIMER_KINDS,cueAt,cuesBetween,elapsedSec,fmtClock,inLead,isPaused,leadSec,pausedMs,pickerIndex,pickerValues,rawSec,splitDeltas,timerIntervals,timerPause,timerResume,timerSplits,timerStart,timerState,timerStop,timerTap,timerToLogFields,timerTotal,toPick,toStore};
 // Strive — the movement registry. D2, twentieth session.
 //
 // ⚑ THE MODEL, settled in strive-fitness-open-threads.md §1 (Baruch's answer to 1.1):
@@ -6053,7 +6062,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260806-1838'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260806-1838';
+const BUILD_ID = '20260806-1910'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260806-1910';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -13920,39 +13929,53 @@ function tmPickerStyles() {
   if (document.getElementById('tm-picker-css')) return;
   const s = document.createElement('style');
   s.id = 'tm-picker-css';
+  // ⚑ Folio's own vocabulary: 3px corners, engraved serif display type, parchment surfaces.
+  // The first pass used the source app's 16px pills and saturated RGB, which is why it read as
+  // a different product bolted on. Alignment is the other half of that complaint — every value
+  // now sits in a fixed-width column so the boxes share an edge instead of centring one by one.
   s.textContent = `
     .tm-drum{height:220px;overflow-y:auto;scroll-snap-type:y mandatory;-webkit-overflow-scrolling:touch;
-             mask-image:linear-gradient(transparent,#000 25%,#000 75%,transparent);
-             -webkit-mask-image:linear-gradient(transparent,#000 25%,#000 75%,transparent)}
+             mask-image:linear-gradient(transparent,#000 22%,#000 78%,transparent);
+             -webkit-mask-image:linear-gradient(transparent,#000 22%,#000 78%,transparent)}
     .tm-drum::-webkit-scrollbar{display:none}
     .tm-drum .tm-row{height:44px;line-height:44px;text-align:center;scroll-snap-align:center;
-                     font-size:19px;color:var(--muted);cursor:pointer}
-    .tm-drum .tm-row.on{color:var(--text);font-size:24px;font-weight:600}
-    .tm-box{border-radius:12px;background:transparent;font-weight:700;font-size:30px;
-            padding:6px 16px;min-width:74px;cursor:pointer;font-variant-numeric:tabular-nums}
-    .tm-dial-num{font-size:56px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em}`;
+                     font-family:var(--serif-display);font-size:17px;color:var(--text-3);
+                     font-variant-numeric:tabular-nums;cursor:pointer}
+    .tm-drum .tm-row.on{color:var(--text);font-size:21px;font-weight:700}
+    .tm-fields{max-width:280px;margin:0 auto}
+    .tm-field{display:grid;grid-template-columns:108px 1fr;gap:14px;align-items:center;margin:0 0 10px}
+    .tm-lab{font-family:var(--serif-display);font-size:12px;font-weight:700;letter-spacing:.12em;
+            text-transform:uppercase;color:var(--text-2);text-align:left}
+    .tm-box{border-radius:var(--radius);background:var(--bg);font-family:var(--serif-display);
+            font-weight:600;font-size:26px;padding:9px 0;width:108px;cursor:pointer;
+            font-variant-numeric:tabular-nums;color:var(--text);text-align:center}
+    .tm-cap{font-family:var(--serif-display);font-size:10px;font-weight:700;letter-spacing:.14em;
+            text-transform:uppercase;color:var(--text-3);margin-bottom:14px}
+    .tm-dial-num{font-family:var(--serif-display);font-size:50px;font-weight:600;
+                 font-variant-numeric:tabular-nums}`;
   document.head.append(s);
 }
 
-function tmPicker(field, value, color, onPick) {
+function tmPicker(field, value, color, onPick, label) {
   tmPickerStyles();
   const P = TM.PICKER[field] || TM.PICKER.rounds;
   const values = TM.pickerValues(field, value);
   const idx = values.indexOf(Number(value)) >= 0 ? values.indexOf(Number(value)) : TM.pickerIndex(field, value);
+  const LBL = 'font-family:var(--serif-display);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase';
   const back = h(`
-    <div style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60;display:flex;
+    <div style="position:fixed;inset:0;background:rgba(38,32,22,.55);z-index:60;display:flex;
                 align-items:center;justify-content:center;padding:24px">
-      <div style="background:var(--card);border:1px solid var(--line);border-radius:16px;
-                  width:100%;max-width:320px;overflow:hidden">
+      <div style="background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+                  width:100%;max-width:300px;overflow:hidden;box-shadow:0 10px 40px rgba(38,32,22,.28)">
+        <div style="${LBL};color:var(--text-3);text-align:center;padding:12px 0 4px">${esc(label || '')}</div>
         <div class="tm-drum" data-a="drum">${
           values.map((v, i) => `<div class="tm-row${i === idx ? ' on' : ''}" data-i="${i}">${esc(P.fmt(v))}</div>`).join('')
         }</div>
         <button data-a="custom" style="display:block;width:100%;background:none;border:0;
-                border-top:1px solid var(--line);padding:12px;color:${color};font-size:14px;
-                text-decoration:underline;cursor:pointer">Set custom value</button>
-        <button data-a="ok" style="display:block;width:100%;background:none;border:0;
-                border-top:1px solid var(--line);padding:14px;color:var(--text);font-size:17px;
-                cursor:pointer">OK</button>
+                border-top:1px solid var(--line);padding:11px;color:var(--gold);${LBL};
+                cursor:pointer">Set custom</button>
+        <button data-a="ok" style="display:block;width:100%;background:${color};border:0;
+                padding:13px;color:#fff;${LBL};cursor:pointer">Done</button>
       </div>
     </div>`).firstElementChild;
   let chosen = values[idx];
@@ -14017,38 +14040,50 @@ function ftTimerConfig(body, w) {
   };
 
   const card = h(`
-    <div class="card" style="text-align:center;padding:22px 14px 18px">
-      <div class="pillrow" data-a="kinds" style="justify-content:center;margin-bottom:18px">
+    <div class="card" style="text-align:center;padding:20px 14px 18px">
+      <div class="pillrow" data-a="kinds" style="justify-content:center;margin-bottom:20px">
         <button class="pill" data-k="stopwatch">For Time</button>
         <button class="pill" data-k="countdown">AMRAP</button>
         <button class="pill" data-k="emom">EMOM</button>
         <button class="pill" data-k="tabata">Tabata</button>
         <button class="pill" data-k="intervals">Intervals</button>
       </div>
-      <div data-a="title" style="font-size:30px;font-weight:800;letter-spacing:.02em"></div>
-      <div data-a="sentence" style="margin:16px 0 4px;font-size:19px;line-height:2.1"></div>
-      <div data-a="lead" style="margin:18px 0 4px;font-size:15px;line-height:2.1;color:var(--muted)"></div>
-      <button class="btn" data-a="go" style="margin-top:18px">START TIMER<div data-a="tot"
-        style="font-size:12px;font-weight:400;opacity:.85;margin-top:2px"></div></button>
+      <div data-a="title" class="big" style="font-size:22px;letter-spacing:.16em;text-transform:uppercase"></div>
+      <div data-a="cap" class="tm-cap" style="margin-top:6px"></div>
+      <div data-a="fields" class="tm-fields"></div>
+      <button class="btn" data-a="go" style="margin-top:20px">Start timer<div data-a="tot"
+        style="font-family:var(--serif-body);font-size:12px;font-weight:400;letter-spacing:.04em;
+               text-transform:none;opacity:.85;margin-top:3px"></div></button>
     </div>`).firstElementChild;
 
   const $ = s => card.querySelector(`[data-a=${s}]`);
 
-  // A tappable value, rendered inline in the sentence. The box carries the timer's colour so
-  // that what is editable is obvious without a hint line saying so.
-  function box(field, key, fmt) {
+  // ⚑ ONE ROW PER VALUE, IN A FIXED-WIDTH COLUMN. The first pass ran each value inline inside a
+  // centred sentence, so every line centred independently and no two boxes shared an edge —
+  // Baruch's "the lines are not parallel, the inputs are not lined up". A grid fixes it
+  // structurally rather than by nudging margins.
+  function field(label, pickField, key, fmt) {
     const color = TM.TIMER_COLOR[kind];
+    const row = document.createElement('div');
+    row.className = 'tm-field';
     const b = document.createElement('button');
     b.className = 'tm-box';
-    b.style.cssText = `border:2px solid ${color};color:var(--text)`;
+    b.style.cssText = `border:1px solid ${color};box-shadow:inset 0 0 0 1px var(--card)`;
     b.textContent = fmt(cfg[key]);
     b.setAttribute('data-field', key);
-    b.onclick = () => tmPicker(field, cfg[key], color, v => { cfg[key] = v; draw(); });
-    return b;
+    // ⚑ The picker speaks in display units and the config stores seconds. Converting at both
+    // ends is the fix for a 20-minute cap that saved as 20 seconds and then displayed 0.
+    b.onclick = () => tmPicker(pickField, TM.toPick(pickField, cfg[key]), color, v => {
+      cfg[key] = TM.toStore(pickField, v);
+      draw();
+    }, label);
+    const l = document.createElement('span');
+    l.className = 'tm-lab';
+    l.textContent = label;
+    row.append(b, l);
+    return row;
   }
-  const txt = s => { const n = document.createElement('span'); n.textContent = s; return n; };
-  const line = (...nodes) => { const d2 = document.createElement('div'); nodes.forEach(n => d2.append(n)); return d2; };
-  const mins = v => String(Math.round(v / 60));
+  const mins = v => String(Math.round((v || 0) / 60));
   const num = v => String(v);
 
   function draw() {
@@ -14057,29 +14092,30 @@ function ftTimerConfig(body, w) {
     $('title').textContent = TM_TITLE[kind];
     $('title').style.color = color;
     $('go').style.background = color;
-    const s = $('sentence');
-    s.innerHTML = '';
+    $('cap').textContent = {
+      stopwatch: 'As fast as possible for time',
+      countdown: 'As many rounds as possible',
+      emom: 'On the interval',
+      tabata: 'Work / rest intervals',
+      intervals: 'Work / rest, a result per round',
+    }[kind];
+    const f = $('fields');
+    f.innerHTML = '';
     if (kind === 'stopwatch') {
-      s.append(txt('As fast as possible for time'));
-      s.append(line(txt('Time cap: '), box('minutes', 'cap', mins), txt(' minutes')));
+      f.append(field('Time cap', 'minutes', 'cap', mins));
     } else if (kind === 'countdown') {
-      s.append(txt('As many rounds as possible in'));
-      s.append(line(box('minutes', 'total', mins), txt(' minutes')));
+      f.append(field('Minutes', 'minutes', 'total', mins));
     } else if (kind === 'emom') {
-      s.append(line(txt('Every '), box('interval', 'interval', TM.fmtClock)));
-      s.append(line(txt('for '), box('rounds', 'rounds', num), txt(' rounds')));
+      f.append(field('Every', 'interval', 'interval', TM.fmtClock));
+      f.append(field('Rounds', 'rounds', 'rounds', num));
     } else {
-      s.append(line(box('rounds', 'rounds', num), txt(' rounds of')));
-      s.append(line(box('seconds', 'work', TM.fmtClock), txt(' work')));
-      s.append(line(box('seconds', 'rest', TM.fmtClock), txt(' rest')));
+      f.append(field('Rounds', 'rounds', 'rounds', num));
+      f.append(field('Work', 'seconds', 'work', TM.fmtClock));
+      f.append(field('Rest', 'seconds', 'rest', TM.fmtClock));
     }
-    const ld = $('lead');
-    ld.innerHTML = '';
-    ld.append(txt('Countdown before start: '));
-    ld.append(box('lead', 'lead', num));
-    ld.append(txt(' seconds'));
+    f.append(field('Countdown', 'lead', 'lead', num));
     const tot = TM.timerTotal(build());
-    $('tot').textContent = tot ? 'Total time: ' + SC.fmtSecs(tot) : 'no time cap';
+    $('tot').textContent = tot ? 'Total time: ' + SC.fmtSecs(tot) : 'No time cap';
   }
 
   // The config the engine actually receives. Kept separate from the edit model so that, for
@@ -14109,25 +14145,75 @@ function ftTimerConfig(body, w) {
   body.append(card);
 }
 
-let audioCtx = null;
-// ⚑ The envelope is not cosmetic. Starting and stopping an oscillator at full gain cuts the
-// waveform mid-cycle, which is a step change in pressure — an audible click on every single
-// cue. Ramping in and out over a few milliseconds is the whole fix.
+// ⚑ WHY THE BEEPS GO THROUGH AN <audio> ELEMENT AND NOT WEB AUDIO.
+//
+// Baruch heard nothing at all during the count-in, and his own screenshots show the ringer
+// switch set to silent. On iOS, Web Audio plays in the "ambient" audio session, which the
+// hardware mute switch silences outright — so an oscillator is exactly the wrong way to build
+// a workout timer, because the phone is muted in a gym more often than not. An <audio> element
+// with real media in it plays in the media session, which the mute switch does NOT govern.
+//
+// So the tone is synthesised once into a WAV, cached, and played as media. The envelope is
+// baked into the samples: starting and stopping a waveform at full amplitude is a step change
+// in pressure, which is an audible click on every cue.
+const _toneCache = new Map();
+function toneDataUri(freq, ms, vol) {
+  const key = `${freq}|${ms}|${vol}`;
+  if (_toneCache.has(key)) return _toneCache.get(key);
+  const rate = 22050, n = Math.max(1, Math.round(rate * ms / 1000));
+  const buf = new Uint8Array(44 + n * 2);
+  const dv = new DataView(buf.buffer);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) buf[o + i] = s.charCodeAt(i); };
+  str(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt ');
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, rate, true); dv.setUint32(28, rate * 2, true);
+  dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+  str(36, 'data'); dv.setUint32(40, n * 2, true);
+  const fade = Math.min(Math.floor(n / 4), Math.round(rate * 0.008));
+  for (let i = 0; i < n; i++) {
+    const env = Math.min(1, i / fade, (n - i) / fade);
+    dv.setInt16(44 + i * 2, Math.round(Math.sin(2 * Math.PI * freq * i / rate) * env * vol * 32767), true);
+  }
+  let bin = '';
+  for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+  const uri = 'data:audio/wav;base64,' + btoa(bin);
+  _toneCache.set(key, uri);
+  return uri;
+}
+
+// A small pool, because a cue can land while the previous one is still sounding.
+let _pool = null, _poolAt = 0;
 function beep(freq = 880, ms = 160, vol = 0.25) {
   try {
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === 'suspended') audioCtx.resume();   // iOS suspends until a gesture
-    const t = audioCtx.currentTime, dur = ms / 1000;
-    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-    o.type = 'sine';
-    o.frequency.value = freq;
-    o.connect(g); g.connect(audioCtx.destination);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
-    g.gain.setValueAtTime(vol, t + Math.max(0.02, dur - 0.04));
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.start(t);
-    o.stop(t + dur + 0.02);
+    if (!_pool) _pool = Array.from({ length: 4 }, () => new Audio());
+    const a = _pool[_poolAt++ % _pool.length];
+    a.src = toneDataUri(freq, ms, vol);
+    a.currentTime = 0;
+    const p = a.play();
+    if (p && p.catch) p.catch(() => {});
+  } catch (e) {}
+}
+
+// Called from the play tap. iOS will not let audio start without a gesture, so the pool is
+// primed with silence there — otherwise the first count-in is always mute.
+function unlockAudio() {
+  try {
+    if (!_pool) _pool = Array.from({ length: 4 }, () => new Audio());
+    _pool.forEach(a => { a.src = toneDataUri(440, 12, 0.0001); const p = a.play(); if (p && p.catch) p.catch(() => {}); });
+    if (window.speechSynthesis) window.speechSynthesis.getVoices();
+  } catch (e) {}
+}
+
+// ⚑ "…and say Round 2." Spoken, not just toned: the round number is the one piece of state you
+// cannot infer from a beep, and it is the thing you most want to know without looking up.
+function sayRound(n) {
+  try {
+    const S = window.speechSynthesis;
+    if (!S || (state.fitness && state.fitness.timerSpeak === false)) return;
+    S.cancel();
+    const u = new SpeechSynthesisUtterance('Round ' + n);
+    u.rate = 1.05; u.volume = 1;
+    S.speak(u);
   } catch (e) {}
 }
 
@@ -14237,6 +14323,9 @@ function timerRun(cfg, w) {
         const spec = CUE[last.cue];
         const worth = missed.length <= 2 || ['end', 'round', 'go'].includes(last.cue);
         if (spec && worth) beep(spec[0], spec[1]);
+        // The interval boundary is announced as well as toned. st.round is already the NEW
+        // round by the time this fires, which is the number you want called out.
+        if (worth && last.cue === 'round' && st.round) sayRound(st.round);
       }
     }
     lastCueSec = raw;
@@ -14278,9 +14367,9 @@ function timerRun(cfg, w) {
 
   const iv = setInterval(view, 250);
   wrap.querySelector('#tm-play').onclick = () => {
-    // The tap is the gesture iOS requires before any audio may play at all, so prime the
-    // context here — otherwise the lead-in counts down in silence the first time.
-    beep(700, 60, 0.12);
+    // The tap is the gesture iOS requires before any audio may play at all, so prime the pool
+    // here — otherwise the lead-in counts down in silence the first time, every time.
+    unlockAudio();
     session = TM.timerStart(Date.now());
     lastCueSec = 0;
     F.timerSession = { cfg, session, wid: w ? w.id : null };
