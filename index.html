@@ -7787,7 +7787,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260808-1630'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260808-1630';
+const BUILD_ID = '20260808-1642'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260808-1642';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -16155,6 +16155,26 @@ function movementBlockSheet() {
 }
 
 function ftMovements(body) {
+  // ⚑ THE REVIEW QUEUE SITS AT THE TOP OF MOVEMENTS, not in the hub. The per-movement confirm
+  // pills already live one tap below this, on `mvDetailScreen`, so this is the screen the
+  // vocabulary belongs to — and adding a sixth hub row would have reshuffled the Training pill
+  // order he ruled on two sessions ago for a reason unrelated to that ruling.
+  //
+  // ⚑ THE CARD PRINTS BOTH NUMBERS, because the whole point of the screen behind it is that
+  // they differ. "61 to review" on its own implies finishing them changes something.
+  {
+    const sum = MV.derivedQueueSummary();
+    if (sum.total) {
+      const rev = h(`<div class="card" style="padding:12px 14px;cursor:pointer${sum.remaining ? ';border-color:var(--gold)' : ''}">
+          <div class="row"><div class="grow">
+            <div style="font-weight:700;font-size:13px">Review your history${sum.remaining ? ' · ' + sum.remaining + ' to go' : ''}</div>
+            <div class="muted" style="font-size:12px;line-height:1.5">${sum.confirmed} of ${sum.total} numbers reviewed across ${sum.movements} movements · <b>${sum.eligible}</b> counting toward Level</div>
+          </div><span class="chev">›</span></div></div>`);
+      rev.firstElementChild.onclick = () => { mvQueueJustDone = new Set(); render(mvReviewScreen); };
+      body.append(rev);
+    }
+  }
+
   const counts = MV.movementCounts();
   const cats = [['all', 'All'], ...MV.MOVEMENT_CATS];
   const pills = h(`<div class="pillrow">${cats.map(([c, l]) =>
@@ -16326,6 +16346,131 @@ function mvBindConfirms(root, id, st) {
     else MV.confirmDerived(id, prType, entry, slot);
     render(() => mvDetailScreen(id));
   });
+}
+
+// ---------------------------------------------------------------------------------------
+// ⚑ 8C.2 — THE REVIEW QUEUE. Twenty-eighth session, batch 2.
+//
+// `derivedQueue()` has returned every number the app can read out of his history since the
+// twenty-seventh session and NOTHING RENDERED IT. The values were reachable — the confirm
+// pills above have always been on `mvDetailScreen` — but only one movement at a time, across
+// 24 separate screens, with no way to see how many were left and no sight of where any single
+// number came from. That is the gap this closes: a queue, provenance, and a summary.
+//
+// ⚑ IT REUSES `mvConfirmRow`'s VOCABULARY RATHER THAN INVENTING A SECOND ONE. Same pill, same
+// wording, the same `confirmDerived`/`unconfirmDerived` calls. Two ways to confirm the same
+// value that look different is how someone learns not to trust either.
+//
+// ⚑ AND IT REPORTS CONFIRMED AND ELIGIBLE SEPARATELY, WHICH IS THE WHOLE DESIGN. Against his
+// data they differ by the entire queue: every one of the 61 values predates the 12-month
+// window, so confirming all of them moves no Level at all. A screen saying "12 of 61
+// confirmed" would read as progress toward a number that cannot move. Worse, `reason` reads
+// 'unconfirmed' on every row until it IS confirmed and only then flips to 'stale' — so the
+// first tap takes a row from one not-counting state to another, and without the banner that
+// looks exactly like a broken button.
+let mvQueueFilter = 'todo';
+
+// ⚑ ROWS CONFIRMED DURING THIS VISIT STAY VISIBLE, AND CLICKING THE SCREEN IS WHAT FOUND IT.
+// The first build filtered `To review` on `!confirmed`, so tapping Confirm made the row
+// disappear — which reads as progress, and progress is the one thing this screen must not
+// imply. The banner's entire claim is that confirming these changes nothing today; the proof
+// is watching a row flip from "not reviewed yet" to "older than 12 months, so it does not
+// count toward Level" and stay put. A row that vanishes on tap hides the second state and
+// leaves the disappearing as the only feedback.
+// Cleared on entry and on any filter change, so the backlog is still a backlog next time.
+let mvQueueJustDone = new Set();
+
+function mvFmtValue(row) {
+  if (row.prType === 'distance' || row.prType === 'effort') return SC.fmtSecs(row.value);
+  if (row.prType === 'maxset') return row.value + ' reps';
+  return row.value + ' lb';
+}
+
+// Why a row is not counting, in words. Never a bare "no" — a state with no reason attached is
+// what `ineligibleReason` was added to stop.
+const MV_REASON = {
+  unconfirmed: 'not reviewed yet',
+  undated: 'the log carries no date, so the window cannot be applied',
+  stale: 'older than 12 months, so it does not count toward Level',
+};
+
+function mvReviewScreen() {
+  const rows = MV.derivedQueue();
+  const sum = MV.derivedQueueSummary(rows);
+  setHeader('Review your history', { back: true });
+  const wrap = document.createElement('div');
+
+  // ⚑ BOTH NUMBERS, AND THE GAP BETWEEN THEM EXPLAINED RATHER THAN LEFT TO BE INFERRED.
+  wrap.append(h(`<div class="card" style="padding:14px;text-align:center">
+      <div style="font-size:26px;font-weight:700">${sum.confirmed} <span class="muted" style="font-size:15px;font-weight:400">of ${sum.total} reviewed</span></div>
+      <div class="muted" style="font-size:12px;margin-top:3px">across ${sum.movements} movement${sum.movements === 1 ? '' : 's'}</div>
+      <div style="font-size:15px;margin-top:9px"><b>${sum.eligible}</b> <span class="muted" style="font-size:12.5px">counting toward Level right now</span></div>
+    </div>`));
+
+  if (sum.eligible === 0 && sum.total > 0) {
+    wrap.append(h(`<div class="card" style="padding:11px 13px;border-color:var(--gold)">
+      <div style="font-size:12.5px;line-height:1.65"><b>Reviewing these will not move your Level today, and that is correct rather than broken.</b>
+      Every one of them is older than twelve months, and you ruled that the window applies always, with no exceptions.
+      <b>You are vouching for the number, not for its age</b> — the attestation sticks, so the day you repeat the lift it counts immediately instead of waiting to be reviewed again.</div></div>`));
+  }
+
+  const pills = h(`<div class="pillrow">
+      <button class="pill ${mvQueueFilter === 'todo' ? 'on' : ''}" data-q="todo">To review · ${sum.remaining}</button>
+      <button class="pill ${mvQueueFilter === 'done' ? 'on' : ''}" data-q="done">Reviewed · ${sum.confirmed}</button>
+      <button class="pill ${mvQueueFilter === 'all' ? 'on' : ''}" data-q="all">All · ${sum.total}</button>
+    </div>`);
+  pills.querySelectorAll('[data-q]').forEach(b => b.onclick = () => {
+    mvQueueFilter = b.dataset.q; mvQueueJustDone = new Set(); render(mvReviewScreen);
+  });
+  wrap.append(pills);
+
+  const shown = rows.filter(r =>
+    mvQueueFilter === 'all' ? true
+    : mvQueueFilter === 'done' ? r.confirmed
+    : !r.confirmed || mvQueueJustDone.has(r.key));
+
+  if (!shown.length) {
+    wrap.append(h(`<div class="muted" style="font-size:12px;margin:10px 4px;line-height:1.6">${
+      mvQueueFilter === 'todo' ? 'Nothing left to review — every number the app can read out of your history has been looked at.'
+      : mvQueueFilter === 'done' ? 'Nothing reviewed yet. Every row starts unreviewed, including the ones that look obviously right.'
+      : 'There is nothing here, and that is a real answer rather than an empty screen: no workout in your history states a result that can be read as a record without guessing.'}</div>`));
+  }
+
+  // ⚑ EVERY ROW CARRIES ITS SOURCE AND THE RAW TEXT HE TYPED. "Confirm this number, I will not
+  // tell you where it came from" is the rubber stamp 8C.1b exists not to be — and the queue
+  // earned that on its first run, when reading values beside their logs exposed a 2:49 hundred
+  // metres and an 11:13 kilometre row, both interval totals credited as single efforts.
+  const list = document.createElement('div');
+  shown.forEach(r => {
+    const when = r.ts ? new Date(r.ts).toLocaleDateString() : 'undated';
+    const why = r.eligible ? null : MV_REASON[r.reason] || null;
+    const card = h(`<div class="card" style="padding:11px 13px${r.confirmed ? ';border-color:var(--gold)' : ''}">
+        <div class="row" style="align-items:flex-start">
+          <div class="grow">
+            <div style="font-size:13.5px;font-weight:700">${esc(r.movementName)} <span class="muted" style="font-weight:400">· ${esc(r.slotLabel)}</span></div>
+            <div style="font-size:17px;font-weight:700;margin-top:2px">${esc(mvFmtValue(r))}</div>
+          </div>
+          <button class="pill ${r.confirmed ? 'on' : ''}" data-a="conf" style="padding:4px 11px;font-size:11.5px">${r.confirmed ? '✓ reviewed' : 'Confirm'}</button>
+        </div>
+        <div class="muted" style="font-size:11.5px;margin-top:7px;line-height:1.6">
+          Read from <b>${esc(r.workoutName || 'a workout no longer in the library')}</b> · ${esc(when)}<br>
+          You logged: <b>${esc(r.result == null || r.result === '' ? '(nothing recorded)' : r.result)}</b>
+          ${why ? `<br><span style="opacity:.85">Not counting — ${esc(why)}.</span>` : '<br><b>Counting toward Level.</b>'}
+        </div>
+      </div>`).firstElementChild;
+    card.querySelector('[data-a=conf]').onclick = () => {
+      if (r.confirmed) { MV.unconfirmDerived(r.movementId, r.prType, r.slot); mvQueueJustDone.delete(r.key); }
+      else { MV.confirmDerived(r.movementId, r.prType, r.entry, r.slot); mvQueueJustDone.add(r.key); }
+      render(mvReviewScreen);
+    };
+    list.append(card);
+  });
+  wrap.append(list);
+
+  wrap.append(h(`<div class="muted" style="font-size:11px;margin:10px 4px;line-height:1.6">
+    Everything here is <b>read back out of your logs</b>, not entered as a record, and it is re-read every time you open this screen — nothing is stored, so new logs turn up on their own.
+    <b>Confirming never edits what you logged.</b> If a better result appears later it arrives unreviewed, because it is a different number.</div>`));
+  main().append(wrap);
 }
 
 function mvDetailScreen(id) {
