@@ -3707,6 +3707,55 @@ const RESULT_TYPES = [
 ];
 function formatOf(w) { return (w && w.format) || 'other'; }
 
+// ---------------------------------------------------------------------------------------
+// ⚑ PRESCRIPTION PICKERS — twenty-sixth session, batch 2. His ask: "is there a way to click the
+// rep scheme and then scroll through a ream of numbers like the stopwatch... 1 through 150 or
+// 200 for regular reps, but when you get into meters it might have different options, like
+// going up into 25 meter increments, or maybe it's just I can type in the number of meters."
+//
+// ⚑ THE VALUES ARE DATA FOR THE SAME REASON THE TIMER'S ARE (timer.js's PICKER note): the drum
+// itself is scroll physics no headless test can touch, but WHICH VALUES IT OFFERS is pure and
+// therefore assertable. A wrong list should fail a suite rather than a workout.
+//
+// ⚑ AND THE LISTS ARE READ OFF HIS OWN CORPUS RATHER THAN INVENTED, which is the same rule the
+// benchmark catalog runs on. Measured across all 454 workouts:
+//     distances — 400×34 · 200×25 · 800×19 · 100×9 · 500×8 · 300×6 · 1000×5 · 2000×5 · 50×3
+//     rep counts — 5×66 · 10×61 · 50×56 · 15×53 · 3×45 · 1×34 · 30×31 · 100×28 · 20×25
+// So reps run 1..150 by ones (every common value is in the low tail, and he named 150), while
+// distances are the standard track and erg pieces FIRST and 25 m steps after — because 400 m is
+// a distance anyone has run and 425 m is not, and a plain ascending list would bury the six
+// values that account for most of the library under a hundred he will never pick.
+const REP_STEPS = Array.from({ length: 150 }, (_, i) => i + 1);
+const DIST_COMMON = [100, 200, 400, 500, 800, 1000, 1600, 2000, 5000];
+const DIST_STEPS = (() => {
+  const out = DIST_COMMON.slice();
+  for (let d = 25; d <= 2000; d += 25) if (!out.includes(d)) out.push(d);
+  return out;
+})();
+const CAL_STEPS = [10, 15, 20, 25, 30, 35, 40, 50, 60, 75, 80, 100];
+
+// The unit a movement is prescribed in — which decides which drum to show. Everything that is
+// not run on a machine or a track is counted in reps.
+function prescriptionUnit(movementId) {
+  if (['run', 'row', 'skierg', 'swim', 'bike'].includes(movementId)) return 'distance';
+  if (['airbike'].includes(movementId)) return 'calories';
+  return 'reps';
+}
+function pickerFor(unit) {
+  return unit === 'distance' ? DIST_STEPS : unit === 'calories' ? CAL_STEPS : REP_STEPS;
+}
+// ⚑ A TYPED VALUE IS ALWAYS ACCEPTED — he asked for it explicitly on meters, and the drum is a
+// convenience rather than a constraint. A custom value keeps its place in ascending order among
+// the stepped values rather than being appended at the end, which is `pickerValues`' rule in
+// timer.js and the reason a custom cap stopped silently resetting to one minute.
+function withCustomValue(values, v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0 || values.includes(n)) return values;
+  const common = values.filter(x => DIST_COMMON.includes(x));
+  const rest = values.filter(x => !DIST_COMMON.includes(x)).concat(n).sort((a, b) => a - b);
+  return common.length && common.length < values.length ? common.concat(rest) : values.concat(n).sort((a, b) => a - b);
+}
+
 // Workout-format templates (Phase 8 §3, E2): pre-arranged component slots so building a
 // day's workout is directed. A template seeds the card's name + slot hints; the user drops
 // real workouts into the slots. All editable; "Custom" starts blank.
@@ -4763,7 +4812,7 @@ function ftStats() {
   };
 }
 
-const FT = {ASSESS_DOMAINS,BENCHMARKS,FORMATS,LEVEL_RUNGS,LIBRARY,REPMAX_MAX_REPS,RESULT_TYPES,ROOMS,RX_STATES,SIGMA_EST_1RM,SIGMA_REPEAT,STREAK_DEFAULTS,TIER_SIGMA,UNLOCK_MIN,WORKOUT_TEMPLATES,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,applyRamp,assessment,axisValue,benchmarkFor,buildResult,byDomain,canEditLog,canEditWorkout,cardAddPart,cardForLog,cardFromLogs,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,dietTargets,estBand,formatOf,ftStats,getCard,getWorkout,groupableDays,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,levelLadder,libraryFor,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,prFor,precisionOf,precisionOfResult,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,rxLabel,rxStatusOf,sessionText,setDietTargets,setStreakSettings,setWaterGoal,setWeightGoal,sigmaFromPrecision,sigmaOf,sigmaOfResult,sleepForDate,sleepList,streakSettings,trainingStreak,updateCustomWorkout,updateLog,valueAtLevel,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights,workoutsBetween};
+const FT = {ASSESS_DOMAINS,BENCHMARKS,CAL_STEPS,DIST_COMMON,DIST_STEPS,FORMATS,LEVEL_RUNGS,LIBRARY,REPMAX_MAX_REPS,REP_STEPS,RESULT_TYPES,ROOMS,RX_STATES,SIGMA_EST_1RM,SIGMA_REPEAT,STREAK_DEFAULTS,TIER_SIGMA,UNLOCK_MIN,WORKOUT_TEMPLATES,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,applyRamp,assessment,axisValue,benchmarkFor,buildResult,byDomain,canEditLog,canEditWorkout,cardAddPart,cardForLog,cardFromLogs,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,dietTargets,estBand,formatOf,ftStats,getCard,getWorkout,groupableDays,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,levelLadder,libraryFor,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,pickerFor,prFor,precisionOf,precisionOfResult,prescriptionUnit,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,rxLabel,rxStatusOf,sessionText,setDietTargets,setStreakSettings,setWaterGoal,setWeightGoal,sigmaFromPrecision,sigmaOf,sigmaOfResult,sleepForDate,sleepList,streakSettings,trainingStreak,updateCustomWorkout,updateLog,valueAtLevel,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights,withCustomValue,workoutsBetween};
 // Strive — the workout timer engine. Pure, no DOM, no clock of its own.
 //
 // ⚑ WHY THIS IS A SEPARATE MODULE, AND WHY IT TAKES `now` AS AN ARGUMENT.
@@ -5613,19 +5662,146 @@ const FORM_SENSITIVE = new Set(['pullup', 'hspu', 'ringmu', 'barmu']);
 
 
 
+// ---------------------------------------------------------------------------------------
+// ⚑ MOVEMENTS HE ADDS HIMSELF — twenty-sixth session, batch 2, and the reason is a measured
+// gap rather than a general wish for extensibility. He asked to substitute bicep curls into a
+// workout. The registry answers:
+//
+//     "24 Push-ups"    → pushup   ✅        "12 Bicep Curls" → nothing ❌
+//     "Run 400m"       → run      ✅        "Barbell Curl"   → nothing ❌
+//
+// The 66 movements were read off HIS OWN corpus — 19 barbell · 24 gymnastics · 10 dumbbell ·
+// 6 mono · 2 kettlebell · 5 other — and seven years of btwb contains no accessory work. So the
+// movement he named as his example is exactly the kind that is missing, and a substitution to
+// it would have counted for zero with nothing on screen saying so. His ruling: picker plus
+// add-a-movement.
+//
+// ⚑ A CUSTOM MOVEMENT CARRIES `volume` AND NOTHING ELSE, AND NEVER VOTES. `bench` is null, so
+// the Engine 1 hook stays empty; there is no curve to score against and inventing one is the
+// fork this project has declined five times. It is tracked for reps and tonnage — which is what
+// he asked for — and it is on the same shelf as Max Pull-ups and the sprints.
+//
+// ⚑ THE REGISTRY IS A BUILD-TIME CONSTANT WITH PRECOMPILED REGEXES, so nothing here mutates
+// it. Custom movements live in state and are MERGED at every lookup, behind an epoch counter
+// so the compiled matchers and the per-workout `_mv` caches both invalidate when one is added.
+// Without the epoch, adding a movement would leave every already-resolved workout reporting the
+// movements it had before — the new one would work on fresh screens and be invisible on the
+// ones he was already looking at.
+let mvEpoch = 0;
+
+function customMovements() {
+  const f = state.fitness || (state.fitness = {});
+  if (!Array.isArray(f.customMovements)) f.customMovements = [];
+  return f.customMovements;
+}
+
+// Every movement the app knows: the 66 seeded, plus his.
+function allMovements() {
+  const c = customMovements();
+  return c.length ? MOVEMENTS.concat(c) : MOVEMENTS;
+}
+function movementById(id) {
+  return MOVEMENT_BY_ID[id] || customMovements().find(m => m.id === id) || null;
+}
+
+// ⚑ THE ALIAS IS DERIVED FROM THE NAME, and the two rules it applies are the two that every
+// hand-written alias in data/movements.js uses: spaces may also be hyphens or absent, and a
+// trailing plural is optional. "Bicep Curl" therefore matches "bicep curl", "Bicep Curls",
+// "bicep-curls". Anything cleverer would be guessing at English.
+function aliasForName(name) {
+  const esc = String(name || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!esc) return null;
+  return esc.replace(/[\s-]+/g, '[ -]?') + 's?';
+}
+
+const compileCustom = m => ({ id: m.id, re: new RegExp('(?:' + m.alias.slice().sort((a, b) => b.length - a.length).join('|') + ')', 'i') });
+let _reCache = null, _reEpoch = -1;
+function allMovementRes() {
+  if (_reEpoch !== mvEpoch) {
+    const c = customMovements();
+    // ⚑ CUSTOM MATCHERS GO LAST, so a name that brushes against a seeded alias loses to the
+    // seeded one rather than stealing from it. `addCustomMovement` refuses that case outright;
+    // this is the second line of defence for anything already stored.
+    _reCache = c.length ? MOVEMENT_RE.concat(c.map(compileCustom)) : MOVEMENT_RE;
+    _reEpoch = mvEpoch;
+  }
+  return _reCache;
+}
+
+// ⚑ COLLISION IS CHECKED BEFORE ANYTHING IS STORED, and it is the twenty-second session's
+// lesson applied at the point of creation rather than discovered by an audit six months later.
+// That session found THREE alias defects — `dip` catching ring dips, `pullup` catching c2b, and
+// `push[- ]?ups?` catching every handstand push-up in six years — each of which silently
+// double-counted real work. A movement he adds can do the same thing on day one.
+//
+// Both directions are tested, because either is a defect:
+//   forward  — the new alias matches an existing movement's NAME  ("Curl" vs "Bicep Curl")
+//   backward — an existing alias matches the NEW name             ("Ring Curl" vs `curl`)
+function movementNameConflict(name) {
+  const alias = aliasForName(name);
+  if (!alias) return { ok: false, reason: 'A movement needs a name.' };
+  const clean = String(name).trim();
+  const re = new RegExp('(?:' + alias + ')', 'i');
+  for (const m of allMovements()) {
+    if (m.name.toLowerCase() === clean.toLowerCase()) return { ok: false, reason: `“${m.name}” already exists.`, clash: m.id };
+    if (re.test(m.name)) return { ok: false, reason: `“${clean}” would also match the existing movement “${m.name}”, so reps would be counted against both.`, clash: m.id };
+  }
+  for (const entry of allMovementRes()) {
+    if (entry.re.test(clean)) {
+      const m = movementById(entry.id);
+      return { ok: false, reason: `“${clean}” is already read as “${m ? m.name : entry.id}”, so it is tracked already.`, clash: entry.id };
+    }
+  }
+  return { ok: true };
+}
+
+function addCustomMovement({ name, cat = 'other', loadable = true }) {
+  const clean = String(name || '').trim();
+  const conflict = movementNameConflict(clean);
+  if (!conflict.ok) return { error: conflict.reason };
+  const base = 'um' + clean.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const list = customMovements();
+  let id = base, i = 2;
+  while (movementById(id)) id = base + (i++);
+  // ⚑ `bench: null` and `pr: ['volume']` are the whole safety story. No curve, no benchmark
+  // hook, no PR slot that could stand as a record on data nothing has verified.
+  const m = { id, name: clean, cat, loadable: !!loadable, pr: ['volume'], bench: null,
+              alias: [aliasForName(clean)], custom: true };
+  list.push(m);
+  mvEpoch++;
+  save();
+  return m;
+}
+
+function removeCustomMovement(id) {
+  const f = state.fitness || (state.fitness = {});
+  f.customMovements = customMovements().filter(m => m.id !== id);
+  mvEpoch++;
+  save();
+}
+
 // Which movements appear in a piece of text.
 function movementsIn(text) {
   const t = String(text || '');
   if (!t.trim()) return [];
-  return MOVEMENT_RE.filter(m => m.re.test(t)).map(m => m.id);
+  return allMovementRes().filter(m => m.re.test(t)).map(m => m.id);
 }
 
 // Which movements a workout contains — its name and its prescription together.
+//
+// ⚑ THE CACHE CARRIES THE EPOCH IT WAS BUILT AT. It used to be `if (w._mv) return w._mv`, a
+// permanent pin — correct while the registry was a build-time constant and wrong the moment he
+// can add one. Without this, a movement added at 10:00 would resolve on every workout he opened
+// afterwards and be invisible on every workout he had already looked at, with no error and no
+// pattern to the difference. `updateCustomWorkout` deletes `_mv` for the same reason.
 function movementsOf(w) {
   if (!w) return [];
-  if (w._mv) return w._mv;
+  if (w._mv && w._mvEpoch === mvEpoch) return w._mv;
   const ids = movementsIn((w.name || '') + '\n' + (w.movements || ''));
-  try { Object.defineProperty(w, '_mv', { value: ids, enumerable: false }); } catch (e) {}
+  try {
+    Object.defineProperty(w, '_mv', { value: ids, enumerable: false, writable: true, configurable: true });
+    Object.defineProperty(w, '_mvEpoch', { value: mvEpoch, enumerable: false, writable: true, configurable: true });
+  } catch (e) {}
   return ids;
 }
 
@@ -5741,6 +5917,170 @@ function blockedCount() {
   const blocked = blockedMovements();
   if (!blocked.length) return 0;
   return allWorkouts().filter(w => movementsOf(w).some(id => blocked.includes(id))).length;
+}
+
+// ---------------------------------------------------------------------------------------
+// ⚑ DUPLICATE-AND-SUBSTITUTE — twenty-sixth session, batch 2. His ask, in full because the
+// scope is in the wording: "if I click into them, I should be able to make a new workout with
+// it or make a copy of it and rename it... say there are pullups, rope climbs, and assault
+// bike. I want to be able to take out pullups and just click pushups instead, take out rope
+// climbs and put bicep curls instead, take out assault bike and put 400 meter run instead...
+// it is easier than looking at a workout and going and creating my own and trying to remember
+// all the details of that one to make it a modified version of that."
+//
+// ⚑ THE PRESCRIPTION IS FREE TEXT, NOT STRUCTURE, AND THAT DECIDES THE WHOLE DESIGN. A seeded
+// workout reads `"21 thrusters 115 lb / 12 rope climbs 15 ft"`. There is no `moves` array on any
+// of the 454 and no stored movement id anywhere — `movementsIn` runs alias regexes over this
+// string every time it is read. So a substitution REWRITES THE SPANS THOSE REGEXES LOCATE, using
+// the same matchers that do the attribution. One engine reads the library and his edits alike.
+//
+// ⚑ IT WORKS SEGMENT BY SEGMENT AND REFUSES AMBIGUOUS ONES, which is `repsIn`'s rule reused
+// rather than re-derived. A btwb writes a whole prescription on one comma-separated line,
+// so segments are split on newlines AND commas — the twenty-second session's "segments, not
+// lines" finding, which took readable pull-up sessions from 12 of 60 to 23 of 60. A segment
+// naming two movements is left alone rather than guessed at.
+//
+// ⚑ EDITS ARE APPLIED RIGHT-TO-LEFT. Replacing the movement token, the rep count and the load
+// in one segment moves every offset after the first edit. Computing spans against the ORIGINAL
+// segment and applying them in descending order is what keeps them from corrupting each other —
+// the alternative is three passes that each re-find text the previous pass changed.
+
+// The integer immediately before a movement, WITH ITS SPAN. `countBefore` above answers whether
+// there is one; substitution also needs to know where it is in order to change it.
+function countSpanBefore(seg, index) {
+  const head = String(seg).slice(0, index);
+  const m = /^(\s*(?:.*:\s*)?)(\d+)(\s*)$/.exec(head);
+  if (!m) return null;
+  return { start: m[1].length, end: m[1].length + m[2].length, value: Number(m[2]) };
+}
+function loadSpanIn(seg) {
+  const m = /(\d+(?:\.\d+)?)\s*(lbs?|pounds?)\b/i.exec(String(seg));
+  return m ? { start: m.index, end: m.index + m[0].length, value: Number(m[1]), unit: m[2] } : null;
+}
+
+// What a copy could swap: one entry per segment that names exactly one movement.
+function substitutionTargets(w) {
+  const text = String((w && w.movements) || '');
+  const segs = text.split(/(\n|,)/);
+  const targets = [];
+  segs.forEach((seg, i) => {
+    if (seg === '\n' || seg === ',' || !seg.trim()) return;
+    const ids = movementsIn(seg);
+    // ⚑ Exactly one. Zero means nothing to swap; two means the segment describes a couplet and
+    // rewriting one half of it would produce a prescription he did not write.
+    if (ids.length !== 1) return;
+    const entry = allMovementRes().find(m => m.id === ids[0]);
+    const hit = entry && entry.re.exec(seg);
+    if (!hit) return;
+    const cs = countSpanBefore(seg, hit.index);
+    const ls = loadSpanIn(seg);
+    targets.push({
+      index: i, segment: seg, movementId: ids[0],
+      name: (movementById(ids[0]) || {}).name || ids[0],
+      matchStart: hit.index, matchEnd: hit.index + hit[0].length, matched: hit[0],
+      reps: cs ? cs.value : null, countSpan: cs,
+      load: ls ? ls.value : null, loadSpan: ls,
+    });
+  });
+  return { segs, targets };
+}
+
+// ⚑ HOW A SEGMENT IS WRITTEN FOR A GIVEN MOVEMENT, and the form follows the corpus rather than
+// a preference: reps read "21 Thrusters 115 lb", distances read "Run 400m", calories read
+// "Air Bike 50 cal". `countBefore` deliberately REFUSES to read "Run 1mi" as one rep, so writing
+// a distance as "400 Run" would produce a segment the attribution engine cannot count — the
+// substitution would look right on screen and be invisible in his volume.
+function writeSegment({ name, unit, count, load }) {
+  const plural = (nm, n) => (n > 1 && !/s$/i.test(nm) ? nm + 's' : nm);
+  if (unit === 'distance') return count ? `${name} ${count}m` : name;
+  if (unit === 'calories') return count ? `${name} ${count} cal` : name;
+  const head = count ? `${count} ${plural(name, count)}` : plural(name, 2);
+  return load ? `${head} ${load} lb` : head;
+}
+
+// Rewrite the prescription. `subs` is keyed by SEGMENT INDEX, because the same movement can
+// appear in two segments with different rep counts and they are separate decisions.
+//   { 0: { movementId, reps, load } }   — any field may be omitted to leave it alone
+//
+// ⚑ TWO DIFFERENT OPERATIONS, AND CONFLATING THEM PRODUCED NONSENSE ON THE FIRST ATTEMPT.
+// Patching the movement token in place and leaving the rest of the segment gave, from his own
+// example:
+//
+//     "21 Thrusters 115 lb"    → "24 Push-up 115 lb"      ← push-ups at 115 lb
+//     "12 Rope Climbs 15 ft"   → "12 Bicep Curl 15 ft"    ← curls up a 15-foot rope
+//     "50 Air Bike calories"   → "400 Run calories"       ← a run measured in calories
+//
+// **Everything after the movement token was a qualifier OF THE OLD MOVEMENT**, and nothing in
+// the text says which parts still apply. So:
+//   movement CHANGED  → the segment is REBUILT canonically, preserving only the prefix before
+//                       the rep count (headers like "12:00 AMRAP:" belong to the segment, not
+//                       to the movement).
+//   movement KEPT     → reps and load are patched in place, right-to-left, and the rest of his
+//                       wording is left exactly as it was.
+function applySubstitutions(w, subs = {}) {
+  const { segs, targets } = substitutionTargets(w);
+  targets.forEach(t => {
+    const s = subs[t.index];
+    if (!s) return;
+    const changing = s.movementId && s.movementId !== t.movementId;
+    const num = v => (v == null || v === '' ? null : Number(v));
+
+    if (changing) {
+      const mv = movementById(s.movementId);
+      if (!mv) return;
+      const unit = prescriptionUnitOf(s.movementId);
+      const count = num(s.reps) != null ? num(s.reps) : t.reps;
+      const load = num(s.load) != null ? num(s.load) : null;
+      // Keep whatever preceded the count — "For time:", "12:00 AMRAP:", indentation.
+      const prefix = t.countSpan ? t.segment.slice(0, t.countSpan.start) : t.segment.slice(0, t.matchStart);
+      segs[t.index] = prefix + writeSegment({ name: mv.name, unit, count, load });
+      return;
+    }
+
+    let seg = t.segment;
+    const edits = [];
+    if (num(s.reps) != null && t.countSpan) {
+      edits.push({ start: t.countSpan.start, end: t.countSpan.end, text: String(num(s.reps)) });
+    }
+    if (num(s.load) != null) {
+      if (t.loadSpan) edits.push({ start: t.loadSpan.start, end: t.loadSpan.end, text: `${num(s.load)} ${t.loadSpan.unit}` });
+      // ⚑ No load in the original and one asked for → append rather than guess at a position.
+      // Inserting it beside the movement would put "115 lb" between a rep count and its noun.
+      else seg = seg.replace(/\s*$/, ` ${num(s.load)} lb`);
+    }
+    edits.sort((a, b) => b.start - a.start).forEach(e => {
+      seg = seg.slice(0, e.start) + e.text + seg.slice(e.end);
+    });
+    segs[t.index] = seg;
+  });
+  return segs.join('');
+}
+
+// Local copy of the unit rule so this module does not import fitness.js's picker section back
+// (movements.js already imports fitness.js; the reverse would be circular). Kept beside
+// `writeSegment` so the two cannot disagree about what a distance movement is.
+function prescriptionUnitOf(id) {
+  if (['run', 'row', 'skierg', 'swim', 'bike'].includes(id)) return 'distance';
+  if (['airbike'].includes(id)) return 'calories';
+  return 'reps';
+}
+
+// ⚑ A COPY IS A NEW WORKOUT AND MUST NOT INHERIT THE ORIGINAL'S IDENTITY. I expected this to be
+// the hard part and it is not — checked by RUNNING it rather than reading: benchmark `match`
+// regexes are ANCHORED (`fran` is `/^fran$/i`), so "Fran (modified)", "Copy of Fran" and "Cindy
+// no rope" all resolve to null already. The one rule that survives is therefore narrow and
+// cheap: the copy must not keep the IDENTICAL name. `copyName` guarantees it, and a check
+// asserts a copy scores toward no benchmark.
+//
+// His ruling agrees independently: "when a workout is edited, it is no longer used for
+// assessment, that makes total sense. The assessment is set."
+function copyName(original, existingNames) {
+  const base = String(original || 'Workout').trim();
+  const taken = new Set((existingNames || []).map(x => String(x).trim().toLowerCase()));
+  let name = base + ' (my version)';
+  let i = 2;
+  while (taken.has(name.toLowerCase())) name = `${base} (my version ${i++})`;
+  return name;
 }
 
 // The same filter applied to history — "show me every session where I deadlifted".
@@ -5881,8 +6221,8 @@ const loadIsAmbiguous = (result, name) =>
 // number cannot be read. Exported because the refusals are the interesting part and a test
 // asserts them one by one.
 function repsIn(id, w, log) {
-  if (!w || !MOVEMENT_BY_ID[id]) return null;
-  const entry = MOVEMENT_RE.find(m => m.id === id);
+  if (!w || !movementById(id)) return null;
+  const entry = allMovementRes().find(m => m.id === id);
   if (!entry) return null;
   const name = w.name || '';
 
@@ -5943,7 +6283,7 @@ function repsIn(id, w, log) {
 //
 // EVERY entry returned carries derived:true. Nothing here is a PR and nothing here votes.
 function movementStats(id, { windowDays = 365 } = {}) {
-  const mv = MOVEMENT_BY_ID[id];
+  const mv = movementById(id);
   if (!mv) return null;
   const cutoff = Date.now() - windowDays * 86400000;
   const rows = [];
@@ -6201,7 +6541,7 @@ function withConfirmation(st) {
 // is null — never 0. "No reps could be read" and "you did zero reps" are different claims.
 function statsSummary({ windowDays = 365, top = 8 } = {}) {
   const counts = movementCounts();
-  const ids = MOVEMENTS.filter(m => counts[m.id]).map(m => m.id);
+  const ids = allMovements().filter(m => counts[m.id]).map(m => m.id);
 
   const heaviest = [], maxSets = [], fastest = [], efforts = [], tonnageBy = [];
   let tonAll = 0, tonWin = 0, tonMovements = 0;
@@ -6256,7 +6596,7 @@ function statsSummary({ windowDays = 365, top = 8 } = {}) {
       logs: allLogs().length,
       sessionDays: dayKeys.size,
       movementsSeen: ids.length,
-      movementsTotal: MOVEMENTS.length,
+      movementsTotal: allMovements().length,
       tonnageLifetime: tonMovements ? tonAll : null,
       tonnageWindow: tonMovements ? tonWin : null,
       tonnageMovements: tonMovements,
@@ -6284,7 +6624,7 @@ function movementCoverage() {
            unmatched: ws.filter(w => movementsOf(w).length === 0).map(w => w.name).slice(0, 40) };
 }
 
-const MV = {EQUIPMENT,EQUIPMENT_LABEL,MOVEMENTS,MOVEMENT_BY_ID,MOVEMENT_CATS,PR_TYPES,blockedCount,blockedMovements,confirmDerived,confirmKey,confirmedList,eligibleForLevel,formOf,isBlockedWorkout,isConfirmed,kitOf,ladderHeader,logsWithAll,missingKit,movementCounts,movementCoverage,movementStats,movementsIn,movementsOf,myKit,repSchemeOf,repsIn,roundsHeader,statsSummary,toggleBlocked,toggleKit,unconfirmDerived,visibleWorkouts,withConfirmation,workoutsOnly,workoutsWithAll,workoutsWithKit};
+const MV = {EQUIPMENT,EQUIPMENT_LABEL,MOVEMENTS,MOVEMENT_BY_ID,MOVEMENT_CATS,PR_TYPES,addCustomMovement,aliasForName,allMovements,applySubstitutions,blockedCount,blockedMovements,confirmDerived,confirmKey,confirmedList,copyName,customMovements,eligibleForLevel,formOf,isBlockedWorkout,isConfirmed,kitOf,ladderHeader,logsWithAll,missingKit,movementById,movementCounts,movementCoverage,movementNameConflict,movementStats,movementsIn,movementsOf,myKit,removeCustomMovement,repSchemeOf,repsIn,roundsHeader,statsSummary,substitutionTargets,toggleBlocked,toggleKit,unconfirmDerived,visibleWorkouts,withConfirmation,workoutsOnly,workoutsWithAll,workoutsWithKit};
 // Strive — Bible reading plans: any scope, canonical order, pace by chapters/day
 // or target date. Missed days roll forward. Multiple plans can run at once.
 
@@ -7206,7 +7546,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260808-0742'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260808-0742';
+const BUILD_ID = '20260808-0757'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260808-0757';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -14578,6 +14918,207 @@ function logRow(l, { showName = true } = {}) {
   return el;
 }
 
+// ---------------------------------------------------------------------------------------
+// ⚑ THE MOVEMENT PICKER — twenty-sixth session, batch 2. He asked for it and gave the reason:
+// "is there a way to click the movement, so I click on pullups and all the movements I can
+// choose from are there, and I could type to make them come up faster... I do want when a
+// workout is edited for those movements to still be associated with the actual movements we
+// have in the app."
+//
+// ⚑ ITS VALUE IS NOT THAT IT CREATES A LINK — THERE IS NO LINK ANYWHERE. He asked outright
+// whether typing an edit still gets counted, and it does: `movementsIn` runs alias regexes over
+// the prescription text every time it is read, which is how all 454 workouts resolve. "24
+// Push-ups" typed by hand counts as 24 push-ups.
+//
+//     THE PICKER EXISTS BECAUSE FREE TYPING CAN PRODUCE A SILENT ZERO.
+//
+// "12 Bicep Curls" resolved to NOTHING before this session — the registry was built from his own
+// corpus and seven years of btwb contains no accessory work. So the picker guarantees the text
+// written is text the registry is known to read, and "add a movement" covers the rest.
+function movementPickerSheet({ title = 'Pick a movement', selectedId = null, onPick }) {
+  openSheet(title, (body, close) => {
+    const draw = (q = '') => {
+      body.innerHTML = '';
+      const search = h(`<input data-a="q" placeholder="Type to filter ${MV.allMovements().length} movements…" value="${esc(q)}" style="width:100%;${FIN};margin-bottom:10px">`).firstChild;
+      body.append(search);
+      const needle = q.trim().toLowerCase();
+      const hits = MV.allMovements().filter(m => !needle || m.name.toLowerCase().includes(needle));
+
+      // ⚑ "ADD A MOVEMENT" IS OFFERED ON A MISS RATHER THAN HIDDEN IN A MENU, because a miss is
+      // exactly the moment it is needed — he types "bicep curl", sees nothing, and the next tap
+      // should be the fix rather than a dead end. His ruling: picker + add-a-movement.
+      if (needle && !hits.length) {
+        // ⚑ THE NAME IS CONFIRMED, NOT TAKEN FROM THE SEARCH BOX — caught by driving this
+        // headlessly. The filter field holds a FRAGMENT: typing "bicep" to look for bicep curls
+        // and tapping Add would have created a permanent movement called "bicep", whose derived
+        // alias then writes "12 biceps" into every prescription it is used in. A search string
+        // and a movement name are different things and one is a poor default for the other.
+        const add = h(`<div class="card" style="border-color:var(--gold);padding:12px 13px">
+            <div style="font-size:13px;line-height:1.6">Nothing here matches <b>${esc(q.trim())}</b>. Add it?</div>
+            <input data-a="nm" value="${esc(q.trim())}" placeholder="Movement name" style="width:100%;${FIN};margin-top:9px">
+            <div data-a="why" class="muted" style="font-size:12px;margin-top:6px"></div>
+            <button class="btn" data-a="add" style="margin-top:10px">＋ Add movement</button>
+          </div>`).firstElementChild;
+        const nm = add.querySelector('[data-a=nm]');
+        const why = add.querySelector('[data-a=why]');
+        const check = () => {
+          const c = MV.movementNameConflict(nm.value.trim());
+          why.textContent = c.ok
+            ? 'Tracked for reps and tonnage from now on. No scoring curve, so it cannot affect your Level — the same footing as Max Pull-ups.'
+            : c.reason;
+          add.querySelector('[data-a=add]').style.opacity = c.ok ? '' : '0.5';
+        };
+        nm.oninput = check;
+        check();
+        add.querySelector('[data-a=add]').onclick = () => {
+          const made = MV.addCustomMovement({ name: nm.value.trim(), cat: 'other' });
+          if (made.error) { toast(made.error); return; }
+          toast(made.name + ' added');
+          close();
+          onPick(made.id);
+        };
+        body.append(add);
+      }
+
+      MV.MOVEMENT_CATS.concat([['custom', 'Yours']]).forEach(([cat, label]) => {
+        const rows = hits.filter(m => (m.custom ? 'custom' : m.cat) === cat);
+        if (!rows.length) return;
+        body.append(sectionTitle(label));
+        const row = h(`<div class="pillrow">${rows.map(m =>
+          `<button class="pill ${m.id === selectedId ? 'on' : ''}" data-p="${esc(m.id)}">${esc(m.name)}</button>`).join('')}</div>`).firstElementChild;
+        row.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { close(); onPick(b.dataset.p); });
+        body.append(row);
+      });
+      search.oninput = () => draw(search.value);
+    };
+    draw('');
+  });
+}
+
+// ⚑ THE NUMBER DRUM — "scroll through a ream of numbers like the stopwatch". The values come
+// from `fitness.js` (see the note there): reps 1..150 by ones, distances led by the nine
+// standard track and erg pieces and then 25 m steps, calories from the corpus. A typed value is
+// always accepted, because he asked for that specifically on meters.
+function numberPickerSheet({ title, unit = 'reps', value = null, onPick }) {
+  openSheet(title, (body, close) => {
+    const values = FT.withCustomValue(FT.pickerFor(unit), value);
+    const label = unit === 'distance' ? 'metres' : unit === 'calories' ? 'calories' : 'reps';
+    const typed = h(`<div class="row" style="margin-bottom:10px">
+        <input data-a="n" inputmode="numeric" placeholder="Type ${label}" value="${value == null ? '' : value}" style="flex:1;${FIN}">
+        <button class="pill on" data-a="use" style="padding:11px 16px">Use</button>
+      </div>`).firstElementChild;
+    typed.querySelector('[data-a=use]').onclick = () => {
+      const n = Number(typed.querySelector('[data-a=n]').value);
+      if (!Number.isFinite(n) || n <= 0) { toast('Enter a number'); return; }
+      close(); onPick(n);
+    };
+    body.append(typed);
+    const grid = h(`<div class="pillrow" style="max-height:44vh;overflow:auto">${values.map(v =>
+      `<button class="pill ${v === value ? 'on' : ''}" data-v="${v}">${v}${unit === 'distance' ? ' m' : ''}</button>`).join('')}</div>`).firstElementChild;
+    grid.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { close(); onPick(Number(b.dataset.v)); });
+    body.append(grid);
+  });
+}
+
+// ⚑ DUPLICATE-AND-SUBSTITUTE. His words: "it is easier than looking at a workout and going and
+// creating my own and trying to remember all the details of that one to make it a modified
+// version of that."
+//
+// ⚑ THE COPY CANNOT INHERIT THE ORIGINAL'S IDENTITY, and the check that mattered turned out to
+// be cheap. I expected a copy to resolve to the original's benchmark by name and score toward
+// Level on a modified workout — it does not, because benchmark `match` regexes are ANCHORED
+// (`fran` is `/^fran$/i`). Verified by running it. So the only rule is that the name must
+// differ, which `copyName` guarantees. His ruling agrees: "if I make changes to a workout, it is
+// no longer working for assessment. It is just a different workout that I made."
+function workoutCopySheet(w) {
+  const subs = {};
+  openSheet('Make my version', (body, close) => {
+    const draw = () => {
+      body.innerHTML = '';
+      const { targets } = MV.substitutionTargets(w);
+      const preview = MV.applySubstitutions(w, subs);
+      const resolved = MV.movementsIn(preview);
+
+      body.append(h(`<input data-a="name" placeholder="Name" style="width:100%;${FIN};margin-bottom:4px" value="${esc(nameField.value)}">`).firstChild);
+      const nameEl = body.querySelector('[data-a=name]');
+      nameEl.oninput = () => { nameField.value = nameEl.value; };
+      body.append(h(`<div class="muted" style="font-size:11.5px;margin-bottom:12px">A copy is your own workout. It keeps none of the original’s scoring, so nothing here can move your Level.</div>`));
+
+      if (!targets.length) {
+        body.append(h(`<div class="muted" style="font-size:13px;line-height:1.6">This prescription doesn’t break into single-movement lines, so there is nothing to swap automatically. Copy it and edit the text directly instead.</div>`));
+      }
+      targets.forEach(t => {
+        const s = subs[t.index] || {};
+        const nowId = s.movementId || t.movementId;
+        const nowName = (MV.movementById(nowId) || {}).name || nowId;
+        const unit = FT.prescriptionUnit(nowId);
+        const reps = s.reps != null ? s.reps : t.reps;
+        const load = s.load != null ? s.load : t.load;
+        const changed = nowId !== t.movementId;
+        const card = h(`<div class="card" style="padding:11px 12px;margin-bottom:8px${changed ? ';border-color:var(--gold)' : ''}">
+            <div class="muted" style="font-size:11px">${esc(t.segment.trim())}</div>
+            <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">
+              <button class="pill ${changed ? 'on' : ''}" data-a="mv">${esc(nowName)}</button>
+              <button class="pill" data-a="n">${reps == null ? (unit === 'distance' ? 'distance' : 'reps') : reps}${unit === 'distance' ? ' m' : ''}</button>
+              ${(MV.movementById(nowId) || {}).loadable ? `<button class="pill" data-a="ld">${load == null ? 'no load' : load + ' lb'}</button>` : ''}
+              ${changed ? '<button class="pill" data-a="undo">undo</button>' : ''}
+            </div>
+          </div>`).firstElementChild;
+        card.querySelector('[data-a=mv]').onclick = () => movementPickerSheet({
+          title: 'Replace ' + t.name, selectedId: nowId,
+          onPick: id => { subs[t.index] = { ...(subs[t.index] || {}), movementId: id }; draw(); },
+        });
+        card.querySelector('[data-a=n]').onclick = () => numberPickerSheet({
+          title: nowName, unit, value: reps,
+          onPick: v => { subs[t.index] = { ...(subs[t.index] || {}), reps: v }; draw(); },
+        });
+        const ld = card.querySelector('[data-a=ld]');
+        if (ld) ld.onclick = () => numberPickerSheet({
+          title: nowName + ' load (lb)', unit: 'reps', value: load,
+          onPick: v => { subs[t.index] = { ...(subs[t.index] || {}), load: v }; draw(); },
+        });
+        const un = card.querySelector('[data-a=undo]');
+        if (un) un.onclick = () => { delete subs[t.index]; draw(); };
+        body.append(card);
+      });
+
+      // ⚑ THE PREVIEW IS THE POINT, same argument as the ladder preview in batch 1: he was
+      // rebuilding workouts by trial and error because nothing showed him the result until it
+      // was saved. It also renders what the registry RESOLVES, so a swap that would count for
+      // nothing is visible before he commits it rather than absent from his volume afterwards.
+      body.append(sectionTitle('Your version'));
+      body.append(h(`<div class="card" style="padding:12px 13px">
+          <div style="font-size:13.5px;line-height:1.6;white-space:pre-line">${esc(preview)}</div>
+          <div class="muted" style="font-size:11.5px;margin-top:8px">Counts toward: ${resolved.length
+            ? resolved.map(id => esc((MV.movementById(id) || {}).name || id)).join(' · ')
+            : '<b>nothing the app tracks</b> — pick movements from the list so this counts toward your volume'}</div>
+        </div>`));
+
+      const save = h(`<button class="btn" style="margin-top:10px">Create my version</button>`);
+      save.firstChild.onclick = () => {
+        const name = nameField.value.trim();
+        if (!name) { toast('Give it a name'); return; }
+        if (name.toLowerCase() === (w.name || '').trim().toLowerCase()) {
+          // ⚑ The one rule that survives the anchored-regex finding, enforced rather than trusted.
+          toast('Give it a different name from the original'); return;
+        }
+        const made = FT.addCustomWorkout({
+          name, movements: preview, resultType: w.resultType || 'time',
+          format: w.format || 'other', domain: w.domain || 'light',
+          cap: w.cap || 0, interval: w.interval || 0, rounds: w.rounds || 0,
+          work: w.work || 0, rest: w.rest || 0,
+        });
+        toast('Created');
+        close();
+        render(() => workoutDetail(made));
+      };
+      body.append(save);
+    };
+    const nameField = { value: MV.copyName(w.name, FT.allWorkouts().map(x => x.name)) };
+    draw();
+  });
+}
+
 // ⚑ EDIT A WORKOUT HE BUILT — twenty-sixth session, the other half of "enter workouts or edit
 // workouts that I have just entered". Name, prescription and the ladder, which between them are
 // everything he was re-creating the workout in order to change.
@@ -14599,7 +15140,7 @@ function workoutEditSheet(w) {
     const card = h(`<div>
         <input data-a="name" value="${esc(w.name || '')}" placeholder="Workout name" style="width:100%;${FIN};margin-bottom:8px">
         <textarea data-a="movements" placeholder="Movements and reps" style="width:100%;min-height:90px;${FIN};margin-bottom:6px">${esc(w.movements || '')}</textarea>
-        <div class="muted" style="font-size:11.5px;margin-bottom:10px">Write movements the way you would say them — “24 Push-ups”, “Run 400m”. They are matched to the app’s ${MV.MOVEMENTS.length} tracked movements as you write, so they count toward your volume and records.</div>
+        <div class="muted" style="font-size:11.5px;margin-bottom:10px">Write movements the way you would say them — “24 Push-ups”, “Run 400m”. They are matched to the app’s ${MV.allMovements().length} tracked movements as you write, so they count toward your volume and records.</div>
         ${w.format === 'emom' ? `<div class="row" style="flex-wrap:wrap;margin-bottom:8px">
           <input data-a="interval" value="${Number(w.interval) || 60}" placeholder="Interval (sec)" inputmode="numeric" style="width:120px;${FIN}">
           <input data-a="rounds" value="${Number(w.rounds) || ''}" placeholder="Rounds" inputmode="numeric" style="width:90px;${FIN}">
@@ -15292,7 +15833,7 @@ function movementBlockSheet() {
       const n = MV.blockedCount();
       body.append(h(`<div class="muted" style="font-size:12.5px;line-height:1.6;margin-bottom:10px">Anything you tick here disappears from the library, the search and the finder. Nothing is deleted, and your history keeps counting — this is about what gets offered to you.${blocked.length ? `<br><b>${n}</b> workout${n === 1 ? '' : 's'} hidden right now.` : ''}</div>`));
       MV.MOVEMENT_CATS.forEach(([cat, label]) => {
-        const rows = MV.MOVEMENTS.filter(m => m.cat === cat);
+        const rows = MV.allMovements().filter(m => m.cat === cat);
         if (!rows.length) return;
         body.append(sectionTitle(label));
         const row = h(`<div class="pillrow">${rows.map(m =>
@@ -15322,7 +15863,7 @@ function ftMovements(body) {
 
   // the filter tray — only present once something is selected, so the list stays a list
   if (mvSelected.length) {
-    const names = mvSelected.map(id => (MV.MOVEMENT_BY_ID[id] || {}).name).filter(Boolean);
+    const names = mvSelected.map(id => (MV.movementById(id) || {}).name).filter(Boolean);
     const hits = MV.workoutsWithAll(mvSelected);
     const logs = MV.logsWithAll(mvSelected);
     const tray = h(`<div class="card" style="border-color:var(--gold);padding:12px 13px">
@@ -15339,7 +15880,7 @@ function ftMovements(body) {
   }
 
   const list = document.createElement('div');
-  const shown = MV.MOVEMENTS
+  const shown = MV.allMovements()
     .filter(m => mvCat === 'all' || m.cat === mvCat)
     .filter(m => counts[m.id])
     .sort((a, b) => (counts[b.id] || 0) - (counts[a.id] || 0));
@@ -15360,7 +15901,7 @@ function ftMovements(body) {
     list.append(row);
   });
   body.append(list);
-  body.append(h(`<div class="muted" style="font-size:11px;margin:8px 4px;line-height:1.55">Tap a movement to see the stats that matter for it. Tap ＋ on several to find the workouts that contain all of them. ${shown.length} of ${MV.MOVEMENTS.length} movements appear in your library.</div>`));
+  body.append(h(`<div class="muted" style="font-size:11px;margin:8px 4px;line-height:1.55">Tap a movement to see the stats that matter for it. Tap ＋ on several to find the workouts that contain all of them. ${shown.length} of ${MV.allMovements().length} movements appear in your library.</div>`));
 }
 
 // ⚑ THE WORKOUT FINDER. Two questions that look alike and are not:
@@ -15382,7 +15923,7 @@ let finderReturn = null;      // where "Use this workout" should hand the choice
 
 function workoutFinder(ids, opts = {}) {
   const sel = (ids || []).filter(Boolean);
-  const names = sel.map(id => (MV.MOVEMENT_BY_ID[id] || {}).name).filter(Boolean);
+  const names = sel.map(id => (MV.movementById(id) || {}).name).filter(Boolean);
   setHeader(opts.title || 'Find a workout', { back: true });
   const wrap = document.createElement('div');
   const kit = MV.myKit();
@@ -15648,6 +16189,7 @@ function workoutDetail(w) {
     <button class="pill" data-s="timer">⏱ ${oneTap ? 'Start' : 'Timer'}</button>
     ${oneTap ? '<button class="pill" data-s="tmsetup">Adjust first</button>' : ''}
     <button class="pill" data-s="addcard">Add to card</button>
+    <button class="pill" data-s="copy">⎘ My version</button>
     ${w.custom ? '<button class="pill" data-s="edit">✎ Edit</button>' : ''}
     ${w.custom ? '<button class="pill" data-s="delete" style="color:var(--danger)">Delete</button>' : ''}
   </div>`);
@@ -15656,6 +16198,10 @@ function workoutDetail(w) {
   const setupPill = pills.querySelector('[data-s=tmsetup]');
   if (setupPill) setupPill.onclick = () => render(() => ftTimersScreen(w));
   pills.querySelector('[data-s=addcard]').onclick = () => { if (!cardDraft) cardDraft = { name: '', ts: Date.now(), parts: [] }; cardDraft.parts.push(w.id); toast('Added — build the card'); render(workoutCardBuilder); };
+  // ⚑ ON EVERY WORKOUT, NOT ONLY HIS OWN — that is the whole feature. The published ones are
+  // exactly the ones he wants to modify, because they are the ones he cannot remember the
+  // details of. Copying never touches the original.
+  pills.querySelector('[data-s=copy]').onclick = () => workoutCopySheet(w);
   const editPill = pills.querySelector('[data-s=edit]');
   if (editPill) editPill.onclick = () => workoutEditSheet(w);
   const delPill = pills.querySelector('[data-s=delete]');
