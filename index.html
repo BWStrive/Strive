@@ -4211,6 +4211,80 @@ function prFor(wid) {
     (w.resultType === 'time' ? l.v < best.v : l.v > best.v) ? l : best);
 }
 
+// ---------------------------------------------------------------------------------------
+// ⚑ STALE RESULTS READ AS A DASH — his §3 ruling, twenty-sixth session batch 3, in his words:
+// "I want to stop seeing my former assessments. They're everywhere and appearing as though they
+// are current. The standard view of each screen should show workouts but not look like I'm a
+// '69' on it even though I haven't done it in 5 years... if I haven't done the workout in the
+// last year, I want a dash not a number showing on it. Sure, when I click in there should be a
+// way to see my history with that workout so I have something to strive for, but it shouldn't
+// be the main thing I'm seeing."
+//
+// ⚑ THIS IS Q6's RULE EXTENDED FROM DOMAINS DOWN TO INDIVIDUAL RESULTS, and reusing it rather
+// than inventing a second vocabulary is the whole point. Q6 settled that a domain which is not
+// counting renders IDENTICALLY however it got there, and that the difference between "expired
+// with history" and "never unlocked" belongs in the SUB-LINE. The twenty-fourth session found a
+// live bug from breaking that rule — a locked ring drew `–` on one screen and 🔒 on another, so
+// one fact had two glyphs. So:
+//
+//     never done        →  —   sub-line: "never done"
+//     done, but stale   →  —   sub-line: "last done Nov 2024"      ← same glyph, different fact
+//     done inside 12mo  →  the number
+//
+// ⚑ AND THE WINDOW IS THE ASSESSMENT'S OWN WINDOW, not a second one. `assessment()` unlocks a
+// domain on 3 results inside 12 months; if a result stopped counting toward Level on one screen
+// and still printed as current on another, that is exactly the two-screens-disagreeing defect
+// this project has now found three times (Stats vs the streak on UTC, the Planner vs the streak
+// on day-counting, the locked ring's two glyphs). One constant, both readers.
+const LIVE_WINDOW_DAYS = 365;
+function liveCutoff(now = Date.now()) { return now - LIVE_WINDOW_DAYS * 86400000; }
+function isLiveTs(ts, now = Date.now()) { return Number(ts) >= liveCutoff(now); }
+
+// ⚑ NULLS, NEVER ZEROS — the denominator lesson from the twenty-second session applied to a
+// single value. `live: null` means "no counting result"; it must never be confusable with a
+// result of zero, and no caller may fall back through `|| 0`.
+// ⚑ STALENESS IS KEYED ON THE DATE, NOT ON WHETHER THERE IS A SCORE — and the first version got
+// this wrong in a way only execution found. It defined `stale` as "no LIVE personal record",
+// which silently merged two different states for a `completed`-type workout: those carry no
+// parseable result at all, so `prFor` returns null, so the view reported `everDone: true,
+// stale: false, live: null` — a combination no caller expected, and `prCell` read `.result`
+// straight off the null. Caught by driving a real screen, not by reading the branch.
+//
+// "Have I done this inside 12 months" is a question about a DATE. Whether that session produced
+// a comparable number is a separate axis, and `scored` carries it.
+function resultView(wid, now = Date.now()) {
+  const w = getWorkout(wid);
+  const logs = logsFor(wid);
+  const lastTs = logs.length ? Math.max(...logs.map(l => l.ts)) : null;
+  const cutoff = liveCutoff(now);
+  const everDone = !!logs.length;
+  const stale = everDone && lastTs < cutoff;
+  const all = prFor(wid);
+  let live = null;
+  if (all && w) {
+    const liveLogs = logs.map(l => ({ ...l, v: parseResult(l.result, w.resultType) }))
+      .filter(l => l.v !== null && l.ts >= cutoff);
+    live = liveLogs.length
+      ? liveLogs.reduce((best, l) => (w.resultType === 'time' ? l.v < best.v : l.v > best.v) ? l : best)
+      : null;
+  }
+  return {
+    everDone, hasHistory: everDone, stale, live, all, lastTs,
+    scored: !!all,                 // a comparable number exists at all — 'completed' has none
+    resultType: w ? w.resultType : null,
+    daysSince: lastTs == null ? null : Math.floor((now - lastTs) / 86400000),
+  };
+}
+
+// The sub-line that carries the fact the dash deliberately does not. Q6: the glyph is the same,
+// the explanation is what differs.
+function staleLabel(view) {
+  if (!view || !view.everDone) return 'never done';
+  if (!view.stale) return null;
+  const d = new Date(view.lastTs);
+  return 'last done ' + d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+}
+
 function isPR(wid, result) {
   const w = getWorkout(wid);
   if (!w || w.resultType === 'completed') return false;
@@ -4543,7 +4617,9 @@ function currentBodyweight() {
   return (w && w.lbs) ? { lbs: w.lbs, assumed: false } : { lbs: DEFAULT_BW_LB, assumed: true };
 }
 
-function assessment(windowDays = 365) {
+// ⚑ The window is `LIVE_WINDOW_DAYS`, shared with `resultView` so a result cannot stop counting
+// toward Level on one screen while still printing as current on another.
+function assessment(windowDays = LIVE_WINDOW_DAYS) {
   ftEnsure();
   const cutoff = Date.now() - windowDays * 86400000;
   const bw = currentBodyweight();
@@ -4812,7 +4888,7 @@ function ftStats() {
   };
 }
 
-const FT = {ASSESS_DOMAINS,BENCHMARKS,CAL_STEPS,DIST_COMMON,DIST_STEPS,FORMATS,LEVEL_RUNGS,LIBRARY,REPMAX_MAX_REPS,REP_STEPS,RESULT_TYPES,ROOMS,RX_STATES,SIGMA_EST_1RM,SIGMA_REPEAT,STREAK_DEFAULTS,TIER_SIGMA,UNLOCK_MIN,WORKOUT_TEMPLATES,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,applyRamp,assessment,axisValue,benchmarkFor,buildResult,byDomain,canEditLog,canEditWorkout,cardAddPart,cardForLog,cardFromLogs,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,dietTargets,estBand,formatOf,ftStats,getCard,getWorkout,groupableDays,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,levelLadder,libraryFor,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,pickerFor,prFor,precisionOf,precisionOfResult,prescriptionUnit,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,rxLabel,rxStatusOf,sessionText,setDietTargets,setStreakSettings,setWaterGoal,setWeightGoal,sigmaFromPrecision,sigmaOf,sigmaOfResult,sleepForDate,sleepList,streakSettings,trainingStreak,updateCustomWorkout,updateLog,valueAtLevel,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights,withCustomValue,workoutsBetween};
+const FT = {ASSESS_DOMAINS,BENCHMARKS,CAL_STEPS,DIST_COMMON,DIST_STEPS,FORMATS,LEVEL_RUNGS,LIBRARY,LIVE_WINDOW_DAYS,REPMAX_MAX_REPS,REP_STEPS,RESULT_TYPES,ROOMS,RX_STATES,SIGMA_EST_1RM,SIGMA_REPEAT,STREAK_DEFAULTS,TIER_SIGMA,UNLOCK_MIN,WORKOUT_TEMPLATES,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,applyRamp,assessment,axisValue,benchmarkFor,buildResult,byDomain,canEditLog,canEditWorkout,cardAddPart,cardForLog,cardFromLogs,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,dietTargets,estBand,formatOf,ftStats,getCard,getWorkout,groupableDays,isLiveTs,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,levelLadder,libraryFor,liveCutoff,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,pickerFor,prFor,precisionOf,precisionOfResult,prescriptionUnit,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,resultView,rxLabel,rxStatusOf,sessionText,setDietTargets,setStreakSettings,setWaterGoal,setWeightGoal,sigmaFromPrecision,sigmaOf,sigmaOfResult,sleepForDate,sleepList,staleLabel,streakSettings,trainingStreak,updateCustomWorkout,updateLog,valueAtLevel,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights,withCustomValue,workoutsBetween};
 // Strive — the workout timer engine. Pure, no DOM, no clock of its own.
 //
 // ⚑ WHY THIS IS A SEPARATE MODULE, AND WHY IT TAKES `now` AS AN ARGUMENT.
@@ -7546,7 +7622,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260808-0757'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260808-0757';
+const BUILD_ID = '20260808-0810'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260808-0810';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -14594,10 +14670,14 @@ function liftChooser(key) {
   const other = withScheme.filter(x => !x.s);
   openSheet(b.label, body => {
     const row = ({ w, s }, sub) => {
-      const n = FT.logsFor(w.id).length, pr = FT.prFor(w.id);
-      const el = h(`<div class="list-item"><div class="grow">
+      const n = FT.logsFor(w.id).length, rv = FT.resultView(w.id);
+      // ⚑ Same rule as libRow: a result outside 12 months reads as a dash with its date beside it.
+      const best = !rv.everDone ? ' · never done'
+        : rv.stale ? (rv.scored ? ' · best <span style="color:var(--text-3)">—</span>' : '') + ' · ' + esc(FT.staleLabel(rv))
+        : rv.live ? ' · best ' + esc(rv.live.result) : '';
+      const el = h(`<div class="list-item"${rv.stale ? ' style="opacity:.72"' : ''}><div class="grow">
           <div class="title" style="font-size:14px">${esc(w.name)}</div>
-          <div class="sub">${sub}${pr ? ' · best ' + esc(pr.result) : n ? '' : ' · never done'}</div></div>
+          <div class="sub">${sub}${best}</div></div>
         <span class="chev">›</span></div>`);
       el.querySelector('.list-item').onclick = () => { render(() => workoutDetail(w)); };
       body.append(el);
@@ -14674,11 +14754,35 @@ function benchRow(key, item, state = 'active') {
   };
   return el;
 }
+// ⚑ THE STALE-RESULT CELL — his §3 ruling, batch 3. One helper so every list reads the rule the
+// same way, because the twenty-fourth session's locked-ring bug was two screens rendering one
+// fact with two glyphs. Returns the headline (a number or a dash) and the sub-line that carries
+// the fact the dash deliberately drops.
+//
+//     live result   → "PR 3:12"
+//     stale result  → "PR —"   ·  "last done Sep 2019"
+//     never done    → nothing  ·  "never done"
+//
+// ⚑ AND THE SCALE IS THE ARGUMENT FOR DOING IT AT ALL. Measured across the library: of the 269
+// workouts with any history, **248 are stale** — and against his OWN data, whose last entry is
+// 2024-11-20, every single one is. He was reading a library of five-year-old numbers presented
+// as current, which is exactly what he said.
+function prCell(w) {
+  const v = FT.resultView(w.id);
+  if (!v.everDone) return { head: '', sub: 'never done', stale: false };
+  if (v.stale) return { head: v.scored ? ' · PR <span style="color:var(--text-3)">—</span>' : '', sub: FT.staleLabel(v), stale: true };
+  // ⚑ `v.live` may be null on a workout that IS live — a 'completed'-type piece has no
+  // comparable number to print. `v.scored` is the guard; reading `.result` here without it read
+  // straight off a null the first time this ran against a real screen.
+  return { head: v.live ? ' · PR ' + esc(v.live.result) : '', sub: null, stale: false };
+}
+
 function libRow(w) {
-  const n = FT.logsFor(w.id).length, pr = FT.prFor(w.id);
-  const el = h(`<div class="list-item">
+  const n = FT.logsFor(w.id).length;
+  const c = prCell(w);
+  const el = h(`<div class="list-item"${c.stale ? ' style="opacity:.72"' : ''}>
       <div class="grow"><div class="title" style="font-size:14px">${esc(w.name)}${w.custom ? ' <span class="muted" style="font-size:11px">(custom)</span>' : ''}</div>
-      <div class="sub">${n ? n + ' log' + (n === 1 ? '' : 's') : 'never done'}${pr ? ' · PR ' + esc(pr.result) : ''}${w.needs && w.needs.length ? ' · <span style="color:var(--text-3)">needs ' + esc(w.needs.join(' + ')) + '</span>' : ''}</div></div>
+      <div class="sub">${n ? n + ' log' + (n === 1 ? '' : 's') : 'never done'}${c.head}${c.sub && n ? ' · ' + esc(c.sub) : ''}${w.needs && w.needs.length ? ' · <span style="color:var(--text-3)">needs ' + esc(w.needs.join(' + ')) + '</span>' : ''}</div></div>
       <span class="badge" style="background:var(--nt)">${w.resultType.toUpperCase()}</span><span class="chev">›</span></div>`);
   el.querySelector('.list-item').onclick = () => render(() => workoutDetail(w));
   return el;
@@ -16124,10 +16228,10 @@ function ftWorkouts(body) {
     pool.filter(w => !q || w.name.toLowerCase().includes(q) || (w.movements || '').toLowerCase().includes(q))
       .slice(0, q ? 60 : 40).forEach(w => {
         const n = FT.logsFor(w.id).length;
-        const pr = FT.prFor(w.id);
-        const el = h(`<div class="list-item">
+        const c = prCell(w);
+        const el = h(`<div class="list-item"${c.stale ? ' style="opacity:.72"' : ''}>
           <div class="grow"><div class="title" style="font-size:14px">${esc(w.name)}${w.custom ? ' <span class="muted" style="font-size:11px">(custom)</span>' : ''}${String(w.id).startsWith('cl') ? ' <span class="muted" style="font-size:11px">(classic)</span>' : ''}</div>
-          <div class="sub">${(FT.ASSESS_DOMAINS.find(x => x[0] === w.domain) || ['', ''])[1]}${n ? ' · ' + n + ' log' + (n === 1 ? '' : 's') : ' · never done'}${pr ? ' · PR ' + esc(pr.result) : ''}</div></div>
+          <div class="sub">${(FT.ASSESS_DOMAINS.find(x => x[0] === w.domain) || ['', ''])[1]}${n ? ' · ' + n + ' log' + (n === 1 ? '' : 's') : ' · never done'}${c.head}${c.sub && n ? ' · ' + esc(c.sub) : ''}</div></div>
           <span class="badge" style="background:var(--nt)">${w.resultType.toUpperCase()}</span>
           <span class="chev">›</span>
         </div>`);
@@ -16160,13 +16264,24 @@ function workoutDetail(w) {
       + rows.map(r => `R${r.round}: ${r.reps}${r.load != null ? ' @ ' + r.load + ' ' + (r.unit || 'lb') : ''}`).join(' · ')
       + `<br><span class="muted">${TM.rampVolume(rampCfg, rows.length)} reps total across ${rows.length} rounds</span></div>`;
   }
+  // ⚑ THE HEADLINE NUMBER OBEYS THE 12-MONTH RULE, AND HIS HISTORY MOVES BEHIND A TAP. His
+  // wording is precise about both halves: "if I haven't done the workout in the last year, I
+  // want a dash not a number... Sure, when I click in there should be a way to see my history
+  // with that workout so I have something to strive for, but it shouldn't be the main thing I'm
+  // seeing." So the stat reads `—`, the label says which fact that is, and the old best is
+  // reachable from the pill row rather than deleted.
+  const rv = FT.resultView(w.id);
+  const prStat = !rv.everDone ? { v: '—', l: 'Never done' }
+    : rv.stale ? { v: '—', l: FT.staleLabel(rv) }
+    : rv.live ? { v: esc(rv.live.result), l: 'Personal record' }
+    : { v: '—', l: 'No comparable score' };
   wrap.append(h(`
     <div class="card">
       ${w.movements ? `<div style="font-size:14px;line-height:1.6;white-space:pre-line">${esc(w.movements)}</div>` : '<div class="muted">No description</div>'}
       ${rampLine}
       <div class="statgrid" style="margin-top:12px">
         <div class="stat"><div class="v">${logs.length}</div><div class="l">Times done</div></div>
-        <div class="stat"><div class="v" style="color:var(--gold)">${pr ? esc(pr.result) : '—'}</div><div class="l">Personal record</div></div>
+        <div class="stat"><div class="v" style="color:${rv.stale || !rv.everDone ? 'var(--text-3)' : 'var(--gold)'}">${prStat.v}</div><div class="l">${esc(prStat.l)}</div></div>
       </div>
     </div>`));
   // primary action — log a result
@@ -16190,6 +16305,7 @@ function workoutDetail(w) {
     ${oneTap ? '<button class="pill" data-s="tmsetup">Adjust first</button>' : ''}
     <button class="pill" data-s="addcard">Add to card</button>
     <button class="pill" data-s="copy">⎘ My version</button>
+    ${rv.everDone ? '<button class="pill" data-s="hist">↺ My history</button>' : ''}
     ${w.custom ? '<button class="pill" data-s="edit">✎ Edit</button>' : ''}
     ${w.custom ? '<button class="pill" data-s="delete" style="color:var(--danger)">Delete</button>' : ''}
   </div>`);
@@ -16202,6 +16318,8 @@ function workoutDetail(w) {
   // exactly the ones he wants to modify, because they are the ones he cannot remember the
   // details of. Copying never touches the original.
   pills.querySelector('[data-s=copy]').onclick = () => workoutCopySheet(w);
+  const histPill = pills.querySelector('[data-s=hist]');
+  if (histPill) histPill.onclick = () => workoutHistorySheet(w);
   const editPill = pills.querySelector('[data-s=edit]');
   if (editPill) editPill.onclick = () => workoutEditSheet(w);
   const delPill = pills.querySelector('[data-s=delete]');
@@ -16248,12 +16366,19 @@ function ftLevelLadderCard(w) {
       and it votes for nothing. There is no population curve behind it, so there are no levels to show.</div></div>`).firstElementChild;
   }
 
-  // where he stands today, if anywhere — read from the same assessment the Level screen uses
+  // ⚑ THE "YOU" ROW READS **LIVE**, NOT ALL-TIME — and this line is the literal thing he
+  // complained about. It used to take his item from `a.alltime`, so a result from 2019 drew
+  // "▸ You — Level 69" in gold beside the current rungs, indistinguishable from a number he had
+  // just posted. His words: "not look like I'm a '69' on it even though I haven't done it in 5
+  // years." An all-time item still exists and still matters — it is what he is striving back
+  // toward — so it moves into the sub-line rather than out of the app.
   const a = FT.assessment();
-  let mine = null;
+  let mine = null, mineAll = null;
   FT.ASSESS_DOMAINS.forEach(([d]) => {
-    const it = (a.alltime.domains[d].items || []).find(x => x.key === key);
+    const it = (a.live.domains[d].items || []).find(x => x.key === key);
     if (it) mine = it;
+    const ia = (a.alltime.domains[d].items || []).find(x => x.key === key);
+    if (ia) mineAll = ia;
   });
 
   const fmt = v => fmtBench({ rtype: b.rtype, best: v, unit: b.unit, key });
@@ -16273,13 +16398,40 @@ function ftLevelLadderCard(w) {
       <span>${r.you ? '▸ You — Level ' + r.level : 'Level ' + r.level}${!r.you && r.level === 99 ? ' <span class="muted" style="font-size:11px;font-weight:400">top of the scale</span>' : ''}</span>
       <b>${esc(r.you ? fmtBench(mine) : fmt(r.value))}</b></div>`).join('');
 
+  // ⚑ Q6's RULE, VERBATIM: the two ways of having no counting result render the SAME, and what
+  // separates them lives in the sub-line. "Never done it" and "did it in 2019" are different
+  // facts and neither is a current level.
+  const noneLine = mine && mine.level != null ? ''
+    : mineAll && mineAll.level != null
+      ? `<div class="muted" style="font-size:11.5px;margin-top:8px;line-height:1.55">No counting result in the last 12 months, so you do not sit on this ladder right now. Your all-time best was <b>${esc(fmtBench(mineAll))}</b> — Level ${mineAll.level}. Repeat it and it counts again.</div>`
+      : `<div class="muted" style="font-size:11.5px;margin-top:8px;line-height:1.55">You have no counting result on this one yet.</div>`;
   const el = h(`<div class="card" style="padding:8px 13px 11px;font-size:13.5px">
     ${rows}
-    ${mine && mine.level != null ? '' : `<div class="muted" style="font-size:11.5px;margin-top:8px;line-height:1.55">You have no counting result on this one yet.</div>`}
+    ${noneLine}
     <div class="muted" style="font-size:11px;margin-top:6px;line-height:1.55">These are read off the same curve that scores you: a result landing between two published points already scores on the line between them, so these are the numbers the engine would return for each level.${srcFlag(b.room)}</div>
   </div>`).firstElementChild;
   bindSrcFlags(el);
   return el;
+}
+
+// ⚑ THE HISTORY HE ASKED TO KEEP — "so I have something to strive for". The all-time best lives
+// here rather than on the front of the screen, which is the whole of his §3 ruling in one move:
+// the number is not deleted, it stops presenting itself as current.
+function workoutHistorySheet(w) {
+  const rv = FT.resultView(w.id);
+  openSheet(w.name, (body) => {
+    if (rv.all) {
+      const when = new Date(rv.all.ts).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      body.append(h(`<div class="card" style="padding:12px 13px">
+          <div class="muted" style="font-size:11.5px">All-time best</div>
+          <div style="font-size:22px;font-weight:700;color:var(--gold);margin-top:2px">${esc(rv.all.result)}</div>
+          <div class="muted" style="font-size:12px;margin-top:4px">${esc(when)}${rv.stale ? ' — outside the last 12 months, so it no longer counts toward your Level' : ''}</div>
+        </div>`));
+    }
+    const logs = FT.logsFor(w.id);
+    body.append(sectionTitle(`Every result (${logs.length})`));
+    logs.forEach(l => body.append(logRow(l, { showName: false })));
+  });
 }
 
 // Delete-workout confirm sheet (custom workouts only)
