@@ -3733,6 +3733,15 @@ function buildResult(format, f = {}) {
     case 'emom': {
       const r = num(f.rounds);
       const base = format === 'amrap' ? { window: num(f.min) || null } : {};
+      // ⚑ A LADDER EMOM SCORES IN TOTAL REPS (twenty-sixth session). Rounds cannot separate two
+      // of his ladders: a 1→10 and a 5→50 are both "10 rounds", 55 reps against 275. The round
+      // count is the length of the piece; the rep count is the work. Both are kept — `rounds`
+      // rides along in the score object so the trend can still say how far he got.
+      if (format === 'emom' && f.ramp) {
+        const reps = num(f.reps);
+        return { result: `${reps} reps`,
+                 score: { type: 'emom', ramp: true, reps, rounds: r, ladder: f.ladder || null } };
+      }
       // per-movement partial round (needs structured moves): "5 + 2/3/0"
       if (Array.isArray(f.parts) && f.parts.length) {
         const parts = f.parts.map(num);
@@ -3801,13 +3810,33 @@ function movesToText(moves) {
     return `${reps ? reps + ' ' : ''}${mv}${load ? ' — ' + load : ''}`.trim();
   }).filter(Boolean).join('\n');
 }
-function addCustomWorkout({ name, movements = '', moves = null, resultType = 'time', format = 'other', domain = 'light', cap = 0, interval = 0, rounds = 0, work = 0, rest = 0 }) {
+function addCustomWorkout({ name, movements = '', moves = null, resultType = 'time', format = 'other', domain = 'light', cap = 0, interval = 0, rounds = 0, work = 0, rest = 0, ramp = null }) {
   ftEnsure();
   const text = movements.trim() || (moves ? movesToText(moves) : '');
   const w = { id: 'cw' + uid(), name: name.trim(), movements: text, resultType, format, domain, cap, interval, rounds, work, rest, custom: true };
   if (moves && moves.length) w.moves = moves;   // structured movement list (Phase 8)
+  // ⚑ The ladder is stored FLAT on the workout rather than in a nested object, because
+  // `ftTimerCfgFor` reads the custom workout directly as its config seed (`const d = w.custom ? w : {}`).
+  // A nested `w.ramp = {start, step}` would have needed a second unwrapping step that the Death By
+  // path does not have, and the two would then read their prescriptions differently.
+  if (ramp) applyRamp(w, ramp);
   F().workouts.push(w);
   save();
+  return w;
+}
+
+// Write the ladder fields onto a workout. Shared by create and edit so the two cannot drift.
+// `step` is written whenever it is present, including 0 and negatives — a `|| 1` here would
+// silently reverse a descending ladder.
+function applyRamp(w, r) {
+  if (!w) return w;
+  if (!r) { delete w.ramp; delete w.start; delete w.step; delete w.loadStart; delete w.loadStep; delete w.loadUnit; return w; }
+  w.ramp = true;
+  w.start = Number(r.start) || 1;
+  w.step = r.step != null ? Number(r.step) : 1;
+  if (Number(r.loadStart)) w.loadStart = Number(r.loadStart); else delete w.loadStart;
+  if (Number(r.loadStep)) w.loadStep = Number(r.loadStep); else delete w.loadStep;
+  if (w.loadStart != null || w.loadStep != null) w.loadUnit = r.loadUnit || 'lb'; else delete w.loadUnit;
   return w;
 }
 function removeCustomWorkout(id) {
@@ -3889,23 +3918,107 @@ function removeLog(id) {
   save();
 }
 
+// ---------------------------------------------------------------------------------------
+// ⚑ EDITING — it did not exist at all until the twenty-sixth session, and that is the whole
+// explanation for his report: "I had to just keep deleting it and trying different things to
+// make it look right instead of just doing a quick edit." There was `addLog` and `removeLog`,
+// `addCustomWorkout` and `removeCustomWorkout`, and no update on either side. Delete-and-retry
+// was not his workaround; it was the only path the module offered.
+//
+// ⚑ ONLY HIS OWN ENTRIES, AND THE REASON IS STRUCTURAL RATHER THAN A POLICY CHOICE. The 431
+// imported btwb logs live in `SEED_LOGS`, a BUILD-TIME CONSTANT in `js/data/workouts.js` that
+// never reaches state — the same fact that made the twenty-fourth session put the id backfill in
+// this module instead of in `ensureShapes`. There is nothing in the store to write to, so
+// editing one would need an overlay layer. He ruled it out: "I don't think the previous entries
+// need to be editable. They are the workouts that they are." `canEditLog` exists so the screen
+// can say WHY rather than rendering a button that quietly does nothing.
+function canEditLog(id) {
+  ftEnsure();
+  return F().logs.some(l => l.id === id);
+}
+
+// ⚑ THE ID IS NEVER REWRITTEN, INCLUDING WHEN THE DATE CHANGES — and this is the one place
+// editing could have broken grouping silently. Seed ids are DERIVED from `ts + wid`
+// (`logIdFor`), so if user logs were keyed the same way, re-dating one would re-key it and every
+// card pointing at it via `cardSetPartLog` would dangle. User logs carry a stored `uid()`
+// instead, so the id is stable across any edit and grouping survives by construction. Asserted
+// rather than assumed: a check re-dates a grouped log and re-reads the card.
+function updateLog(id, patch = {}) {
+  ftEnsure();
+  const l = F().logs.find(x => x.id === id);
+  if (!l) return null;
+  if (patch.ts != null) l.ts = Number(patch.ts);
+  if (patch.result != null) l.result = String(patch.result).trim();
+  if (patch.resultType != null) l.resultType = patch.resultType;
+  if (patch.notes != null) l.notes = String(patch.notes);
+  if (patch.weights != null) l.weights = String(patch.weights);
+  if (patch.rxStatus != null) { l.rxStatus = patch.rxStatus; l.rx = RX_STRINGS[patch.rxStatus] || l.rx; }
+  if (patch.score !== undefined) { if (patch.score) l.score = patch.score; else delete l.score; }
+  markActivity('ft');
+  save();
+  return l;
+}
+
+// Same rule on the library side: a workout he built is his to change; a seeded or competition
+// workout is a published prescription and stays as it is. (Copy-and-modify is batch 2.)
+function canEditWorkout(id) {
+  ftEnsure();
+  return F().workouts.some(w => w.id === id && w.custom);
+}
+
+function updateCustomWorkout(id, patch = {}) {
+  ftEnsure();
+  const w = F().workouts.find(x => x.id === id && x.custom);
+  if (!w) return null;
+  if (patch.name != null && String(patch.name).trim()) w.name = String(patch.name).trim();
+  if (patch.moves) { w.moves = patch.moves; w.movements = movesToText(patch.moves); }
+  else if (patch.movements != null) { w.movements = String(patch.movements); delete w.moves; }
+  ['resultType', 'format', 'domain'].forEach(k => { if (patch[k] != null) w[k] = patch[k]; });
+  ['cap', 'interval', 'rounds', 'work', 'rest'].forEach(k => { if (patch[k] != null) w[k] = Number(patch[k]) || 0; });
+  if (patch.ramp !== undefined) applyRamp(w, patch.ramp);
+  // ⚑ `_mv` is the non-enumerable movement cache `movementsOf` pins on a workout the first time
+  // it resolves one. Editing the prescription without dropping it would leave the registry
+  // reporting the OLD movements forever — the workout would read "Push-ups" on screen and still
+  // count toward pull-ups in his volume, with nothing anywhere disagreeing.
+  try { delete w._mv; } catch (e) {}
+  save();
+  return w;
+}
+
 // Workouts logged between two day-keys inclusive (Phase 9.5 targets). Counts user logs
-// only (seed logs are old historical imports); a grouped composite session counts once.
+// only (seed logs are old historical imports).
 // Optional `domain` restricts to workouts that build that assessment sub-domain.
+//
+// ⚑ IT COUNTS DISTINCT DAYS, NOT LOGS — his ruling, twenty-sixth session: "each day should be
+// isolated, so if I did two workouts in one day it doesn't count as 2/4 that week but 1/4."
+//
+// ⚑ AND HE FOUND IT BY BEING TOLD IT WAS ALREADY TRUE. The twenty-fourth session answered his
+// grouping ask with "the streak already counts distinct days, so three logs on one Tuesday have
+// always been one session" — true of `trainingStreak`, which walks `sessionDayKeys()`, and FALSE
+// of this function fifty lines away, which deduped on `l.groupId || l.id` and therefore counted
+// two ungrouped logs on one Tuesday as TWO. So the Planner target and the streak card printed
+// different numbers for the same week, with nothing on either screen to say which was lying.
+// Exactly the shape of the UTC/`todayKey` disagreement batch 2 caught between Stats and the
+// streak. **When two screens answer "how many workouts this week", they answer from one rule.**
+//
+// ⚑ Grouping consequently stops mattering to this count, which is the point: a card was the only
+// way to stop two entries reading as two sessions, so the fix that needed making was in the
+// counter, not in his logging habits. Grouping goes back to being purely a view (§9).
+//
+// ⚑ Scope note, deliberately NOT changed here: this reads `F().logs` (user logs) while
+// `trainingStreak` reads `allLogs()` (seed included). For any window inside the last 12 months
+// the two are identical — every seed log predates 2024-11-20 — so unifying it would move no
+// number he can see, and it is a separate decision about what a historical target means.
 function workoutsBetween(fromKey, toKey, domain = null) {
   ftEnsure();
-  const seen = new Set();
-  let n = 0;
+  const days = new Set();
   F().logs.forEach(l => {
     const dk = dayKeyOf(l.ts);
     if (dk < fromKey || dk > toKey) return;
     if (domain) { const w = getWorkout(l.wid); if (!w || (w.domain || 'light') !== domain) return; }
-    const key = l.groupId || l.id;
-    if (seen.has(key)) return;
-    seen.add(key);
-    n++;
+    days.add(dk);
   });
-  return n;
+  return days.size;
 }
 
 // ---- workout cards (Phase 8): tie separately-logged components into one "workout" ----
@@ -4650,7 +4763,7 @@ function ftStats() {
   };
 }
 
-const FT = {ASSESS_DOMAINS,BENCHMARKS,FORMATS,LEVEL_RUNGS,LIBRARY,REPMAX_MAX_REPS,RESULT_TYPES,ROOMS,RX_STATES,SIGMA_EST_1RM,SIGMA_REPEAT,STREAK_DEFAULTS,TIER_SIGMA,UNLOCK_MIN,WORKOUT_TEMPLATES,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,assessment,axisValue,benchmarkFor,buildResult,byDomain,cardAddPart,cardForLog,cardFromLogs,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,dietTargets,estBand,formatOf,ftStats,getCard,getWorkout,groupableDays,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,levelLadder,libraryFor,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,prFor,precisionOf,precisionOfResult,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,rxLabel,rxStatusOf,sessionText,setDietTargets,setStreakSettings,setWaterGoal,setWeightGoal,sigmaFromPrecision,sigmaOf,sigmaOfResult,sleepForDate,sleepList,streakSettings,trainingStreak,valueAtLevel,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights,workoutsBetween};
+const FT = {ASSESS_DOMAINS,BENCHMARKS,FORMATS,LEVEL_RUNGS,LIBRARY,REPMAX_MAX_REPS,RESULT_TYPES,ROOMS,RX_STATES,SIGMA_EST_1RM,SIGMA_REPEAT,STREAK_DEFAULTS,TIER_SIGMA,UNLOCK_MIN,WORKOUT_TEMPLATES,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,applyRamp,assessment,axisValue,benchmarkFor,buildResult,byDomain,canEditLog,canEditWorkout,cardAddPart,cardForLog,cardFromLogs,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,dietTargets,estBand,formatOf,ftStats,getCard,getWorkout,groupableDays,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,levelLadder,libraryFor,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,prFor,precisionOf,precisionOfResult,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,rxLabel,rxStatusOf,sessionText,setDietTargets,setStreakSettings,setWaterGoal,setWeightGoal,sigmaFromPrecision,sigmaOf,sigmaOfResult,sleepForDate,sleepList,streakSettings,trainingStreak,updateCustomWorkout,updateLog,valueAtLevel,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights,workoutsBetween};
 // Strive — the workout timer engine. Pure, no DOM, no clock of its own.
 //
 // ⚑ WHY THIS IS A SEPARATE MODULE, AND WHY IT TAKES `now` AS AN ARGUMENT.
@@ -4706,9 +4819,17 @@ const PICKER = {
   seconds:  { values: SEC_STEPS, unit: 'sec', fmt: v => fmtClock(v) },
   interval: { values: SEC_STEPS.filter(v => v >= 15), unit: 'sec', fmt: v => fmtClock(v) },
   lead:     { values: [0, 3, 5, 10, 15, 20, 30], unit: 'sec', fmt: v => (v ? v + ' seconds' : 'no countdown') },
-  // Death By: where the ladder starts, and how much it climbs each round.
+  // The ladder: where it starts, and how much it moves each round.
+  // ⚑ `step` GOES NEGATIVE (twenty-sixth session) — his "decreasing EMOMs (EOMs)". It used to
+  // offer [1..5] only, because Death By is the one ladder that can only climb. A descent is the
+  // same arithmetic with the sign flipped, so this is a wider list rather than a second field.
   reps:     { values: Array.from({ length: 30 }, (_, i) => i + 1), unit: '', fmt: v => v + (v === 1 ? ' rep' : ' reps') },
-  step:     { values: [1, 2, 3, 4, 5], unit: '', fmt: v => '+' + v + (v === 1 ? ' rep' : ' reps') },
+  step:     { values: [-10, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 10], unit: '',
+              fmt: v => v === 0 ? 'stays the same' : (v > 0 ? '+' : '−') + Math.abs(v) + (Math.abs(v) === 1 ? ' rep' : ' reps') + ' each round' },
+  load:     { values: [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 65, 75, 85, 95, 105, 115, 125, 135, 155, 175, 185, 205, 225, 245, 275, 315],
+              unit: 'lb', fmt: v => v ? v + ' lb' : 'bodyweight' },
+  loadStep: { values: [-50, -45, -35, -25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25, 35, 45, 50],
+              unit: 'lb', fmt: v => v === 0 ? 'stays the same' : (v > 0 ? '+' : '−') + Math.abs(v) + ' lb each round' },
 };
 
 function fmtClock(s) {
@@ -4732,7 +4853,10 @@ function pickerIndex(field, value) {
 function pickerValues(field, value) {
   const vs = ((PICKER[field] || {}).values || []).slice();
   const n = Number(value);
-  if (Number.isFinite(n) && n > 0 && !vs.includes(n)) {
+  // ⚑ `n !== 0` rather than `n > 0` since the twenty-sixth session: a step may be NEGATIVE and
+  // a custom −7 must keep its place like any other custom value. Zero stays excluded because
+  // `Number(null)` and `Number('')` are both 0, so a missing field would otherwise insert one.
+  if (Number.isFinite(n) && n !== 0 && !vs.includes(n)) {
     vs.push(n);
     vs.sort((a, b) => a - b);
   }
@@ -4774,6 +4898,10 @@ function isDeathBy(cfg) { return !!(cfg && cfg.kind === 'emom' && cfg.deathBy); 
 function timerFullySpecified(cfg, w) {
   if (!cfg || !w) return false;
   if (isDeathBy(cfg)) return true;
+  // ⚑ A saved ramp answers every question the setup screen asks — interval, rounds, and the
+  // ladder — because he entered all three when he built the workout. That is exactly the
+  // condition stated above, so it qualifies for the one-tap start on the same terms.
+  if (isRamp(cfg) && cfg.interval && cfg.rounds) return true;
   // ⚑ 'stopwatch' is also the FALLBACK kind for anything whose format we do not recognise, so
   // testing the kind alone would have started a silent stopwatch on strength work and on every
   // 'other'-format entry. The workout has to say outright that it is a for-time piece.
@@ -4782,22 +4910,116 @@ function timerFullySpecified(cfg, w) {
   return false;
 }
 
-// Reps required in round n (1-based). His log carries both shapes: "Death By: Push-ups"
-// ascends 1,2,3… and "Death By: Push-ups [x2]" ascends 2,4,6… — which is step 2, not a
-// different workout. Modelling it as start+step covers both without a second config.
-function deathByReps(cfg, round) {
+// ---------------------------------------------------------------------------------------
+// ⚑ THE RAMP — generalised from Death By, twenty-sixth session, on his report: "yesterday I did
+// a 10-minute EMOM, but every minute I was increasing... I did not know how to log that, and I
+// did not know how to accurately see that in the app."
+//
+// ⚑ THE FINDING IS THAT MOST OF IT WAS ALREADY HERE. `DEATH_BY_DEFAULTS` is `{start:1, step:1}`
+// and `deathByReps` is `start + step*(round-1)` — a rep ladder, built in the twenty-first
+// session, reachable only if you ticked "Death By". His 1→10 EMOM IS that ladder. What was
+// missing was not the maths; it was that the ladder was welded to one end condition.
+//
+// ⚑ SO THE REAL DISTINCTION IS HOW THE PIECE ENDS, AND IT IS THE ONLY THING `deathBy` NOW MEANS:
+//   Death By  → ends when you FAIL. `rounds` is a safety ceiling, `timerTotal` is null, there is
+//               no progress denominator and no 'end' cue. Open-ended by construction.
+//   ramp      → ends on the CLOCK at `rounds`. `timerTotal` is the interval sum, the bezel has a
+//               denominator, the 'end' cue fires. A finite piece that happens to climb.
+// Both read their prescription from the same two numbers. Nothing about the ladder is duplicated.
+//
+// ⚑ AND THE LOAD RAMP IS GENUINELY NEW — `cfg` had no concept of load at all, in any kind.
+// His ask was explicit: "the load needs to be able to increase or decrease every round as well."
+
+// Reps required in round n (1-based). His log carries both ascending shapes: "Death By: Push-ups"
+// climbs 1,2,3… and "Death By: Push-ups [x2]" climbs 2,4,6… — which is step 2, not a different
+// workout. Modelling it as start+step covers both, and a NEGATIVE step covers his EOM descent
+// without a second config.
+//
+// ⚑ THE FLOOR IS 1 AND IT IS A CLAMP, NOT A STOP — which is a compromise worth naming, because a
+// descending ramp can outrun its own rounds: 10 rounds from 10 at step −2 reads 10,8,6,4,2 and
+// then wants 0,−2,−4. Zero reps is not a round and a negative rep is not anything. Clamping keeps
+// the engine total, but rounds 6–10 would then all read "1 rep", which is a number the engine
+// invented rather than one he asked for. **So the clamp is the safety net and `rampLadder` is the
+// answer**: the builder prints the whole ladder before he starts, so an over-long descent is
+// visible standing still rather than discovered at round six with a clock running.
+function rampReps(cfg, round) {
   if (!(round >= 1)) return 0;
   const start = Number(cfg && cfg.start != null ? cfg.start : DEATH_BY_DEFAULTS.start);
   const step  = Number(cfg && cfg.step  != null ? cfg.step  : DEATH_BY_DEFAULTS.step);
-  return start + step * (Math.floor(round) - 1);
+  return Math.max(1, start + step * (Math.floor(round) - 1));
 }
 
-// Total reps performed through round n — the number that makes a Death By feel expensive,
-// and the one nobody computes in their head mid-workout. Round 15 of a 1-step is 120 reps.
-function deathByVolume(cfg, round) {
+// Load carried in round n (1-based), in cfg.loadUnit. Floors at 0 rather than 1: an unloaded
+// round is a real round (bodyweight), where an unrepped round is not.
+function rampLoad(cfg, round) {
+  if (!(round >= 1)) return 0;
+  const start = Number(cfg && cfg.loadStart != null ? cfg.loadStart : 0);
+  const step  = Number(cfg && cfg.loadStep  != null ? cfg.loadStep  : 0);
+  if (!start && !step) return 0;
+  return Math.max(0, start + step * (Math.floor(round) - 1));
+}
+
+function hasLoadRamp(cfg) {
+  return !!(cfg && (Number(cfg.loadStart) || Number(cfg.loadStep)));
+}
+
+// Backwards-compatible name. Death By is one arrangement of the ramp, so it reads the same maths.
+function deathByReps(cfg, round) { return rampReps(cfg, round); }
+
+// Total reps performed through round n — the number that makes a ladder feel expensive, and the
+// one nobody computes in their head mid-workout. Round 15 of a 1-step is 120 reps; his 1→10 is 55.
+function rampVolume(cfg, round) {
   let n = Math.floor(round), v = 0;
-  for (let r = 1; r <= n; r++) v += deathByReps(cfg, r);
+  for (let r = 1; r <= n; r++) v += rampReps(cfg, r);
   return v;
+}
+function deathByVolume(cfg, round) { return rampVolume(cfg, round); }
+
+// An EMOM carrying a per-round prescription. Death By is one; a fixed-round ramp is the other.
+function isRamp(cfg) {
+  return !!(cfg && cfg.kind === 'emom' && (cfg.deathBy || cfg.ramp));
+}
+
+// ⚑ THE WHOLE LADDER AS DATA, so the builder can show it and a test can assert it. A Death By has
+// no end, so it is capped at `rounds` (its safety ceiling) purely for display.
+function rampLadder(cfg, max = null) {
+  const n = Math.max(0, Math.floor(Number(max != null ? max : (cfg && cfg.rounds)) || 0));
+  const loaded = hasLoadRamp(cfg);
+  return Array.from({ length: n }, (_, i) => {
+    const round = i + 1;
+    const row = { round, reps: rampReps(cfg, round) };
+    if (loaded) { row.load = rampLoad(cfg, round); row.unit = (cfg && cfg.loadUnit) || 'lb'; }
+    return row;
+  });
+}
+
+// ⚑ WHERE A DESCENT STOPS MEANING ANYTHING — the round after which the clamp starts inventing
+// numbers. null when the ladder never hits the floor, which is every ascending ramp.
+function rampFloorsAt(cfg) {
+  const start = Number(cfg && cfg.start != null ? cfg.start : DEATH_BY_DEFAULTS.start);
+  const step  = Number(cfg && cfg.step  != null ? cfg.step  : DEATH_BY_DEFAULTS.step);
+  if (step >= 0) return null;
+  // last round whose raw value is still >= 1
+  const last = Math.floor((start - 1) / -step) + 1;
+  const rounds = Math.max(0, Math.floor(Number(cfg && cfg.rounds) || 0));
+  return rounds && last < rounds ? last : null;
+}
+
+// One line describing the prescription, for the workout screen and the log form.
+function rampSummary(cfg) {
+  if (!isRamp(cfg)) return '';
+  const step = Number(cfg && cfg.step != null ? cfg.step : DEATH_BY_DEFAULTS.step);
+  const dir = step === 0 ? 'holding at' : step > 0 ? 'up' : 'down';
+  const first = rampReps(cfg, 1);
+  const parts = [];
+  if (step === 0) parts.push(`${first} reps every round`);
+  else parts.push(`${first} rep${first === 1 ? '' : 's'}, ${dir} ${Math.abs(step)} each round`);
+  if (hasLoadRamp(cfg)) {
+    const l0 = rampLoad(cfg, 1), ls = Number(cfg.loadStep) || 0, u = cfg.loadUnit || 'lb';
+    parts.push(ls === 0 ? `at ${l0} ${u}`
+      : `load from ${l0} ${u}, ${ls > 0 ? 'up' : 'down'} ${Math.abs(ls)} each round`);
+  }
+  return parts.join(' · ');
 }
 
 // Total scheduled length in seconds, or null for an open-ended stopwatch.
@@ -4904,15 +5126,26 @@ function timerState(cfg, session, now) {
     if (i >= iv.length) return finish({ display: 0, fraction: 0 });
     const st = { ...base, phase: 'work', display: acc + iv[i] - el, round: i + 1,
                  roundLength: iv[i], remaining: total - el, fraction: (acc + iv[i] - el) / iv[i] };
-    if (isDeathBy(cfg)) {
-      // ⚑ The rep target is the whole screen in a Death By. Round 14 is not "round 14",
+    if (isRamp(cfg)) {
+      // ⚑ The rep target is the whole screen in a ladder. Round 14 is not "round 14",
       // it is "14 reps in the next 60 seconds", and that is the number you look down at.
-      st.reps = deathByReps(cfg, i + 1);
-      st.nextReps = deathByReps(cfg, i + 2);
-      st.volume = deathByVolume(cfg, (session.taps || []).length);
-      st.remaining = null;   // open-ended: `total` is null and the ceiling is not a target
-      st.deathBy = true;
-      if (session.failedAt != null) { st.phase = 'done'; st.failedAt = session.failedAt; }
+      st.reps = rampReps(cfg, i + 1);
+      st.nextReps = rampReps(cfg, i + 2);
+      st.volume = rampVolume(cfg, (session.taps || []).length);
+      st.ramp = true;
+      if (hasLoadRamp(cfg)) {
+        st.load = rampLoad(cfg, i + 1);
+        st.nextLoad = rampLoad(cfg, i + 2);
+        st.loadUnit = cfg.loadUnit || 'lb';
+      }
+      // ⚑ ONLY THE DEATH BY GOES OPEN-ENDED. A fixed-round ramp keeps its denominator and its
+      // 'end' cue, which is the entire difference between the two and the reason `remaining`
+      // is cleared HERE rather than for every ladder.
+      if (isDeathBy(cfg)) {
+        st.remaining = null;   // open-ended: `total` is null and the ceiling is not a target
+        st.deathBy = true;
+        if (session.failedAt != null) { st.phase = 'done'; st.failedAt = session.failedAt; }
+      }
     }
     return st;
   }
@@ -5097,6 +5330,19 @@ function timerToLogFields(cfg, session, w, now) {
         out.prompt = `You finished ${r.rounds} round${r.rounds === 1 ? '' : 's'}, then failed on round ` +
                      `${r.failedAt} (${need} reps). How many of those ${need} did you get?`;
       }
+    } else if (isRamp(cfg)) {
+      // ⚑ A FIXED-ROUND RAMP SCORES IN TOTAL REPS, NOT ROUNDS — and the reason is that rounds
+      // cannot tell two of his ladders apart. A 1→10 and a 5→50 both finish in ten rounds; one
+      // is 55 reps and the other is 275. "10" is the length of the piece, not the work done.
+      //
+      // It is scored from the LADDER against rounds actually tapped, not from the prescription,
+      // so stopping at round 7 of 10 scores the 28 reps he did rather than the 55 he planned.
+      const done = rampVolume(cfg, taps);
+      out.ramp = { rounds: taps, reps: done, ladder: rampLadder(cfg, taps) };
+      out.fields = { reps: done, rounds: taps };
+      out.resultType = 'reps';
+      out.detail = `${taps} round${taps === 1 ? '' : 's'} · ${done} reps` +
+                   (hasLoadRamp(cfg) ? ` · ${rampLoad(cfg, 1)}–${rampLoad(cfg, Math.max(1, taps))} ${cfg.loadUnit || 'lb'}` : '');
     }
   } else if (fmt === 'tabata' || fmt === 'intervals') {
     out.fields = { per: timerSplits(session).map(s => mmss(s)) };
@@ -5106,7 +5352,7 @@ function timerToLogFields(cfg, session, w, now) {
   return out;
 }
 
-const TM = {DEATH_BY_DEFAULTS,PICKER,PICKER_SCALE,TIMER_COLOR,TIMER_KINDS,cueAt,cuesBetween,deathByReps,deathByResult,deathByVolume,elapsedSec,fmtClock,inLead,isDeathBy,isPaused,leadSec,pausedMs,pickerIndex,pickerValues,rawSec,splitDeltas,timerFail,timerFullySpecified,timerIntervals,timerPause,timerResume,timerSplits,timerStart,timerState,timerStop,timerTap,timerToLogFields,timerTotal,toPick,toStore};
+const TM = {DEATH_BY_DEFAULTS,PICKER,PICKER_SCALE,TIMER_COLOR,TIMER_KINDS,cueAt,cuesBetween,deathByReps,deathByResult,deathByVolume,elapsedSec,fmtClock,hasLoadRamp,inLead,isDeathBy,isPaused,isRamp,leadSec,pausedMs,pickerIndex,pickerValues,rampFloorsAt,rampLadder,rampLoad,rampReps,rampSummary,rampVolume,rawSec,splitDeltas,timerFail,timerFullySpecified,timerIntervals,timerPause,timerResume,timerSplits,timerStart,timerState,timerStop,timerTap,timerToLogFields,timerTotal,toPick,toStore};
 // Strive — the movement registry. D2, twentieth session.
 //
 // ⚑ THE MODEL, settled in strive-fitness-open-threads.md §1 (Baruch's answer to 1.1):
@@ -5446,6 +5692,55 @@ function toggleKit(k) {
   if (i >= 0) cur.splice(i, 1); else cur.push(k);
   save();
   return cur;
+}
+
+// ---------------------------------------------------------------------------------------
+// ⚑ THE BLOCKLIST — movements he will not do, twenty-sixth session. His words: "I do not want
+// any workouts in the app that have rope climbs. I'm going to assume I'm never going to do rope
+// climbs since it's such a hard piece of equipment to find... If I can say 'no rope climbs, no
+// other movements', all the workouts with those will not show up."
+//
+// ⚑ IT IS NOT THE KIT FILTER, THOUGH ROPE IS THE EXAMPLE FOR BOTH, and the distinction is worth
+// keeping. `myKit` says what he OWNS — a fact about his garage that changes when he buys a rope.
+// This says what he is WILLING TO DO, which is a standing preference about the movement itself
+// and survives owning the equipment. Muscle-ups on a rig he has are a legitimate entry here.
+//
+// ⚑ MEASURED BEFORE BUILDING, because the scale changes whether this is worth having: of 454
+// workouts, exactly EIGHT contain a rope climb — six Regionals events plus Tommy V and Always
+// Remembered. So this is not built for rope; it is built because "movements I won't do" is the
+// general shape, and rope is the first instance he happened to name.
+function blockedMovements() {
+  const f = state.fitness || (state.fitness = {});
+  if (!Array.isArray(f.blocked)) f.blocked = [];
+  return f.blocked;
+}
+function toggleBlocked(id) {
+  const cur = blockedMovements();
+  const i = cur.indexOf(id);
+  if (i >= 0) cur.splice(i, 1); else cur.push(id);
+  save();
+  return cur;
+}
+function isBlockedWorkout(w) {
+  const blocked = blockedMovements();
+  if (!blocked.length) return false;
+  return movementsOf(w).some(id => blocked.includes(id));
+}
+// ⚑ THE FILTER IS OPT-IN AT THE CALL SITE RATHER THAN BURIED IN `allWorkouts()`, and that is
+// deliberate. Hiding them globally would silently change what `movementCoverage()`,
+// `build_workouts.py`'s gap check and `test-phase-d1.mjs`'s "130 benchmarks · 130 with a workout
+// · 0 invisible" all count — a preference would have started editing the catalog's own audit of
+// itself. Browsing screens filter; anything that measures the library does not.
+function visibleWorkouts(list = null) {
+  const pool = list || allWorkouts();
+  const blocked = blockedMovements();
+  if (!blocked.length) return pool;
+  return pool.filter(w => !movementsOf(w).some(id => blocked.includes(id)));
+}
+function blockedCount() {
+  const blocked = blockedMovements();
+  if (!blocked.length) return 0;
+  return allWorkouts().filter(w => movementsOf(w).some(id => blocked.includes(id))).length;
 }
 
 // The same filter applied to history — "show me every session where I deadlifted".
@@ -5989,7 +6284,7 @@ function movementCoverage() {
            unmatched: ws.filter(w => movementsOf(w).length === 0).map(w => w.name).slice(0, 40) };
 }
 
-const MV = {EQUIPMENT,EQUIPMENT_LABEL,MOVEMENTS,MOVEMENT_BY_ID,MOVEMENT_CATS,PR_TYPES,confirmDerived,confirmKey,confirmedList,eligibleForLevel,formOf,isConfirmed,kitOf,ladderHeader,logsWithAll,missingKit,movementCounts,movementCoverage,movementStats,movementsIn,movementsOf,myKit,repSchemeOf,repsIn,roundsHeader,statsSummary,toggleKit,unconfirmDerived,withConfirmation,workoutsOnly,workoutsWithAll,workoutsWithKit};
+const MV = {EQUIPMENT,EQUIPMENT_LABEL,MOVEMENTS,MOVEMENT_BY_ID,MOVEMENT_CATS,PR_TYPES,blockedCount,blockedMovements,confirmDerived,confirmKey,confirmedList,eligibleForLevel,formOf,isBlockedWorkout,isConfirmed,kitOf,ladderHeader,logsWithAll,missingKit,movementCounts,movementCoverage,movementStats,movementsIn,movementsOf,myKit,repSchemeOf,repsIn,roundsHeader,statsSummary,toggleBlocked,toggleKit,unconfirmDerived,visibleWorkouts,withConfirmation,workoutsOnly,workoutsWithAll,workoutsWithKit};
 // Strive — Bible reading plans: any scope, canonical order, pace by chapters/day
 // or target date. Missed days roll forward. Multiple plans can run at once.
 
@@ -6911,7 +7206,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260807-1821'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260807-1821';
+const BUILD_ID = '20260808-0742'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260808-0742';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -7742,18 +8037,46 @@ function paceDeltaChip(delta) {
 
 // reusable "Finish by" date card with a live pace readout (9.4).
 // onSet receives the new date string or null; info is a dayPlan result (or null).
+//
+// ⚑ COMMIT ON AN EXPLICIT TAP, NEVER ON `change` — and this is a real defect he hit six times
+// in a row, once per book, twenty-sixth session. It used to read:
+//
+//     input.onchange = e => onSet(e.target.value || null);
+//
+// and EVERY caller does something destructive with that call: `bookDueSheet` and
+// `creedDueSheet` run `close()`, the three memorize sites run `fill()` / `rerender()` /
+// `render()`. All five tear down the very input the user is still working in.
+//
+// ⚑ THE PART THAT MADE IT LOOK LIKE MAGIC RATHER THAN A BUG: with no target set the input is
+// `value=""`, so iOS opens the picker on TODAY with nothing anchoring it, and the FIRST
+// interaction commits today. `change` fired, `onSet` ran, the sheet closed — and his date was
+// never chosen. Reopening showed `value=<today>`, so the picker was anchored and the next pick
+// landed. Hence his exact report: "it automatically chose the day I was on, and then I could go
+// back in and choose a different date." Deterministic, not flaky, which is why all six books did it.
+//
+// The fix is not "debounce the change" or "reopen the sheet" — it is that a date the user is
+// still scrolling is a DRAFT, and a draft must not reach the store. Nothing commits until Set.
 function dueControl({ label, hint, value, onSet, info, unit }) {
   const FIN = 'padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px';
   const readout = info
     ? `<div style="font-size:12px;font-weight:600;margin-top:8px;${info.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${info.overdue ? 'Overdue — ' + info.remaining + ' ' + unit + ' left, due now' : info.perDay + ' ' + unit + '/day to stay on pace'}${info.overdue ? '' : paceDeltaChip(info.delta)}</div>`
     : `<div class="muted" style="font-size:12px;margin-top:8px">${esc(hint || 'Set a date for a self-adjusting daily pace — shows in Today, Week & Month.')}</div>`;
+  const committed = value || '';
   const card = h(`<div class="card"><h3>${esc(label)}</h3>
     <div class="row">
-      <input data-a="due" type="date" value="${value || ''}" style="flex:1;min-width:0;${FIN}">
-      <button class="pill" data-a="clr" style="padding:9px 12px;${value ? '' : 'display:none'}">Clear</button>
+      <input data-a="due" type="date" value="${committed}" style="flex:1;min-width:0;${FIN}">
+      <button class="pill" data-a="set" style="padding:9px 12px;display:none">Set</button>
+      <button class="pill" data-a="clr" style="padding:9px 12px;${committed ? '' : 'display:none'}">Clear</button>
     </div>${readout}
   </div>`).firstElementChild;
-  card.querySelector('[data-a=due]').onchange = e => onSet(e.target.value || null);
+  const inp = card.querySelector('[data-a=due]');
+  const setBtn = card.querySelector('[data-a=set]');
+  // The draft differs from what is stored → offer the commit. Scrolling the picker back to the
+  // stored date withdraws the offer again, so "Set" never appears meaning nothing.
+  const sync = () => { setBtn.style.display = (inp.value || '') !== committed ? '' : 'none'; };
+  inp.onchange = sync;
+  inp.oninput = sync;
+  setBtn.onclick = () => onSet(inp.value || null);
   card.querySelector('[data-a=clr]').onclick = () => onSet(null);
   return card;
 }
@@ -13455,8 +13778,12 @@ const FIN = 'padding:11px;border-radius:3px;border:1px solid var(--line);backgro
 //
 // 5.3 also lives here: Movements is its own destination beside Workouts, not something you
 // reach through a workout.
+// ⚑ ORDER IS HIS, twenty-sixth session, verbatim: "Training: Workouts, Logbook, Movements,
+// Timers, Stats. Health: Weight, Water, Macros, Sleep." Level is absent from his Training list
+// because Level is the hub's own card, not a row beneath it — it stays first in the pill row
+// here, which is the same list seen from inside the group.
 const FT_GROUPS = [
-  ['training', 'Training', [['level', 'Level'], ['workouts', 'Workouts'], ['movements', 'Movements'], ['stats', 'Stats'], ['log', 'Logbook'], ['timers', 'Timers']]],
+  ['training', 'Training', [['level', 'Level'], ['workouts', 'Workouts'], ['log', 'Logbook'], ['movements', 'Movements'], ['timers', 'Timers'], ['stats', 'Stats']]],
   ['health', 'Health', [['weight', 'Weight'], ['water', 'Water'], ['diet', 'Macros'], ['sleep', 'Sleep']]],
 ];
 const ftGroupOf = mode => (FT_GROUPS.find(g => g[2].some(t => t[0] === mode)) || FT_GROUPS[0])[0];
@@ -13472,13 +13799,13 @@ const ftGroupOf = mode => (FT_GROUPS.find(g => g[2].some(t => t[0] === mode)) ||
 // pills at all, which is the whole point of it.
 const FT_HUB = [
   ['workouts', 'Workouts', 'Browse, build and log every workout'],
+  ['log', 'Logbook', 'Everything you have logged, newest first'],
   ['movements', 'Movements', 'Rep maxes, max sets, volume and tonnage per movement'],
+  ['timers', 'Timers', 'Stopwatch, AMRAP, EMOM, Tabata, Death By'],
   // ⚑ STATS SITS BESIDE MOVEMENTS, NOT INSIDE IT. Movements answers "tell me about the
   // deadlift"; Stats answers "what are my numbers" without naming a movement first. Same data,
   // opposite entry point — which is why it is a sibling and not a tab on the movement screen.
   ['stats', 'Stats', 'Your bests and lifetime totals across every movement'],
-  ['log', 'Logbook', 'Everything you have logged, newest first'],
-  ['timers', 'Timers', 'Stopwatch, AMRAP, EMOM, Tabata, Death By'],
   ['weight', 'Weight', 'Bodyweight log and goal'],
   ['water', 'Water', 'Daily intake'],
   ['diet', 'Macros', 'Protein, carbs, fat and calories'],
@@ -13499,10 +13826,20 @@ function ftHub(body) {
   body.append(card);
   body.append(ftStreakCard());
 
-  body.append(sectionTitle('Training'));
-  FT_HUB.slice(0, 4).forEach(([m, l, sub]) => body.append(ftHubRow(m, l, sub)));
-  body.append(sectionTitle('Health'));
-  FT_HUB.slice(4).forEach(([m, l, sub]) => body.append(ftHubRow(m, l, sub)));
+  // ⚑ THE SPLIT IS DERIVED FROM `FT_GROUPS`, NOT FROM AN INDEX, AND THAT WAS A LIVE BUG.
+  // This read `FT_HUB.slice(0, 4)` / `.slice(4)` — a hardcoded boundary that was correct when
+  // Training held four rows. Stats was added to Training in the twenty-fourth session and
+  // nothing moved the number, so Training silently lost its last row and **Timers had been
+  // rendering under HEALTH ever since**. Found while applying his pill reorder, not by a test:
+  // both sections render, both are non-empty, every row works, and nothing anywhere asserts
+  // which heading a row sits beneath. Deriving the split means adding a row can no longer
+  // push one out of its own group.
+  FT_GROUPS.forEach(([g, title]) => {
+    const rows = FT_HUB.filter(([m]) => ftGroupOf(m) === g);
+    if (!rows.length) return;
+    body.append(sectionTitle(title));
+    rows.forEach(([m, l, sub]) => body.append(ftHubRow(m, l, sub)));
+  });
 }
 
 function ftHubRow(mode, label, sub) {
@@ -14223,16 +14560,138 @@ function logRow(l, { showName = true } = {}) {
         ${l.notes ? `<div class="sub" style="font-style:italic">${esc(l.notes)}</div>` : ''}
         ${(() => { const c = FT.cardForLog(l.id); return c ? `<div class="sub" style="color:var(--gold)">⛓ ${esc(FT.cardPartLabel(c.parts.findIndex(p => p.logId === l.id)))} of “${esc(c.name)}”</div>` : ''; })()}
       </div>
+      ${l.user ? '<button data-a="edit" style="border:none;background:none;color:var(--text-2);font-size:15px;cursor:pointer" title="Edit">✎</button>' : ''}
       ${l.user ? '<button data-a="del" style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button>' : ''}
       ${showName ? '<span class="chev">›</span>' : ''}
     </div>`);
   const del = el.querySelector('[data-a=del]');
   if (del) del.onclick = e => { e.stopPropagation(); FT.removeLog(l.id); toast('Entry removed'); rerender(); };
+  // ⚑ THE PENCIL SITS BESIDE THE ✕ THAT USED TO BE THE ONLY OPTION. Both are on `l.user` for the
+  // same reason — an imported log has nothing in the store to write to — so the two affordances
+  // appear and disappear together and the row can never offer one without the other.
+  const edit = el.querySelector('[data-a=edit]');
+  if (edit) edit.onclick = e => { e.stopPropagation(); logEditSheet(l); };
   // ⚑ §5.6. Tapping a logged session used to open the WORKOUT, which is exactly the
   // complaint: "I tried to show somebody the workout I did, and all it showed was the
   // title." Tapping a session now shows the session.
   if (showName && w) el.querySelector('.list-item').onclick = () => sessionSheet(l);
   return el;
+}
+
+// ⚑ EDIT A WORKOUT HE BUILT — twenty-sixth session, the other half of "enter workouts or edit
+// workouts that I have just entered". Name, prescription and the ladder, which between them are
+// everything he was re-creating the workout in order to change.
+//
+// ⚑ IT EDITS THE PRESCRIPTION AS TEXT AND THAT IS NOT A SHORTCUT — it is how the app already
+// works. There is no stored movement id anywhere: `movementsOf()` runs alias regexes over this
+// exact string every time it is read, which is how all 454 workouts resolve. So "24 Push-ups"
+// typed here counts as 24 push-ups in his volume and tonnage. What it CANNOT do is resolve a
+// movement outside the 66 in the registry — "12 Bicep Curls" reads as nothing at all — which is
+// precisely why batch 2 puts a picker in front of this field. Until then the screen says so.
+function workoutEditSheet(w) {
+  openSheet('Edit workout', (body, close) => {
+    if (!FT.canEditWorkout(w.id)) {
+      body.append(h(`<div class="muted" style="font-size:13px;line-height:1.6">This is a published workout, so its prescription stays as it is. Copying it and changing the movements is coming next.</div>`));
+      return;
+    }
+    const seed = ftTimerCfgFor(w).cfg;
+    const isRamp = TM.isRamp(seed) && !TM.isDeathBy(seed);
+    const card = h(`<div>
+        <input data-a="name" value="${esc(w.name || '')}" placeholder="Workout name" style="width:100%;${FIN};margin-bottom:8px">
+        <textarea data-a="movements" placeholder="Movements and reps" style="width:100%;min-height:90px;${FIN};margin-bottom:6px">${esc(w.movements || '')}</textarea>
+        <div class="muted" style="font-size:11.5px;margin-bottom:10px">Write movements the way you would say them — “24 Push-ups”, “Run 400m”. They are matched to the app’s ${MV.MOVEMENTS.length} tracked movements as you write, so they count toward your volume and records.</div>
+        ${w.format === 'emom' ? `<div class="row" style="flex-wrap:wrap;margin-bottom:8px">
+          <input data-a="interval" value="${Number(w.interval) || 60}" placeholder="Interval (sec)" inputmode="numeric" style="width:120px;${FIN}">
+          <input data-a="rounds" value="${Number(w.rounds) || ''}" placeholder="Rounds" inputmode="numeric" style="width:90px;${FIN}">
+        </div>
+        <div class="row" style="flex-wrap:wrap;margin-bottom:6px">
+          <input data-a="start" value="${isRamp ? (Number(w.start) || 1) : ''}" placeholder="Start reps" inputmode="numeric" style="width:105px;${FIN}">
+          <input data-a="step" value="${isRamp ? (w.step != null ? w.step : 1) : ''}" placeholder="± per round" inputmode="numeric" style="width:115px;${FIN}">
+          <input data-a="loadStart" value="${Number(w.loadStart) || ''}" placeholder="Load (lb)" inputmode="numeric" style="width:105px;${FIN}">
+          <input data-a="loadStep" value="${Number(w.loadStep) || ''}" placeholder="± lb/round" inputmode="numeric" style="width:110px;${FIN}">
+        </div>
+        <div data-a="lad" class="muted" style="font-size:12px;margin-bottom:10px"></div>` : ''}
+        <button class="btn" data-a="save">Save changes</button>
+      </div>`).firstElementChild;
+    const g = k => { const el = card.querySelector(`[data-a=${k}]`); return el ? el.value.trim() : ''; };
+    const lad = card.querySelector('[data-a=lad]');
+    const drawLad = () => {
+      if (!lad) return;
+      const rounds = Number(g('rounds')) || 0;
+      if (!g('start') || !rounds) { lad.textContent = g('start') ? 'Set rounds to see the ladder.' : 'Leave “start reps” blank for a plain EMOM.'; return; }
+      const cfg = { kind: 'emom', ramp: true, rounds,
+        start: Number(g('start')) || 1, step: g('step') === '' ? 1 : Number(g('step')),
+        loadStart: Number(g('loadStart')) || 0, loadStep: Number(g('loadStep')) || 0, loadUnit: 'lb' };
+      const rows = TM.rampLadder(cfg), floors = TM.rampFloorsAt(cfg);
+      lad.textContent = rows.map(r => r.load != null ? `${r.reps}@${r.load}` : String(r.reps)).join(' · ')
+        + `  —  ${TM.rampVolume(cfg, rows.length)} reps total`
+        + (floors ? `  ⚠ flattens at 1 rep after round ${floors}` : '');
+    };
+    card.addEventListener('input', drawLad);
+    drawLad();
+    card.querySelector('[data-a=save]').onclick = () => {
+      const name = g('name');
+      if (!name) { toast('Give the workout a name'); return; }
+      const wantsRamp = w.format === 'emom' && g('start') !== '' && Number(g('rounds')) > 0;
+      FT.updateCustomWorkout(w.id, {
+        name, movements: card.querySelector('[data-a=movements]').value,
+        interval: w.format === 'emom' ? (Number(g('interval')) || 60) : w.interval,
+        rounds: w.format === 'emom' ? (Number(g('rounds')) || 0) : w.rounds,
+        resultType: wantsRamp ? 'reps' : w.resultType,
+        ramp: wantsRamp ? {
+          start: Number(g('start')) || 1, step: g('step') === '' ? 1 : Number(g('step')),
+          loadStart: Number(g('loadStart')) || 0, loadStep: Number(g('loadStep')) || 0, loadUnit: 'lb',
+        } : null,
+      });
+      toast('Workout updated');
+      close();
+      rerender();
+    };
+    body.append(card);
+  });
+}
+
+// ⚑ EDIT AN ENTRY — twenty-sixth session. Result, date, notes and Rx, in one sheet, on the row
+// that previously offered only ✕. His words: "I had to just keep deleting it and trying
+// different things to make it look right instead of just doing a quick edit."
+//
+// ⚑ THE DATE IS EDITABLE AND THAT IS THE PART THAT NEEDED CHECKING, not building. Re-dating a
+// log moves it between days, and days are now what the streak AND the weekly target both count
+// (see `workoutsBetween`) — so the two must move together, and a grouped entry must stay in its
+// card. Both are asserted rather than reasoned about, because the log id is a stored `uid()`
+// and not derived from the timestamp, which is the property that makes it safe.
+function logEditSheet(l) {
+  const w = FT.getWorkout(l.wid);
+  openSheet('Edit entry', (body, close) => {
+    if (!FT.canEditLog(l.id)) {
+      body.append(h(`<div class="muted" style="font-size:13px;line-height:1.6">This entry came in with your imported history, which is stored as part of the app rather than as data on this device — so there is nothing here to edit. It counts toward your totals exactly as it is.</div>`));
+      return;
+    }
+    const dk = todayKey(new Date(l.ts));
+    const card = h(`<div>
+        <div class="muted" style="font-size:12px;margin-bottom:8px">${esc(w ? w.name : 'Workout')}</div>
+        <input data-a="result" value="${esc(l.result || '')}" placeholder="Result" style="width:100%;${FIN};margin-bottom:8px">
+        <input data-a="date" type="date" value="${dk}" style="width:100%;${FIN};margin-bottom:8px">
+        <input data-a="weights" value="${esc(l.weights || '')}" placeholder="Weights used (optional)" style="width:100%;${FIN};margin-bottom:8px">
+        <textarea data-a="notes" placeholder="Notes (optional)" style="width:100%;min-height:64px;${FIN};margin-bottom:10px">${esc(l.notes || '')}</textarea>
+        <button class="btn" data-a="save">Save changes</button>
+      </div>`).firstElementChild;
+    card.querySelector('[data-a=save]').onclick = () => {
+      const result = card.querySelector('[data-a=result]').value.trim();
+      if (!result) { toast('A result cannot be blank'); return; }
+      const ds = card.querySelector('[data-a=date]').value;
+      FT.updateLog(l.id, {
+        result,
+        ts: ds ? new Date(ds + 'T12:00:00').getTime() : l.ts,
+        weights: card.querySelector('[data-a=weights]').value.trim(),
+        notes: card.querySelector('[data-a=notes]').value.trim(),
+      });
+      toast('Entry updated');
+      close();
+      rerender();
+    };
+    body.append(card);
+  });
 }
 
 // ⚑ The session as somebody else would need to read it: what the workout actually was, what
@@ -14459,7 +14918,7 @@ function cardComponentPicker() {
   const draw = () => {
     list.innerHTML = '';
     const q = inp.value.toLowerCase();
-    FT.allWorkouts().filter(w => !q || w.name.toLowerCase().includes(q)).slice(0, 30).forEach(w => {
+    MV.visibleWorkouts().filter(w => !q || w.name.toLowerCase().includes(q)).slice(0, 30).forEach(w => {
       const el = h(`<div class="list-item"><div class="grow"><div class="title" style="font-size:14px">${esc(w.name)}</div></div><span class="chev">＋</span></div>`);
       el.querySelector('.list-item').onclick = () => { cardDraft.parts.push(w.id); render(workoutCardBuilder); };
       list.append(el);
@@ -14502,13 +14961,13 @@ function workoutCardDetail(card) {
 function workoutPicker() {
   setHeader('Log a workout', { back: true });
   const wrap = document.createElement('div');
-  const inp = h(`<input placeholder="Search ${FT.allWorkouts().length} workouts…" value="${esc(ftSearch)}" style="width:100%;${FIN};margin-bottom:10px">`).firstChild;
+  const inp = h(`<input placeholder="Search ${MV.visibleWorkouts().length} workouts…" value="${esc(ftSearch)}" style="width:100%;${FIN};margin-bottom:10px">`).firstChild;
   const list = document.createElement('div');
   const draw = () => {
     list.innerHTML = '';
     const q = inp.value.toLowerCase();
     ftSearch = inp.value;
-    FT.allWorkouts().filter(w => !q || w.name.toLowerCase().includes(q) || (w.movements || '').toLowerCase().includes(q))
+    MV.visibleWorkouts().filter(w => !q || w.name.toLowerCase().includes(q) || (w.movements || '').toLowerCase().includes(q))
       .slice(0, 30).forEach(w => {
         const n = FT.logsFor(w.id).length;
         const el = h(`<div class="list-item">
@@ -14820,6 +15279,32 @@ function ftStatsScreen(body) {
     'No session states reps and load in a form that can be read without guessing.');
 }
 
+// ⚑ MOVEMENTS HE WILL NOT DO — his ask, twenty-sixth session. It lives on the Movements screen
+// rather than in You/Profile because this is a statement ABOUT a movement, and every other
+// statement about a movement is made here. Kit lives in the finder for the same reason: kit is
+// a fact about his garage, this is a standing preference, and keeping them on separate screens
+// is what stops them being read as the same switch.
+function movementBlockSheet() {
+  openSheet('Movements you won’t do', (body, close) => {
+    const draw = () => {
+      body.innerHTML = '';
+      const blocked = MV.blockedMovements();
+      const n = MV.blockedCount();
+      body.append(h(`<div class="muted" style="font-size:12.5px;line-height:1.6;margin-bottom:10px">Anything you tick here disappears from the library, the search and the finder. Nothing is deleted, and your history keeps counting — this is about what gets offered to you.${blocked.length ? `<br><b>${n}</b> workout${n === 1 ? '' : 's'} hidden right now.` : ''}</div>`));
+      MV.MOVEMENT_CATS.forEach(([cat, label]) => {
+        const rows = MV.MOVEMENTS.filter(m => m.cat === cat);
+        if (!rows.length) return;
+        body.append(sectionTitle(label));
+        const row = h(`<div class="pillrow">${rows.map(m =>
+          `<button class="pill ${blocked.includes(m.id) ? 'on' : ''}" data-b="${m.id}">${esc(m.name)}</button>`).join('')}</div>`).firstElementChild;
+        row.querySelectorAll('[data-b]').forEach(b => b.onclick = () => { MV.toggleBlocked(b.dataset.b); draw(); });
+        body.append(row);
+      });
+    };
+    draw();
+  });
+}
+
 function ftMovements(body) {
   const counts = MV.movementCounts();
   const cats = [['all', 'All'], ...MV.MOVEMENT_CATS];
@@ -14827,6 +15312,13 @@ function ftMovements(body) {
     `<button class="pill ${mvCat === c ? 'on' : ''}" data-c="${c}">${esc(l)}</button>`).join('')}</div>`);
   pills.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { mvCat = b.dataset.c; render(fitnessHome); });
   body.append(pills);
+
+  const blockedNow = MV.blockedMovements();
+  const blockRow = h(`<div class="pillrow" style="margin-top:2px">
+      <button class="pill ${blockedNow.length ? 'on' : ''}" data-a="block">🚫 Won’t do${blockedNow.length ? ' · ' + blockedNow.length : ''}</button>
+    </div>`).firstElementChild;
+  blockRow.querySelector('[data-a=block]').onclick = () => movementBlockSheet();
+  body.append(blockRow);
 
   // the filter tray — only present once something is selected, so the list stays a list
   if (mvSelected.length) {
@@ -14895,8 +15387,8 @@ function workoutFinder(ids, opts = {}) {
   const wrap = document.createElement('div');
   const kit = MV.myKit();
 
-  const base = !sel.length ? FT.allWorkouts()
-    : mvMode === 'only' ? MV.workoutsOnly(sel) : MV.workoutsWithAll(sel);
+  const base = MV.visibleWorkouts(!sel.length ? FT.allWorkouts()
+    : mvMode === 'only' ? MV.workoutsOnly(sel) : MV.workoutsWithAll(sel));
   const hits = mvUseKit ? base.filter(w => !MV.missingKit(w, kit).length) : base;
 
   // the two questions, with their answers on the buttons
@@ -15082,7 +15574,7 @@ function ftWorkouts(body) {
   dpills.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { ftDomainFilter = b.dataset.d; rerender(); });
   body.append(dpills);
 
-  const pool = ftDomainFilter === 'all' ? FT.allWorkouts() : FT.byDomain(ftDomainFilter);
+  const pool = MV.visibleWorkouts(ftDomainFilter === 'all' ? FT.allWorkouts() : FT.byDomain(ftDomainFilter));
   const inp = h(`<input placeholder="Search ${pool.length} workouts…" style="width:100%;${FIN};margin-bottom:10px">`).firstChild;
   const list = document.createElement('div');
   const draw = () => {
@@ -15114,9 +15606,23 @@ function workoutDetail(w) {
   const wrap = document.createElement('div');
   const logs = FT.logsFor(w.id);
   const pr = FT.prFor(w.id);
+  // ⚑ A LADDER PRINTS ITS RUNGS ON THE WORKOUT SCREEN. His second complaint about yesterday's
+  // EMOM was not only that he could not log it — it was that he "did not know how to accurately
+  // SEE that in the app". A prescription that reads "EMOM 10" and hides the per-round reps is
+  // the same failure as the empty max-set board: the screen knows and does not say.
+  const rampCfg = ftTimerCfgFor(w).cfg;
+  let rampLine = '';
+  if (TM.isRamp(rampCfg) && !TM.isDeathBy(rampCfg) && w.rounds) {
+    const rows = TM.rampLadder(rampCfg, w.rounds);
+    rampLine = `<div style="font-size:13px;line-height:1.7;margin-top:10px">`
+      + `<b>${esc(TM.rampSummary(rampCfg))}</b><br>`
+      + rows.map(r => `R${r.round}: ${r.reps}${r.load != null ? ' @ ' + r.load + ' ' + (r.unit || 'lb') : ''}`).join(' · ')
+      + `<br><span class="muted">${TM.rampVolume(rampCfg, rows.length)} reps total across ${rows.length} rounds</span></div>`;
+  }
   wrap.append(h(`
     <div class="card">
       ${w.movements ? `<div style="font-size:14px;line-height:1.6;white-space:pre-line">${esc(w.movements)}</div>` : '<div class="muted">No description</div>'}
+      ${rampLine}
       <div class="statgrid" style="margin-top:12px">
         <div class="stat"><div class="v">${logs.length}</div><div class="l">Times done</div></div>
         <div class="stat"><div class="v" style="color:var(--gold)">${pr ? esc(pr.result) : '—'}</div><div class="l">Personal record</div></div>
@@ -15142,6 +15648,7 @@ function workoutDetail(w) {
     <button class="pill" data-s="timer">⏱ ${oneTap ? 'Start' : 'Timer'}</button>
     ${oneTap ? '<button class="pill" data-s="tmsetup">Adjust first</button>' : ''}
     <button class="pill" data-s="addcard">Add to card</button>
+    ${w.custom ? '<button class="pill" data-s="edit">✎ Edit</button>' : ''}
     ${w.custom ? '<button class="pill" data-s="delete" style="color:var(--danger)">Delete</button>' : ''}
   </div>`);
   pills.querySelector('[data-s=timer]').onclick = () =>
@@ -15149,6 +15656,8 @@ function workoutDetail(w) {
   const setupPill = pills.querySelector('[data-s=tmsetup]');
   if (setupPill) setupPill.onclick = () => render(() => ftTimersScreen(w));
   pills.querySelector('[data-s=addcard]').onclick = () => { if (!cardDraft) cardDraft = { name: '', ts: Date.now(), parts: [] }; cardDraft.parts.push(w.id); toast('Added — build the card'); render(workoutCardBuilder); };
+  const editPill = pills.querySelector('[data-s=edit]');
+  if (editPill) editPill.onclick = () => workoutEditSheet(w);
   const delPill = pills.querySelector('[data-s=delete]');
   if (delPill) delPill.onclick = () => workoutRemoveSheet(w);
   wrap.append(pills);
@@ -15256,6 +15765,7 @@ function workoutBuilder() {
       <h3>Domain</h3>
       <div class="pillrow" data-a="domains">${FT.ASSESS_DOMAINS.map(([v, l]) => `<button class="pill ${v === 'light' ? 'on' : ''}" data-dm="${v}">${l}</button>`).join('')}</div>
       <div class="row" data-a="extras" style="margin-bottom:10px;flex-wrap:wrap"></div>
+      <div data-a="ladder" class="muted" style="font-size:12px;margin-bottom:10px"></div>
       <button class="btn" data-a="save">Create workout</button>
     </div>`).firstElementChild;
   let format = 'fortime', rtype = 'time', wdomain = 'light';
@@ -15275,12 +15785,51 @@ function workoutBuilder() {
     if (movesBox.querySelectorAll('.ft-move').length > 1) del.closest('.ft-move').remove();
   });
   const extras = form.querySelector('[data-a=extras]');
+  const ladderBox = form.querySelector('[data-a=ladder]');
+  let rampOn = false;
+
+  // ⚑ THE LADDER PREVIEW IS THE FEATURE, not decoration around it. He built yesterday's
+  // increasing EMOM by "deleting it and trying different things to make it look right" — the
+  // builder gave him no way to see what he had described until after he saved it. Printing
+  // every rung as he types is what turns that loop into one pass, and it is also the only
+  // place a descending ladder reveals that it flattens against the floor before it runs out
+  // of rounds. Same argument as the timer setup screen, same function behind both.
+  function drawLadder() {
+    ladderBox.textContent = '';
+    if (format !== 'emom' || !rampOn) return;
+    const gx = k => { const el = form.querySelector(`[data-x=${k}]`); return el ? el.value : ''; };
+    const cfg = {
+      kind: 'emom', ramp: true,
+      start: Number(gx('start')) || 1,
+      step: gx('step') === '' ? 1 : Number(gx('step')),
+      loadStart: Number(gx('loadStart')) || 0,
+      loadStep: Number(gx('loadStep')) || 0,
+      loadUnit: 'lb',
+      rounds: Number(gx('rounds')) || 0,
+    };
+    if (!cfg.rounds) { ladderBox.textContent = 'Set the number of rounds to see the ladder.'; return; }
+    const rows = TM.rampLadder(cfg);
+    const floors = TM.rampFloorsAt(cfg);
+    const seq = rows.map(r => r.load != null ? `${r.reps}@${r.load}` : String(r.reps)).join(' · ');
+    ladderBox.textContent = `${seq}  —  ${TM.rampVolume(cfg, rows.length)} reps total`
+      + (floors ? `  ⚠ flattens at 1 rep after round ${floors}` : '');
+  }
+
   function drawExtras() {
     extras.innerHTML = '';
     if (format === 'amrap' || format === 'fortime') extras.append(h(`<input data-x="cap" placeholder="Time cap (min)" inputmode="numeric" style="width:130px;${FIN}">`).firstChild);
     if (format === 'emom') {
-      extras.append(h(`<input data-x="interval" placeholder="Interval (sec)" inputmode="numeric" style="width:120px;${FIN}">`).firstChild);
+      extras.append(h(`<input data-x="interval" placeholder="Interval (sec)" inputmode="numeric" value="60" style="width:120px;${FIN}">`).firstChild);
       extras.append(h(`<input data-x="rounds" placeholder="Rounds" inputmode="numeric" style="width:90px;${FIN}">`).firstChild);
+      const lad = h(`<button class="pill ${rampOn ? 'on' : ''}" data-x-toggle="ramp" style="padding:9px 12px">Ladder</button>`).firstChild;
+      lad.onclick = () => { rampOn = !rampOn; drawExtras(); drawLadder(); };
+      extras.append(lad);
+      if (rampOn) {
+        extras.append(h(`<input data-x="start" placeholder="Start reps" inputmode="numeric" value="1" style="width:105px;${FIN}">`).firstChild);
+        extras.append(h(`<input data-x="step" placeholder="± per round" inputmode="numeric" value="1" style="width:115px;${FIN}">`).firstChild);
+        extras.append(h(`<input data-x="loadStart" placeholder="Load (lb)" inputmode="numeric" style="width:105px;${FIN}">`).firstChild);
+        extras.append(h(`<input data-x="loadStep" placeholder="± lb/round" inputmode="numeric" style="width:110px;${FIN}">`).firstChild);
+      }
     }
     if (format === 'tabata') {
       extras.append(h(`<input data-x="work" placeholder="Work (sec)" inputmode="numeric" value="20" style="width:100px;${FIN}">`).firstChild);
@@ -15305,20 +15854,33 @@ function workoutBuilder() {
     rtype = b.dataset.t;
     form.querySelectorAll('[data-t]').forEach(x => x.classList.toggle('on', x.dataset.t === rtype));
   });
+  // The ladder redraws as he types rather than on save — see drawLadder's note.
+  extras.addEventListener('input', drawLadder);
   drawExtras();
   form.querySelector('[data-a=save]').onclick = () => {
     const name = form.querySelector('[data-a=name]').value.trim();
     if (!name) { toast('Give the workout a name'); return; }
     const gx = k => { const el = form.querySelector(`[data-x=${k}]`); return el ? Number(el.value) || 0 : 0; };
+    const raw = k => { const el = form.querySelector(`[data-x=${k}]`); return el ? el.value : ''; };
     const moves = [...form.querySelectorAll('.ft-move')].map(r => ({
       movement: r.querySelector('[data-m=movement]').value.trim(),
       load: r.querySelector('[data-m=load]').value.trim(),
       reps: r.querySelector('[data-m=reps]').value.trim()
     })).filter(m => m.movement);
+    const isRamp = format === 'emom' && rampOn;
     const w = FT.addCustomWorkout({
       name, moves,
-      resultType: rtype, format, domain: wdomain,
-      cap: gx('cap') * 60, interval: gx('interval'), rounds: gx('rounds'), work: gx('work'), rest: gx('rest')
+      // ⚑ A ladder is scored in REPS, not "completed" — the format default for an EMOM. Leaving
+      // it on `completed` would have stored his 55-rep session as a tick, which is the same
+      // shape of loss as a label that is not a number.
+      resultType: isRamp ? 'reps' : rtype, format, domain: wdomain,
+      cap: gx('cap') * 60, interval: gx('interval') || (format === 'emom' ? 60 : 0),
+      rounds: gx('rounds'), work: gx('work'), rest: gx('rest'),
+      ramp: isRamp ? {
+        start: gx('start') || 1,
+        step: raw('step') === '' ? 1 : Number(raw('step')),
+        loadStart: gx('loadStart'), loadStep: Number(raw('loadStep')) || 0, loadUnit: 'lb',
+      } : null,
     });
     toast('Workout created');
     render(() => workoutDetail(w));
@@ -15667,8 +16229,18 @@ function ftTimerCfgFor(w) {
     // ⚑ Death By lives on the EMOM config rather than as a sixth kind (his call). `rounds`
     // stops being a target and becomes a safety ceiling the moment this is on.
     deathBy: !!(w && /^death by:/i.test(w.name || '')),
+    // ⚑ A custom workout SAVED as a ladder reopens as one (twenty-sixth session). Without this
+    // he would build the ramp once in the builder and then get a plain EMOM every time he
+    // tapped Timer on his own workout — the prescription would exist in the library and vanish
+    // at the only moment it is needed.
+    ramp: !!(d && d.ramp),
     start: d.start || 1,
-    step: d.step || (/\[x2\]/i.test((w && w.name) || '') ? 2 : 1),
+    // ⚑ `!= null`, not `||`: a saved step of −2 or 0 is legal now, and `||` would rewrite a
+    // descending ladder into an ascending one on the way to the screen.
+    step: d.step != null ? Number(d.step) : (/\[x2\]/i.test((w && w.name) || '') ? 2 : 1),
+    loadStart: Number(d.loadStart) || 0,
+    loadStep: Number(d.loadStep) || 0,
+    loadUnit: d.loadUnit || 'lb',
   };
   // ⚑ Tapping a "Death By: …" workout should open a Death By, not a plain EMOM. The fourteen
   // in his log are all named this way, so the name IS the format and reading it saves two taps
@@ -15742,20 +16314,20 @@ function ftTimerConfig(body, w) {
   const mins = v => String(Math.round((v || 0) / 60));
   const num = v => String(v);
 
-  // The Death By switch, plus the one line that makes the ladder concrete before you start it.
-  function dbToggle() {
+  // A labelled ON/OFF switch. Used for the ladder and, inside it, for the end condition.
+  function toggle(label, on, onTap) {
     const color = TM.TIMER_COLOR.emom;
     const row = document.createElement('div');
     row.className = 'tm-field';
     const b = document.createElement('button');
     b.className = 'tm-box';
     b.style.cssText = `border:1px solid ${color};box-shadow:inset 0 0 0 1px var(--card)` +
-      (cfg.deathBy ? `;background:${color};color:var(--card)` : '');
-    b.textContent = cfg.deathBy ? 'ON' : 'OFF';
-    b.onclick = () => { cfg.deathBy = !cfg.deathBy; draw(); };
+      (on ? `;background:${color};color:var(--card)` : '');
+    b.textContent = on ? 'ON' : 'OFF';
+    b.onclick = onTap;
     const l = document.createElement('span');
     l.className = 'tm-lab';
-    l.textContent = 'Death By';
+    l.textContent = label;
     row.append(b, l);
     return row;
   }
@@ -15774,6 +16346,7 @@ function ftTimerConfig(body, w) {
       intervals: 'Work / rest, a result per round',
     }[kind];
     if (kind === 'emom' && cfg.deathBy) $('cap').textContent = 'Ascending, until you fail';
+    else if (kind === 'emom' && cfg.ramp) $('cap').textContent = 'On the interval, climbing';
     const f = $('fields');
     f.innerHTML = '';
     if (kind === 'stopwatch') {
@@ -15782,14 +16355,29 @@ function ftTimerConfig(body, w) {
       f.append(field('Minutes', 'minutes', 'total', mins));
     } else if (kind === 'emom') {
       f.append(field('Every', 'interval', 'interval', TM.fmtClock));
-      // ⚑ The toggle that turns an EMOM into a Death By. It swaps ROUNDS (a target you are
-      // working toward) for the ladder (a thing that happens to you), because in a Death By
-      // the round count is the OUTPUT, not an input — setting it up front is the one thing
-      // that would make the screen lie about what the workout is.
-      f.append(dbToggle());
-      if (cfg.deathBy) {
+      // ⚑ TWO SWITCHES, NOT ONE, AND THE SPLIT IS THE WHOLE MODEL (twenty-sixth session).
+      // "Ladder" asks whether the prescription MOVES; "Until you fail" asks how the piece
+      // ENDS. They used to be a single "Death By" toggle, which meant the only way to get a
+      // ladder was to accept an open-ended piece — so his 10-minute increasing EMOM was not
+      // expressible at all. A Death By is now one arrangement of the ladder, not its owner.
+      f.append(toggle('Ladder', !!(cfg.ramp || cfg.deathBy), () => {
+        const on = !(cfg.ramp || cfg.deathBy);
+        cfg.ramp = on; if (!on) cfg.deathBy = false;
+        draw();
+      }));
+      if (cfg.ramp || cfg.deathBy) {
         f.append(field('Start at', 'reps', 'start', num));
-        f.append(field('Each round', 'step', 'step', v => '+' + v));
+        f.append(field('Each round', 'step', 'step', v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v)));
+        f.append(field('Load', 'load', 'loadStart', v => (v ? v + ' lb' : 'BW')));
+        f.append(field('Load each round', 'loadStep', 'loadStep', v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v)));
+        // ⚑ The end condition. In a Death By the round count is the OUTPUT, not an input —
+        // setting it up front is the one thing that would make the screen lie about what the
+        // workout is — so Rounds disappears exactly when this is on, and only then.
+        f.append(toggle('Until you fail', !!cfg.deathBy, () => {
+          cfg.deathBy = !cfg.deathBy; if (cfg.deathBy) cfg.ramp = false; else cfg.ramp = true;
+          draw();
+        }));
+        if (!cfg.deathBy) f.append(field('Rounds', 'rounds', 'rounds', num));
       } else {
         f.append(field('Rounds', 'rounds', 'rounds', num));
       }
@@ -15803,9 +16391,22 @@ function ftTimerConfig(body, w) {
     const tot = TM.timerTotal(b);
     // ⚑ "No time cap" is true of a Death By and tells you nothing. What you actually want to
     // know before you start is what the ladder does to you — round 10 is 55 reps deep.
-    $('tot').textContent = TM.isDeathBy(b)
-      ? `${[1, 2, 3].map(r => TM.deathByReps(b, r)).join(' · ')} … round 10 = ${TM.deathByReps(b, 10)} reps (${TM.deathByVolume(b, 10)} total)`
-      : tot ? 'Total time: ' + SC.fmtSecs(tot) : 'No time cap';
+    //
+    // ⚑ A FIXED-ROUND RAMP PRINTS ITS WHOLE LADDER, and that is deliberate rather than tidy.
+    // A descent can outrun its rounds (10 at −2 over 10 rounds floors at 1 from round 6), and
+    // the clamp in `rampReps` would otherwise hide that behind five identical rounds discovered
+    // mid-workout. Showing every rung makes it a decision he takes standing still.
+    if (TM.isDeathBy(b)) {
+      $('tot').textContent = `${[1, 2, 3].map(r => TM.rampReps(b, r)).join(' · ')} … round 10 = ${TM.rampReps(b, 10)} reps (${TM.rampVolume(b, 10)} total)`;
+    } else if (TM.isRamp(b)) {
+      const rows = TM.rampLadder(b);
+      const floors = TM.rampFloorsAt(b);
+      const seq = rows.map(r => r.load != null ? `${r.reps}@${r.load}` : String(r.reps)).join(' · ');
+      $('tot').textContent = `${seq}  —  ${TM.rampVolume(b, rows.length)} reps in ${SC.fmtSecs(tot)}`
+        + (floors ? `  ⚠ flattens at 1 rep after round ${floors}` : '');
+    } else {
+      $('tot').textContent = tot ? 'Total time: ' + SC.fmtSecs(tot) : 'No time cap';
+    }
   }
 
   // The config the engine actually receives. Kept separate from the edit model so that, for
@@ -15817,13 +16418,23 @@ function ftTimerConfig(body, w) {
     if (kind === 'emom') {
       out.interval = cfg.interval || 60;
       out.rounds = cfg.rounds || 10;
+      if (cfg.deathBy || cfg.ramp) {
+        out.start = cfg.start || 1;
+        // ⚑ `|| 1` would erase a deliberate 0 or a negative, both of which are now legal, so the
+        // step is defaulted by presence rather than by truthiness. A `step: -2` read as `1` is a
+        // silent reversal of the workout — the descending ramp would climb.
+        out.step = cfg.step != null ? Number(cfg.step) : 1;
+        if (Number(cfg.loadStart)) out.loadStart = Number(cfg.loadStart);
+        if (Number(cfg.loadStep)) out.loadStep = Number(cfg.loadStep);
+        if (out.loadStart != null || out.loadStep != null) out.loadUnit = 'lb';
+      }
       if (cfg.deathBy) {
         out.deathBy = true;
-        out.start = cfg.start || 1;
-        out.step = cfg.step || 1;
         // ⚑ Sixty rounds is an hour, and it is a SAFETY CEILING rather than a target —
         // timerTotal() returns null for a death-by precisely so this cannot be read as one.
         out.rounds = TM.DEATH_BY_DEFAULTS.rounds;
+      } else if (cfg.ramp) {
+        out.ramp = true;   // ends on the clock at `rounds`; keeps its denominator and 'end' cue
       }
     }
     if (kind === 'tabata' || kind === 'intervals') {
@@ -16049,15 +16660,22 @@ function timerRun(cfg, w) {
 
     // The rep target is the number he looks down at. It is bigger than the round number
     // because it is the one he has to act on.
+    // ⚑ EVERY LADDER SHOWS ITS PRESCRIPTION, not just the Death By — that is the point of the
+    // twenty-sixth session's generalisation. What stays Death-By-only is the FAIL button, since
+    // failing is its end condition and a fixed-round ramp simply runs out of clock.
+    const rmp = TM.isRamp(cfg);
     const repsEl = q('#tm-reps'), failEl = q('#tm-fail');
-    if (dbi && st.phase !== 'lead' && st.phase !== 'done') {
+    if (rmp && st.phase !== 'lead' && st.phase !== 'done') {
+      const unit = st.loadUnit || 'lb';
+      const now = st.load ? `${st.reps} @ ${st.load} ${unit}` : `${st.reps} reps`;
+      const next = st.nextLoad ? `${st.nextReps} @ ${st.nextLoad} ${unit}` : `${st.nextReps}`;
       repsEl.style.display = '';
-      repsEl.textContent = `${st.reps} reps this minute · next ${st.nextReps}`;
-      failEl.style.display = '';
+      repsEl.textContent = `${now} this interval · next ${next}`;
+      failEl.style.display = dbi ? '' : 'none';
     } else {
       repsEl.style.display = 'none';
       failEl.style.display = 'none';
-      if (dbi && st.phase === 'done') {
+      if (rmp && st.phase === 'done') {
         const r = TM.deathByResult(cfg, session);
         repsEl.style.display = '';
         repsEl.textContent = `${r.rounds} rounds · ${r.reps} reps`;
