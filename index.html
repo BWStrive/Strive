@@ -3724,6 +3724,105 @@ const RESULT_TYPES = [
 function formatOf(w) { return (w && w.format) || 'other'; }
 
 // ---------------------------------------------------------------------------------------
+// ⚑ THE FORMAT DECIDES EVERYTHING — twenty-ninth session. Baruch, on the builder: "The first
+// thing should be to choose the format. Once the format has been chosen, it should determine
+// what kind of entry it allows me to make... The scored by should be automatic. I should not
+// have to choose the score by."
+//
+// ⚑ THE THREE FUNCTIONS BELOW ARE THE WHOLE ARGUMENT, and they are here rather than in app.js
+// because a rule about what a format MEANS is not a rendering detail. `ftResultZone` has been
+// format-aware since Phase 8; the BUILDER never was, and that asymmetry is what produced the
+// defect this session opened with — one screen knew what an EMOM is and the other did not.
+//
+// ⚑ MEASURED AGAINST HIS OWN EXPORT, not imagined. `3RM Front Squat - 7x3` scored nothing
+// because `repSchemeOf` needs a COLON, and he built the same goblet-squat EMOM four times in
+// two days trying to make it read right. Both are naming problems the app made his job.
+
+// Scored-by, derived. This map lived inline in `workoutBuilder` and was correct; what was
+// wrong is that it sat behind a pill row he could — and did — override. He picked Skill for a
+// barbell triple, got "Done", overrode it to Load, and thereby lost the set grid at log time.
+const AUTO_RESULT_TYPE = {
+  fortime: 'time', amrap: 'rounds', emom: 'completed', intervals: 'time', tabata: 'reps',
+  strength: 'load', chipper: 'time', cardio: 'time', skill: 'completed', other: 'time',
+};
+// ⚑ THE LADDER EXCEPTION IS THE TWENTY-SIXTH SESSION'S RULING and it stays a rule rather than
+// a special case at the call site: a ramping EMOM scores in total REPS, because a 1→10 and a
+// 5→50 are both "10 rounds" while being 55 reps against 275.
+function resultTypeFor(format, { ramp = false } = {}) {
+  if (format === 'emom' && ramp) return 'reps';
+  return AUTO_RESULT_TYPE[format] || 'time';
+}
+
+// What each format ASKS FOR. Data, not branches, for the same reason the rep and distance
+// pickers are data (see PRESCRIPTION PICKERS below): the shape of a format is assertable, and a
+// format that asks the wrong question should fail a suite rather than a workout.
+//   moves — 'single' one movement, 'list' repeatable rows
+//   reps  — 'shared' one rep count across all sets, 'per-move' a count on each row, 'none'
+//   sets  — ask how many sets (and pre-open that many load rows at log time)
+//   fields— extra numeric slots, in the order they should appear
+const PRESCRIPTION = {
+  strength:  { moves: 'single', reps: 'shared',   sets: true,  load: false, fields: [] },
+  fortime:   { moves: 'list',   reps: 'per-move', rounds: true, load: true, fields: ['cap'] },
+  chipper:   { moves: 'list',   reps: 'per-move', load: true,  fields: ['cap'] },
+  amrap:     { moves: 'list',   reps: 'per-move', load: true,  fields: ['window'] },
+  emom:      { moves: 'list',   reps: 'per-move', load: true,  fields: ['window', 'interval'], ramp: true },
+  intervals: { moves: 'list',   reps: 'per-move', load: true,  fields: ['rounds', 'work', 'rest'] },
+  tabata:    { moves: 'list',   reps: 'per-move', load: true,  fields: ['work', 'rest', 'rounds'] },
+  cardio:    { moves: 'single', reps: 'none',     load: false, fields: ['dist'] },
+  skill:     { moves: 'list',   reps: 'per-move', load: true,  fields: [] },
+  other:     { moves: 'list',   reps: 'per-move', load: true,  fields: [] },
+};
+const PRESCRIPTION_FIELDS = {
+  window:   { label: 'Duration (min)', numeric: true },
+  interval: { label: 'Interval (sec)', numeric: true, dflt: 60 },
+  rounds:   { label: 'Rounds', numeric: true },
+  work:     { label: 'Work (sec)', numeric: true },
+  rest:     { label: 'Rest (sec)', numeric: true },
+  cap:      { label: 'Time cap (min)', numeric: true },
+  dist:     { label: 'Distance (e.g. 400 m)', numeric: false },
+};
+function prescriptionOf(format) { return PRESCRIPTION[format] || PRESCRIPTION.other; }
+
+// ⚑ THE NAME IS GENERATED, BECAUSE THE NAME IS LOAD-BEARING AND HE CANNOT SEE THAT IT IS.
+// `repSchemeOf` wants `NRM:` or `N x M:`; every lift's benchmark regex accepts the same prefix.
+// He wrote `3RM Front Squat - 7x3` — the convention, minus one colon — and BOTH engines went
+// blind on that character. Asking a person to hand-encode a regex in a title is the defect;
+// the fields he already filled in are the answer, so the title is written FROM them.
+//
+// ⚑ Verified by running it, not by reading the regex: `7 x 3: Front Squat` returns 3 from
+// `repSchemeOf` AND resolves to the frontsquat curve through `benchmarkFor`. `test-builder.mjs`
+// pins both, because the generated name is doing real work until structured fields land.
+//
+// It is a SUGGESTION, not a lock — the field stays editable. A name he overrides is his
+// business; a name he never knew mattered is ours.
+function canonicalName({ format = 'other', moves = [], sets = 0, reps = '', window = 0,
+                                rounds = 0, dist = '', modality = '' } = {}) {
+  const n = v => Number(v) || 0;
+  const names = (moves || []).map(m => String((m && m.movement) || '').trim()).filter(Boolean);
+  const list = names.join(', ');
+  switch (format) {
+    case 'strength': {
+      if (!names.length) return '';
+      const r = n(reps), s = n(sets);
+      if (!r) return names[0];
+      // 7 sets of 3 → "7 x 3:"; one set of 3 → "3RM:". Both read as 3 reps.
+      return s > 1 ? `${s} x ${r}: ${names[0]}` : `${r}RM: ${names[0]}`;
+    }
+    case 'cardio': {
+      const m = String(modality || names[0] || '').trim();
+      return [m, String(dist || '').trim()].filter(Boolean).join(' ');
+    }
+    case 'amrap':  return !list ? '' : n(window) ? `${n(window)} min AMRAP: ${list}` : `AMRAP: ${list}`;
+    case 'emom':   return !list ? '' : n(window) ? `${n(window)} min EMOM: ${list}` : `EMOM: ${list}`;
+    case 'fortime':return !list ? '' : n(rounds) > 1 ? `${n(rounds)} RFT: ${list}` : `For Time: ${list}`;
+    case 'chipper':return list ? `Chipper: ${list}` : '';
+    case 'tabata': return list ? `Tabata: ${list}` : '';
+    case 'intervals': return !list ? '' : n(rounds) ? `${n(rounds)} x ${list}` : list;
+    default: return list;
+  }
+}
+
+// ---------------------------------------------------------------------------------------
 // ⚑ PRESCRIPTION PICKERS — twenty-sixth session, batch 2. His ask: "is there a way to click the
 // rep scheme and then scroll through a ream of numbers like the stopwatch... 1 through 150 or
 // 200 for regular reps, but when you get into meters it might have different options, like
@@ -3875,11 +3974,16 @@ function movesToText(moves) {
     return `${reps ? reps + ' ' : ''}${mv}${load ? ' — ' + load : ''}`.trim();
   }).filter(Boolean).join('\n');
 }
-function addCustomWorkout({ name, movements = '', moves = null, resultType = 'time', format = 'other', domain = 'light', cap = 0, interval = 0, rounds = 0, work = 0, rest = 0, ramp = null }) {
+function addCustomWorkout({ name, movements = '', moves = null, resultType = 'time', format = 'other', domain = 'light', cap = 0, interval = 0, rounds = 0, work = 0, rest = 0, ramp = null, sets = 0 }) {
   ftEnsure();
   const text = movements.trim() || (moves ? movesToText(moves) : '');
   const w = { id: 'cw' + uid(), name: name.trim(), movements: text, resultType, format, domain, cap, interval, rounds, work, rest, custom: true };
   if (moves && moves.length) w.moves = moves;   // structured movement list (Phase 8)
+  // ⚑ SETS, so the LOG screen can open the right number of rows. His ask: "once I said 7 rounds
+  // or 7 sets, it should have populated 7 different entries for the weights... all I have to put
+  // in is the weight that I used for each set." The set grid already existed; nothing told it
+  // how many sets to draw, so it drew one.
+  if (Number(sets) > 0) w.sets = Number(sets);
   // ⚑ The ladder is stored FLAT on the workout rather than in a nested object, because
   // `ftTimerCfgFor` reads the custom workout directly as its config seed (`const d = w.custom ? w : {}`).
   // A nested `w.ramp = {start, step}` would have needed a second unwrapping step that the Death By
@@ -4037,7 +4141,24 @@ function updateCustomWorkout(id, patch = {}) {
   if (!w) return null;
   if (patch.name != null && String(patch.name).trim()) w.name = String(patch.name).trim();
   if (patch.moves) { w.moves = patch.moves; w.movements = movesToText(patch.moves); }
-  else if (patch.movements != null) { w.movements = String(patch.movements); delete w.moves; }
+  // ⚑ AN EDIT USED TO DESTROY THE STRUCTURED LIST, UNCONDITIONALLY — twenty-ninth session,
+  // found in his own export. The edit sheet sends `movements` on EVERY save, including the ones
+  // where he only touched the name, so `delete w.moves` fired every time. His front squat was
+  // built with seven structured rows and reached me with none: `hasMoves: false`.
+  //
+  // Dropping the list when the TEXT genuinely changed is right — a rewritten prescription makes
+  // the old rows stale, and `_mv` is cleared below for exactly the same reason. Dropping it when
+  // nothing changed is pure loss, and it is silent, which is the part that matters: nothing on
+  // any screen looked different afterwards.
+  //
+  // ⚑ THIS IS A PREREQUISITE, NOT A TIDY-UP. Chunk 3 stores {movement, sets, reps} as real
+  // fields for the engines to read; shipping that on top of this would mean one edit quietly
+  // unscoring a lift, which is the same failure class as the missing colon and harder to see.
+  else if (patch.movements != null) {
+    const text = String(patch.movements);
+    if (text.trim() !== String(w.movements || '').trim()) delete w.moves;
+    w.movements = text;
+  }
   ['resultType', 'format', 'domain'].forEach(k => { if (patch[k] != null) w[k] = patch[k]; });
   ['cap', 'interval', 'rounds', 'work', 'rest'].forEach(k => { if (patch[k] != null) w[k] = Number(patch[k]) || 0; });
   if (patch.ramp !== undefined) applyRamp(w, patch.ramp);
@@ -4986,7 +5107,7 @@ function ftStats() {
   };
 }
 
-const FT = {ASSESS_DOMAINS,BENCHMARKS,CAL_STEPS,DIST_COMMON,DIST_STEPS,ENGINE1_DOMAINS,FORMATS,LEVEL_RUNGS,LIBRARY,LIVE_WINDOW_DAYS,REPMAX_MAX_REPS,REP_STEPS,RESULT_TYPES,ROOMS,RX_STATES,SIGMA_EST_1RM,SIGMA_REPEAT,STREAK_DEFAULTS,TIER_SIGMA,UNLOCK_MIN,WORKOUT_TEMPLATES,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,applyRamp,assessment,axisValue,benchmarkFor,buildResult,byDomain,canEditLog,canEditWorkout,cardAddPart,cardForLog,cardFromLogs,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,dietTargets,estBand,formatOf,ftStats,getCard,getWorkout,groupableDays,isLiveTs,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,levelLadder,libraryFor,liveCutoff,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,pickerFor,prFor,precisionOf,precisionOfResult,prescriptionUnit,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,resultView,rxLabel,rxStatusOf,sessionText,setDietTargets,setStreakSettings,setWaterGoal,setWeightGoal,sigmaFromPrecision,sigmaOf,sigmaOfResult,sleepForDate,sleepList,staleLabel,streakSettings,trainingStreak,updateCustomWorkout,updateLog,valueAtLevel,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights,withCustomValue,workoutsBetween};
+const FT = {ASSESS_DOMAINS,AUTO_RESULT_TYPE,BENCHMARKS,CAL_STEPS,DIST_COMMON,DIST_STEPS,ENGINE1_DOMAINS,FORMATS,LEVEL_RUNGS,LIBRARY,LIVE_WINDOW_DAYS,PRESCRIPTION,PRESCRIPTION_FIELDS,REPMAX_MAX_REPS,REP_STEPS,RESULT_TYPES,ROOMS,RX_STATES,SIGMA_EST_1RM,SIGMA_REPEAT,STREAK_DEFAULTS,TIER_SIGMA,UNLOCK_MIN,WORKOUT_TEMPLATES,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,applyRamp,assessment,axisValue,benchmarkFor,buildResult,byDomain,canEditLog,canEditWorkout,canonicalName,cardAddPart,cardForLog,cardFromLogs,cardPartLabel,cardRemovePart,cardSetPartLog,currentBodyweight,defaultCardName,dietTargets,estBand,formatOf,ftStats,getCard,getWorkout,groupableDays,isLiveTs,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,levelLadder,libraryFor,liveCutoff,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,pickerFor,prFor,precisionOf,precisionOfResult,prescriptionOf,prescriptionUnit,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,resultTypeFor,resultView,rxLabel,rxStatusOf,sessionText,setDietTargets,setStreakSettings,setWaterGoal,setWeightGoal,sigmaFromPrecision,sigmaOf,sigmaOfResult,sleepForDate,sleepList,staleLabel,streakSettings,trainingStreak,updateCustomWorkout,updateLog,valueAtLevel,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights,withCustomValue,workoutsBetween};
 // Strive — the workout timer engine. Pure, no DOM, no clock of its own.
 //
 // ⚑ WHY THIS IS A SEPARATE MODULE, AND WHY IT TAKES `now` AS AN ARGUMENT.
@@ -7978,7 +8099,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260808-1758'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260808-1758';
+const BUILD_ID = '20260808-1919'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260808-1919';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -16062,8 +16183,20 @@ function ftResultZone(fmt, w, prefill) {
       <label class="muted" style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" data-r="capped"> capped</label>
       <input data-r="reps" inputmode="numeric" placeholder="reps" style="width:64px;${FIN};text-align:center">
     </div>`;
-  if (fmt === 'strength') return `<div data-r="sets">${ftSetRow()}</div>
+  // ⚑ OPEN THE SETS HE PRESCRIBED, WITH THE REPS ALREADY IN — twenty-ninth session. "All I have
+  // to put in is the weight that I used for each set, because the workout was 7 sets of 3 reps
+  // of front squat." The grid and the ＋ Add set button were already here; what was missing is
+  // that nothing carried `sets` from the builder, so it always drew exactly one row.
+  //
+  // ⚑ IT STILL OPENS ONE ROW WHEN THE WORKOUT DOES NOT SAY, rather than guessing a number, and
+  // ＋ Add set is untouched — a prescription is what he planned, not what he did, and the log
+  // has to stay free to disagree with it.
+  if (fmt === 'strength') {
+    const nSets = Math.max(1, Math.min(Number(w.sets) || 1, 20));
+    const pReps = (w.moves && w.moves[0] && w.moves[0].reps) || '';
+    return `<div data-r="sets">${Array.from({ length: nSets }, () => ftSetRow(pReps)).join('')}</div>
     <button class="btn secondary" data-r="addset" style="margin-bottom:4px">＋ Add set</button>`;
+  }
   if (fmt === 'cardio') return `<input data-r="modality" placeholder="run / row / bike / swim" value="${esc((w.movements || '').split('\n')[0] || '')}" style="width:100%;${FIN};margin-bottom:6px">
     <div class="row" style="gap:6px">
       <input data-r="dist" placeholder="Distance (e.g. 5 km)" style="flex:1;${FIN}">
@@ -17048,55 +17181,238 @@ function workoutRemoveSheet(w) {
   });
 }
 
+// ---------------------------------------------------------------------------------------
+// ⚑ THE FORMAT-FIRST BUILDER — twenty-ninth session. This screen used to ask, in order:
+// name, movements, FORMAT, scored-by, domain. Baruch: "Right now it is just a whole bunch of
+// information right there, and I do not know what to do with it... The first thing should be
+// to choose the format. Once the format has been chosen, it should determine what kind of
+// entry it allows me to make."
+//
+// ⚑ THE ASYMMETRY IS THE WHOLE DEFECT, AND IT IS ONE LINE TO STATE: `ftResultZone` has been
+// format-aware since Phase 8 — Strength gives reps and load per set with an ＋ Add set button —
+// while the BUILDER offered three fixed inputs whatever the format. One screen knew what an
+// EMOM was and the other did not, so he expressed "seven sets" the only way the builder let
+// him, as seven movement rows, and the app believed him: seven movements, one workout.
+//
+// ⚑ SCORED-BY IS GONE AS A CHOICE. The format→type map was always here and always correct; it
+// sat behind a pill row he could override, and he did — Skill for a barbell triple gave him
+// "Done", he corrected it to Load, and that combination hands you a plain text box at log time
+// instead of the set grid. His result reached me as the bare string "205" with no score object
+// while every other log that month carries one. The rule now lives in `FT.resultTypeFor` and
+// prints as a line.
+function ftMovementField({ value = '', mid = '', flex = '2', placeholder = 'Movement' } = {}) {
+  return `<div class="ft-mvf" style="position:relative;flex:${flex};min-width:118px">
+      <input data-m="movement" autocomplete="off" spellcheck="false" value="${esc(value)}" data-mid="${esc(mid)}" placeholder="${esc(placeholder)}" style="width:100%;${FIN}">
+      <div data-m="sugg" style="display:none;position:absolute;z-index:60;left:0;right:0;top:100%;margin-top:3px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:0 8px 22px rgba(0,0,0,.18)"></div>
+    </div>`;
+}
+
+// ⚑ BOUND TO AN ID, NOT TO WHATEVER HE TYPED. His words: "I don't want to have to scroll
+// through a list every time, but I would love to start typing and it autopop... so that I
+// always have the same logging, and I'm making sure I'm not misspelling things, and then it
+// messes up our counts and logging and stuff."
+//
+// ⚑ HE IS EXACTLY RIGHT ABOUT THE COUNTS, AND THE CODEBASE ALREADY AGREED ONE LEVEL UP —
+// `movementPickerSheet` carries the note "FREE TYPING CAN PRODUCE A SILENT ZERO", because
+// `movementsIn` matches text against the registry by regex and a miss doesn't error, it just
+// matches nothing. The movement vanishes from `movementsOf(w)`, Engine 1 can't see it, volume
+// never counts it, and no screen turns red. The picker was built on that argument and then
+// wired into one card's field while the builder kept a bare text box.
+//
+// ⚑ INLINE RATHER THAN THE SHEET, because he asked not to be sent somewhere to scroll. Sorted
+// by `movementCounts()` — his own corpus decides what surfaces first, the same rule that put
+// 400 m at the top of the distance picker instead of 425.
+function wireMovementFields(root, onChange) {
+  const counts = MV.movementCounts();
+  root.querySelectorAll('.ft-mvf').forEach(f => {
+    if (f.dataset.wired) return;
+    f.dataset.wired = '1';
+    const inp = f.querySelector('[data-m=movement]');
+    const box = f.querySelector('[data-m=sugg]');
+    const shut = () => { box.style.display = 'none'; box.innerHTML = ''; };
+    const draw = () => {
+      const q = inp.value.trim().toLowerCase();
+      if (!q) return shut();
+      const hits = MV.allMovements()
+        .filter(m => m.name.toLowerCase().includes(q))
+        .sort((a, b) => (counts[b.id] || 0) - (counts[a.id] || 0) || a.name.localeCompare(b.name))
+        .slice(0, 6);
+      // ⚑ A MISS OFFERS THE FIX RATHER THAN A DEAD END — the same ruling the picker sheet made,
+      // and it must stay a deliberate act. Creating a movement by TYPO is what we are removing;
+      // creating one on purpose is his to do. The name is confirmed in the sheet, not taken from
+      // this fragment, for the reason recorded there ("bicep" is not "Bicep Curl").
+      if (!hits.length) {
+        box.innerHTML = `<div data-add="1" style="padding:10px 12px;font-size:13px;cursor:pointer;color:var(--gold)">No match — add “${esc(inp.value.trim())}” as a movement</div>`;
+        box.style.display = '';
+        return;
+      }
+      box.innerHTML = hits.map(m => `<div data-id="${m.id}" style="padding:9px 12px;font-size:13.5px;cursor:pointer;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--line)">
+          <span style="flex:1">${esc(m.name)}</span>
+          ${counts[m.id] ? `<span class="muted" style="font-size:11px">${counts[m.id]}</span>` : ''}
+        </div>`).join('');
+      // ⚑ BOUND PER ROW, and on BOTH mousedown and click. mousedown is the one that matters on a
+      // phone — it beats the input's blur, which would otherwise shut the list before the tap
+      // lands. click is what a headless suite can fire, and a suggestion nobody can click in a
+      // test is a suggestion nobody has proved works.
+      box.querySelectorAll('[data-id]').forEach(row => {
+        const take = e => {
+          if (e && e.preventDefault) e.preventDefault();
+          const m = MV.movementById(row.dataset.id);
+          if (m) { inp.value = m.name; inp.dataset.mid = m.id; }
+          shut();
+          if (onChange) onChange();
+        };
+        row.onmousedown = take;
+        row.onclick = take;
+      });
+      box.style.display = '';
+    };
+    // ⚑ TYPING CLEARS THE BINDING. Leaving a stale id on an edited string is how you get a field
+    // reading "Front Squa" while the workout still claims front squat — a disagreement between
+    // what he sees and what scores, which is the class of bug this whole chunk is about.
+    inp.addEventListener('input', () => { inp.dataset.mid = ''; draw(); if (onChange) onChange(); });
+    inp.addEventListener('focus', draw);
+    inp.addEventListener('blur', () => setTimeout(shut, 180));
+    box.addEventListener('mousedown', e => {
+      const row = e.target.closest('[data-id]');
+      if (row) {
+        e.preventDefault();
+        const m = MV.movementById(row.dataset.id);
+        if (m) { inp.value = m.name; inp.dataset.mid = m.id; }
+        shut();
+        if (onChange) onChange();
+        return;
+      }
+      if (e.target.closest('[data-add]')) {
+        e.preventDefault();
+        shut();
+        movementPickerSheet({
+          title: 'Add movement',
+          onPick: m => { inp.value = m.name; inp.dataset.mid = m.id; if (onChange) onChange(); },
+        });
+      }
+    });
+  });
+}
+
+// One prescription row. `reps`/`load` appear only when the format asks for them.
+function ftMoveRow2(shape, m = {}) {
+  const wantReps = shape.reps === 'per-move';
+  return `<div class="row ft-move" style="gap:6px;margin-bottom:6px;align-items:center">
+      ${ftMovementField({ value: m.movement || '', mid: m.mid || '' })}
+      ${wantReps ? `<input data-m="reps" inputmode="numeric" placeholder="Reps" value="${esc(m.reps || '')}" style="width:62px;${FIN};text-align:center">` : ''}
+      ${shape.load ? `<input data-m="load" inputmode="decimal" placeholder="Load" value="${esc(m.load || '')}" style="width:62px;${FIN};text-align:center">` : ''}
+      ${shape.moves === 'list' ? `<button class="pill ft-move-del" style="padding:8px 11px" aria-label="Remove movement">×</button>` : ''}
+    </div>`;
+}
+
+// ⚑ THE MIRROR OF `ftResultZone`, ONE SCREEN EARLIER. The shape is data (`FT.PRESCRIPTION`)
+// rather than a branch per format, so "what does an EMOM ask for" is assertable in a suite
+// instead of being discovered by building four of them on a phone.
+function ftPrescriptionZone(format) {
+  const shape = FT.prescriptionOf(format);
+  const one = shape.moves === 'single';
+  let html = `<div data-a="moves">${ftMoveRow2(shape)}</div>`;
+  if (!one) html += `<button class="btn secondary" data-a="addmove" style="margin-bottom:10px">＋ Add movement</button>`;
+  // Strength: one movement, N sets, one rep count. The three fields he actually had in mind
+  // when he wrote seven rows.
+  if (shape.sets) {
+    html += `<div class="row" style="gap:6px;margin-bottom:8px">
+        <input data-x="sets" inputmode="numeric" placeholder="Sets" style="flex:1;${FIN};text-align:center">
+        <input data-x="reps" inputmode="numeric" placeholder="Reps per set" style="flex:1;${FIN};text-align:center">
+      </div>`;
+  }
+  if (shape.rounds) html += `<input data-x="rounds" inputmode="numeric" placeholder="Rounds (leave blank for a single round)" style="width:100%;${FIN};margin-bottom:8px">`;
+  const extra = (shape.fields || []).map(k => {
+    const f = FT.PRESCRIPTION_FIELDS[k];
+    return `<input data-x="${k}" ${f.numeric ? 'inputmode="numeric"' : ''} placeholder="${esc(f.label)}" value="${f.dflt != null ? f.dflt : ''}" style="flex:1;min-width:112px;${FIN}">`;
+  }).join('');
+  if (extra) html += `<div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px">${extra}</div>`;
+  return html;
+}
+
+// Read the zone back. Returns the spec `FT.canonicalName` and `FT.addCustomWorkout` both take.
+function ftReadPrescription(form, format) {
+  const shape = FT.prescriptionOf(format);
+  const gx = k => { const el = form.querySelector(`[data-x=${k}]`); return el ? el.value.trim() : ''; };
+  const moves = [...form.querySelectorAll('.ft-move')].map(r => {
+    const mv = r.querySelector('[data-m=movement]');
+    const reps = r.querySelector('[data-m=reps]');
+    const load = r.querySelector('[data-m=load]');
+    return {
+      movement: mv ? mv.value.trim() : '',
+      mid: mv ? (mv.dataset.mid || '') : '',
+      reps: reps ? reps.value.trim() : (shape.reps === 'shared' ? gx('reps') : ''),
+      load: load ? load.value.trim() : '',
+    };
+  }).filter(m => m.movement);
+  return {
+    format, moves,
+    sets: Number(gx('sets')) || 0,
+    reps: gx('reps'),
+    window: Number(gx('window')) || 0,
+    interval: Number(gx('interval')) || 0,
+    rounds: Number(gx('rounds')) || 0,
+    work: Number(gx('work')) || 0,
+    rest: Number(gx('rest')) || 0,
+    cap: Number(gx('cap')) || 0,
+    dist: gx('dist'),
+    modality: moves.length ? moves[0].movement : '',
+  };
+}
+
 function workoutBuilder() {
   setHeader('New workout', { back: true });
   const wrap = document.createElement('div');
   const form = h(`
     <div class="card">
-      <input data-a="name" placeholder="Workout name" style="width:100%;${FIN};margin-bottom:10px">
-      <h3 style="margin-top:0">Movements</h3>
-      <div data-a="moves">${ftMoveRow()}</div>
-      <button class="btn secondary" data-a="addmove" style="margin-bottom:12px">＋ Add movement</button>
-      <h3>Format</h3>
+      <h3 style="margin-top:0">Format</h3>
       <div class="pillrow" data-a="formats">${FT.FORMATS.map(([v, l], i) => `<button class="pill ${i === 0 ? 'on' : ''}" data-f="${v}">${l}</button>`).join('')}</div>
-      <h3>Scored by</h3>
-      <div class="pillrow" data-a="types">${FT.RESULT_TYPES.map(([v, l], i) => `<button class="pill ${i === 0 ? 'on' : ''}" data-t="${v}">${l}</button>`).join('')}</div>
+      <div data-a="scoredby" class="muted" style="font-size:12px;margin:-2px 0 12px"></div>
+      <h3 data-a="prescriptionhead">Movements</h3>
+      <div data-a="zone"></div>
+      <div data-a="extras" class="row" style="margin-bottom:8px;flex-wrap:wrap;gap:6px"></div>
+      <div data-a="ladder" class="muted" style="font-size:12px;margin-bottom:10px"></div>
+      <h3>Name</h3>
+      <input data-a="name" placeholder="Named for you as you type" style="width:100%;${FIN};margin-bottom:4px">
+      <div data-a="namenote" class="muted" style="font-size:11.5px;margin-bottom:12px"></div>
       <h3>Domain</h3>
       <div class="pillrow" data-a="domains">${FT.ASSESS_DOMAINS.map(([v, l]) => `<button class="pill ${v === 'light' ? 'on' : ''}" data-dm="${v}">${l}</button>`).join('')}</div>
-      <div class="row" data-a="extras" style="margin-bottom:10px;flex-wrap:wrap"></div>
-      <div data-a="ladder" class="muted" style="font-size:12px;margin-bottom:10px"></div>
       <button class="btn" data-a="save">Create workout</button>
     </div>`).firstElementChild;
-  let format = 'fortime', rtype = 'time', wdomain = 'light';
-  form.querySelectorAll('[data-dm]').forEach(b => b.onclick = () => {
-    wdomain = b.dataset.dm;
-    form.querySelectorAll('[data-dm]').forEach(x => x.classList.toggle('on', x.dataset.dm === wdomain));
-  });
-  const movesBox = form.querySelector('[data-a=moves]');
-  form.querySelector('[data-a=addmove]').onclick = () => {
-    movesBox.append(h(ftMoveRow()));
-    movesBox.lastElementChild.querySelector('[data-m=movement]').focus();
-  };
-  movesBox.addEventListener('click', e => {
-    const del = e.target.closest('.ft-move-del');
-    if (!del) return;
-    e.preventDefault();
-    if (movesBox.querySelectorAll('.ft-move').length > 1) del.closest('.ft-move').remove();
-  });
+
+  let format = 'fortime', wdomain = 'light', rampOn = false, nameTouched = false;
+  const zone = form.querySelector('[data-a=zone]');
   const extras = form.querySelector('[data-a=extras]');
   const ladderBox = form.querySelector('[data-a=ladder]');
-  let rampOn = false;
+  const nameI = form.querySelector('[data-a=name]');
+  const nameNote = form.querySelector('[data-a=namenote]');
+  const scoredBy = form.querySelector('[data-a=scoredby]');
 
-  // ⚑ THE LADDER PREVIEW IS THE FEATURE, not decoration around it. He built yesterday's
-  // increasing EMOM by "deleting it and trying different things to make it look right" — the
-  // builder gave him no way to see what he had described until after he saved it. Printing
-  // every rung as he types is what turns that loop into one pass, and it is also the only
-  // place a descending ladder reveals that it flattens against the floor before it runs out
-  // of rounds. Same argument as the timer setup screen, same function behind both.
+  // ⚑ THE NAME IS WRITTEN FROM THE FIELDS, AND HE CAN STILL OVERRIDE IT. `nameTouched` is the
+  // whole contract: stop generating the moment he types his own. Regenerating over an edit
+  // would be the same disrespect as the old builder's silence, in the other direction.
+  nameI.oninput = () => { nameTouched = true; redrawName(); };
+  function redrawName() {
+    const spec = ftReadPrescription(form, format);
+    const suggested = FT.canonicalName({ ...spec, ramp: rampOn });
+    if (!nameTouched) nameI.value = suggested;
+    // ⚑ SAY WHY THE NAME MATTERS, WHERE HE CAN SEE IT. `3RM Front Squat - 7x3` scored nothing
+    // because of one missing colon and nothing on screen ever said the title was load-bearing.
+    const reads = MV.repSchemeOf(nameI.value);
+    nameNote.innerHTML = !nameI.value ? 'Fill in the movements and this names itself.'
+      : reads ? `Reads as a <b>${reads}-rep max</b> — this is what puts it on your Level.`
+      : suggested && nameI.value.trim() !== suggested.trim()
+        ? `Your own name. <span style="opacity:.8">Suggested: <b>${esc(suggested)}</b></span>`
+        : '';
+  }
+
   function drawLadder() {
     ladderBox.textContent = '';
     if (format !== 'emom' || !rampOn) return;
     const gx = k => { const el = form.querySelector(`[data-x=${k}]`); return el ? el.value : ''; };
+    const mins = Number(gx('window')) || 0;
+    const iv = Number(gx('interval')) || 60;
     const cfg = {
       kind: 'emom', ramp: true,
       start: Number(gx('start')) || 1,
@@ -17104,81 +17420,122 @@ function workoutBuilder() {
       loadStart: Number(gx('loadStart')) || 0,
       loadStep: Number(gx('loadStep')) || 0,
       loadUnit: 'lb',
-      rounds: Number(gx('rounds')) || 0,
+      rounds: iv ? Math.floor((mins * 60) / iv) : 0,
     };
-    if (!cfg.rounds) { ladderBox.textContent = 'Set the number of rounds to see the ladder.'; return; }
+    if (!cfg.rounds) { ladderBox.textContent = 'Set the duration and interval to see the ladder.'; return; }
     const rows = TM.rampLadder(cfg);
     const floors = TM.rampFloorsAt(cfg);
     const seq = rows.map(r => r.load != null ? `${r.reps}@${r.load}` : String(r.reps)).join(' · ');
-    ladderBox.textContent = `${seq}  —  ${TM.rampVolume(cfg, rows.length)} reps total`
+    ladderBox.textContent = `${cfg.rounds} rounds — ${seq}  —  ${TM.rampVolume(cfg, rows.length)} reps total`
       + (floors ? `  ⚠ flattens at 1 rep after round ${floors}` : '');
+  }
+
+  // ⚑ ITS OWN FUNCTION BECAUSE TWO THINGS CHANGE IT, AND ONE OF THEM WAS MISSING IT. Picking a
+  // format redrew this line; toggling the ladder did not — so an EMOM switched from "completed"
+  // to "reps" underneath a line still reading **Scored by Done**. The rule was right and the
+  // screen disagreed with it, which is precisely the shape of defect this chunk exists to kill.
+  //
+  // ⚑ FOUND BY CLICKING, and it could not have been found any other way: `resultTypeFor` returns
+  // the correct answer in isolation, so the pure suite passes. Invariant 1, paid for again.
+  function drawScoredBy() {
+    const rtype = FT.resultTypeFor(format, { ramp: rampOn });
+    const label = (FT.RESULT_TYPES.find(t => t[0] === rtype) || ['', rtype])[1];
+    scoredBy.innerHTML = `Scored by <b>${esc(label)}</b> — decided by the format.`;
   }
 
   function drawExtras() {
     extras.innerHTML = '';
-    if (format === 'amrap' || format === 'fortime') extras.append(h(`<input data-x="cap" placeholder="Time cap (min)" inputmode="numeric" style="width:130px;${FIN}">`).firstChild);
-    if (format === 'emom') {
-      extras.append(h(`<input data-x="interval" placeholder="Interval (sec)" inputmode="numeric" value="60" style="width:120px;${FIN}">`).firstChild);
-      extras.append(h(`<input data-x="rounds" placeholder="Rounds" inputmode="numeric" style="width:90px;${FIN}">`).firstChild);
-      const lad = h(`<button class="pill ${rampOn ? 'on' : ''}" data-x-toggle="ramp" style="padding:9px 12px">Ladder</button>`).firstChild;
-      lad.onclick = () => { rampOn = !rampOn; drawExtras(); drawLadder(); };
-      extras.append(lad);
-      if (rampOn) {
-        extras.append(h(`<input data-x="start" placeholder="Start reps" inputmode="numeric" value="1" style="width:105px;${FIN}">`).firstChild);
-        extras.append(h(`<input data-x="step" placeholder="± per round" inputmode="numeric" value="1" style="width:115px;${FIN}">`).firstChild);
-        extras.append(h(`<input data-x="loadStart" placeholder="Load (lb)" inputmode="numeric" style="width:105px;${FIN}">`).firstChild);
-        extras.append(h(`<input data-x="loadStep" placeholder="± lb/round" inputmode="numeric" style="width:110px;${FIN}">`).firstChild);
-      }
+    if (format !== 'emom') return;
+    const lad = h(`<button class="pill ${rampOn ? 'on' : ''}" data-x-toggle="ramp" style="padding:9px 12px">Increasing / decreasing</button>`).firstChild;
+    lad.onclick = () => { rampOn = !rampOn; drawExtras(); drawLadder(); drawScoredBy(); redrawName(); };
+    extras.append(lad);
+    if (rampOn) {
+      extras.append(h(`<input data-x="start" placeholder="Start reps" inputmode="numeric" value="1" style="width:105px;${FIN}">`).firstChild);
+      extras.append(h(`<input data-x="step" placeholder="± per round" inputmode="numeric" value="1" style="width:115px;${FIN}">`).firstChild);
+      extras.append(h(`<input data-x="loadStart" placeholder="Load (lb)" inputmode="numeric" style="width:105px;${FIN}">`).firstChild);
+      extras.append(h(`<input data-x="loadStep" placeholder="± lb/round" inputmode="numeric" style="width:110px;${FIN}">`).firstChild);
     }
-    if (format === 'tabata') {
-      extras.append(h(`<input data-x="work" placeholder="Work (sec)" inputmode="numeric" value="20" style="width:100px;${FIN}">`).firstChild);
-      extras.append(h(`<input data-x="rest" placeholder="Rest (sec)" inputmode="numeric" value="10" style="width:100px;${FIN}">`).firstChild);
-      extras.append(h(`<input data-x="rounds" placeholder="Rounds" inputmode="numeric" value="8" style="width:90px;${FIN}">`).firstChild);
-    }
-    if (format === 'intervals') {
-      extras.append(h(`<input data-x="rounds" placeholder="Rounds" inputmode="numeric" style="width:90px;${FIN}">`).firstChild);
-      extras.append(h(`<input data-x="work" placeholder="Work (sec)" inputmode="numeric" style="width:100px;${FIN}">`).firstChild);
-      extras.append(h(`<input data-x="rest" placeholder="Rest (sec)" inputmode="numeric" style="width:100px;${FIN}">`).firstChild);
-    }
+    // The ladder redraws as he types rather than on save — the twenty-eighth session's note:
+    // he built an increasing EMOM by "deleting it and trying different things to make it look
+    // right", because nothing showed him what he had described until after he saved it.
+    extras.querySelectorAll('input').forEach(i => { i.oninput = drawLadder; });
   }
+
+  // ⚑ EVERY HANDLER IS BOUND TO ITS OWN NODE, NOT DELEGATED FROM A PARENT — and this is a
+  // TESTABILITY ruling as much as a style one. `dom-shim.mjs` has no bubbling ("If a future
+  // screen relies on delegation this must grow"), so a delegated handler is a handler no suite
+  // can reach by clicking. The old builder delegated its delete button, which is precisely why
+  // nothing ever clicked it. Invariant 1 says write UI tests that CLICK; a screen has to be
+  // built so they can. Growing the shim instead would widen a predicate all 55 suites share.
+  function bindRow(row, movesBox) {
+    wireMovementFields(row, redrawName);
+    row.querySelectorAll('input').forEach(i => { i.oninput = redrawName; });
+    const del = row.querySelector('.ft-move-del');
+    if (del) del.onclick = e => {
+      if (e && e.preventDefault) e.preventDefault();
+      if (movesBox.querySelectorAll('.ft-move').length > 1) { row.remove(); redrawName(); }
+    };
+  }
+
+  function drawZone() {
+    const shape = FT.prescriptionOf(format);
+    zone.innerHTML = ftPrescriptionZone(format);
+    form.querySelector('[data-a=prescriptionhead]').textContent = shape.moves === 'single' ? 'Movement' : 'Movements';
+    const movesBox = zone.querySelector('[data-a=moves]');
+    movesBox.querySelectorAll('.ft-move').forEach(r => bindRow(r, movesBox));
+    zone.querySelectorAll('[data-x]').forEach(i => { i.oninput = redrawName; });
+    const addBtn = zone.querySelector('[data-a=addmove]');
+    if (addBtn) addBtn.onclick = () => {
+      movesBox.append(h(ftMoveRow2(shape)));
+      const row = movesBox.lastElementChild;
+      bindRow(row, movesBox);
+      row.querySelector('[data-m=movement]').focus();
+      redrawName();
+    };
+    drawScoredBy();
+    drawExtras();
+    drawLadder();
+    redrawName();
+  }
+
   form.querySelectorAll('[data-f]').forEach(b => b.onclick = () => {
     format = b.dataset.f;
+    rampOn = false;
     form.querySelectorAll('[data-f]').forEach(x => x.classList.toggle('on', x.dataset.f === format));
-    const auto = { fortime: 'time', amrap: 'rounds', emom: 'completed', intervals: 'time', tabata: 'reps', strength: 'load', chipper: 'time', cardio: 'time', skill: 'completed', other: 'time' }[format];
-    rtype = auto;
-    form.querySelectorAll('[data-t]').forEach(x => x.classList.toggle('on', x.dataset.t === rtype));
-    drawExtras();
+    drawZone();
   });
-  form.querySelectorAll('[data-t]').forEach(b => b.onclick = () => {
-    rtype = b.dataset.t;
-    form.querySelectorAll('[data-t]').forEach(x => x.classList.toggle('on', x.dataset.t === rtype));
+  form.querySelectorAll('[data-dm]').forEach(b => b.onclick = () => {
+    wdomain = b.dataset.dm;
+    form.querySelectorAll('[data-dm]').forEach(x => x.classList.toggle('on', x.dataset.dm === wdomain));
   });
-  // The ladder redraws as he types rather than on save — see drawLadder's note.
-  extras.addEventListener('input', drawLadder);
-  drawExtras();
+  drawZone();
+
   form.querySelector('[data-a=save]').onclick = () => {
-    const name = form.querySelector('[data-a=name]').value.trim();
-    if (!name) { toast('Give the workout a name'); return; }
-    const gx = k => { const el = form.querySelector(`[data-x=${k}]`); return el ? Number(el.value) || 0 : 0; };
-    const raw = k => { const el = form.querySelector(`[data-x=${k}]`); return el ? el.value : ''; };
-    const moves = [...form.querySelectorAll('.ft-move')].map(r => ({
-      movement: r.querySelector('[data-m=movement]').value.trim(),
-      load: r.querySelector('[data-m=load]').value.trim(),
-      reps: r.querySelector('[data-m=reps]').value.trim()
-    })).filter(m => m.movement);
+    const spec = ftReadPrescription(form, format);
+    const name = nameI.value.trim() || FT.canonicalName(spec);
+    if (!name) { toast('Add a movement, or give the workout a name'); return; }
+    if (!spec.moves.length) { toast('Add at least one movement'); return; }
     const isRamp = format === 'emom' && rampOn;
+    // ⚑ EMOM TAKES A DURATION AND AN INTERVAL AND THE ROUNDS ARE DERIVED — his words, "how long
+    // it is, how long the intervals are". The stored field is still `rounds`, because that is
+    // what `ftTimerCfgFor` and `rampLadder` already read; converting here rather than adding a
+    // second duration field keeps one rule for one fact.
+    const iv = spec.interval || (format === 'emom' ? 60 : 0);
+    const rounds = format === 'emom' && spec.window && iv
+      ? Math.floor((spec.window * 60) / iv) : spec.rounds;
     const w = FT.addCustomWorkout({
-      name, moves,
-      // ⚑ A ladder is scored in REPS, not "completed" — the format default for an EMOM. Leaving
-      // it on `completed` would have stored his 55-rep session as a tick, which is the same
-      // shape of loss as a label that is not a number.
-      resultType: isRamp ? 'reps' : rtype, format, domain: wdomain,
-      cap: gx('cap') * 60, interval: gx('interval') || (format === 'emom' ? 60 : 0),
-      rounds: gx('rounds'), work: gx('work'), rest: gx('rest'),
+      name, moves: spec.moves.map(m => ({ movement: m.movement, load: m.load, reps: m.reps })),
+      resultType: FT.resultTypeFor(format, { ramp: isRamp }),
+      format, domain: wdomain,
+      sets: spec.sets,
+      cap: (format === 'amrap' ? spec.window : spec.cap) * 60,
+      interval: iv, rounds, work: spec.work, rest: spec.rest,
       ramp: isRamp ? {
-        start: gx('start') || 1,
-        step: raw('step') === '' ? 1 : Number(raw('step')),
-        loadStart: gx('loadStart'), loadStep: Number(raw('loadStep')) || 0, loadUnit: 'lb',
+        start: Number(form.querySelector('[data-x=start]') ? form.querySelector('[data-x=start]').value : 1) || 1,
+        step: (form.querySelector('[data-x=step]') && form.querySelector('[data-x=step]').value) === '' ? 1 : Number(form.querySelector('[data-x=step]').value),
+        loadStart: Number(form.querySelector('[data-x=loadStart]') ? form.querySelector('[data-x=loadStart]').value : 0) || 0,
+        loadStep: Number(form.querySelector('[data-x=loadStep]') ? form.querySelector('[data-x=loadStep]').value : 0) || 0,
+        loadUnit: 'lb',
       } : null,
     });
     toast('Workout created');
