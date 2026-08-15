@@ -112,12 +112,30 @@ nav.tabbar button.active::after { content: ''; width: 3px; height: 3px; border-r
 nav.tabbar .ico { font-size: 17px; line-height: 1; }
 
 /* raised, slightly larger center ＋ (D-S) */
+/* ⚑⚑ THE LONG-PRESS MISFIRE WAS THREE MISSING PROPERTIES, NOT A BAD GESTURE. Thirtieth session.
+   Baruch: "when you click and hold, sometimes it accidentally highlights things on the page and
+   stuff like that... I don't want it to be click and hold anymore. I'd rather be double tap."
+
+   ⚑ `wirePlusFan` binds a 480 ms hold to THIS BUTTON (the click/long setting only decides which
+   FAN an item lands on — one button, two fans). The button carried no selection guard, so on a
+   WKWebView the hold fires the native text-selection / callout before the timer ever resolves.
+
+   ⚑ AND THE APP ALREADY KNEW THIS RULE — `user-select: none` sits on the pill, the fade blanks,
+   the hint spans and the drag handle below. The TAB BAR was simply missed. So the reason he
+   wants to replace the gesture may not survive fixing the gesture, which is worth finding out
+   before rebuilding the shell around a double-tap that costs ~250 ms on every navigation. */
 nav.tabbar button.tab-plus {
   flex: 0 0 auto; align-self: center; position: relative; top: -14px;
   width: 52px; height: 52px; border-radius: 50%;
   background: var(--accent); color: #fff;
   box-shadow: 0 2px 8px rgba(0,0,0,.18); border: 2px solid var(--card);
+  user-select: none; -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
 }
+/* The whole bar, for the same reason: a hold that starts on the ＋ and drifts a few pixels onto a
+   neighbouring tab must not begin selecting the label it lands on. */
+nav.tabbar { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 nav.tabbar button.tab-plus .ico { font-size: 26px; color: #fff; }
 nav.tabbar button.tab-plus.active::after { display: none; }
 
@@ -921,9 +939,9 @@ function defaultState() {
                            // optional schemeId picks one; absent = the implicit default scheme, which is what every
                            // pre-D-V module is, so nothing migrates. There is NO "active" scheme: several run at once.
     review: { covered: {}, books: {} },  // (D-AB) covered['docId#n']=ts sticky dots · books[name]=whole-book cadence assignment (layer 3)
-    // scopeLaunch (one-tap review/practice): remembered mode per intent + the review cycle/whole choice.
+    // scopeLaunch (one-tap Train launch): the remembered mode + the cycle/whole choice.
     // null mode = no default yet → the ▸ pill opens the mode sheet the first time, then remembers your pick.
-    settings: { migratedOldApp: false, esvKey: '', visionKey: '', scopeLaunch: { review: { mode: null, scope: 'cycle' }, practice: { mode: null } } }
+    settings: { migratedOldApp: false, esvKey: '', visionKey: '', scopeLaunch: { train: { mode: null, scope: 'cycle' } } }
   };
 }
 
@@ -1162,10 +1180,27 @@ function ensureShapes() {
   if (!state.stats || typeof state.stats !== 'object' || Array.isArray(state.stats)) state.stats = { sessions: [] };   // D-AB Stats session log (additive)
   if (!Array.isArray(state.stats.sessions)) state.stats.sessions = [];
   if (!state.settings) state.settings = def.settings;
-  // one-tap scoped launch (additive/sync-safe): remembered mode per intent + review cycle/whole choice
-  if (!state.settings.scopeLaunch || typeof state.settings.scopeLaunch !== 'object') state.settings.scopeLaunch = { review: { mode: null, scope: 'cycle' }, practice: { mode: null } };
-  if (!state.settings.scopeLaunch.review || typeof state.settings.scopeLaunch.review !== 'object') state.settings.scopeLaunch.review = { mode: null, scope: 'cycle' };
-  if (!state.settings.scopeLaunch.practice || typeof state.settings.scopeLaunch.practice !== 'object') state.settings.scopeLaunch.practice = { mode: null };
+  // one-tap scoped launch (additive/sync-safe): the remembered mode + the cycle/whole choice.
+  // ⚑ ONE KEY — `train` — since the thirtieth session's merge. ⚑ AND THE OLD KEYS ARE ADOPTED
+  // RATHER THAN DROPPED: a remembered mode is a preference he set, and silently forgetting it
+  // would make the merge feel like a reset of something he never agreed to reset. Review's is
+  // preferred because it carried the scope choice too.
+  const SL = state.settings;
+  if (!SL.scopeLaunch || typeof SL.scopeLaunch !== 'object') SL.scopeLaunch = {};
+  if (!SL.scopeLaunch.train || typeof SL.scopeLaunch.train !== 'object') SL.scopeLaunch.train = { mode: null, scope: 'cycle' };
+  // ⚑⚑ ADOPTION IS KEYED ON "train HAS NO MODE YET", NOT ON "train IS MISSING", and that is not a
+  // detail. `ensureShapes` runs at load AND after every import, so on a real device `train` is
+  // already seeded (mode null) by the time a pre-merge blob arrives from sync or a backup file —
+  // a "create it if absent" guard would skip, and his remembered mode would be silently dropped
+  // on exactly the upgrade path this exists for. Found by a check that drove the real import
+  // rather than calling ensureShapes directly.
+  if (!SL.scopeLaunch.train.mode) {
+    const rev = SL.scopeLaunch.review, prc = SL.scopeLaunch.practice;
+    // Review is preferred because it carried the cycle/whole choice as well as the mode.
+    const legacy = (rev && typeof rev === 'object' && rev.mode) ? rev
+      : (prc && typeof prc === 'object' && prc.mode) ? prc : null;
+    if (legacy) SL.scopeLaunch.train = { mode: legacy.mode, scope: legacy.scope || 'cycle' };
+  }
 }
 
 // ---- Export / Import ----
@@ -2196,8 +2231,60 @@ function verseScopeKey(name, ci, v) { return 'bible:' + name + ':' + (ci + 1) + 
 
 function getUnit(key) { return ASG()[key] || null; }
 function ensureUnit(key) { const a = ASG(); if (!a[key]) a[key] = {}; return a[key]; }
-function pruneUnit(key) { const u = ASG()[key]; if (u && !u.review && !u.practice && !u.memBy) delete ASG()[key]; }
-// intent: 'review' | 'practice'
+function pruneUnit(key) { const u = ASG()[key]; if (u && !u.train && !u.review && !u.practice && !u.memBy) delete ASG()[key]; }
+
+// ⚑⚑ THE RESET, AND ITS BOUNDARY IS THE WHOLE POINT. His words: "don't reset that, only reset
+// practice and review schedules." Measured against his export, what must survive is not small:
+// SEVEN books marked memorized in full (James · Titus · 1 Peter · Hebrews · 1 Timothy ·
+// 2 Timothy · Ephesians), Heidelberg at 19 sections, two modules, and per-verse typing history
+// with scores and timestamps. None of that is a schedule and none of it is touched here.
+//
+// ⚑ `review.covered` IS DELIBERATELY KEPT, and it costs nothing to keep. `isCovered(key, since)`
+// compares the stored timestamp against the new `cycleStart`, so every pre-reset stamp stops
+// counting toward a fresh cadence AUTOMATICALLY — the reset he asked for happens for free.
+// Deleting them would throw away "when did I last actually review this" and buy nothing.
+//
+// Returns what it cleared, so the caller can say so rather than claiming silently.
+function resetTrainSchedules(scripture) {
+  const a = ASG();
+  let units = 0;
+  for (const k of Object.keys(a)) {
+    const u = a[k];
+    if (u && (u.review || u.practice || u.train)) { delete u.review; delete u.practice; delete u.train; units++; }
+    pruneUnit(k);
+  }
+  // Whole-book review cadences live outside the assign store (state.review.books).
+  const books = Object.keys(RVS().books || {}).length;
+  RVS().books = {};
+  // The legacy per-book interval requirement — the other half of the old vocabulary.
+  let intervals = 0;
+  if (scripture && scripture.reviewIntervals) {
+    intervals = Object.keys(scripture.reviewIntervals).length;
+    scripture.reviewIntervals = {};
+  }
+  save();
+  return { units, books, intervals };
+}
+// ⚑⚑ ONE INTENT — `TRAIN` — THIRTIETH SESSION. Practice and Review merged at Baruch's
+// instruction: "I do not want to have practice and review now. It is redundant, and we can
+// achieve what we get in practice on the review style cards. Let's move from review or practice
+// name to train."
+//
+// ⚑ THEY WERE NEVER TWO SUBSYSTEMS, WHICH IS WHY THIS IS A RENAME AND NOT A REBUILD. The assign
+// store has always been ONE store keyed by intent — `u.review` and `u.practice` are two keys on
+// the same object, written by this one function — and his own carried both: a weekly
+// review cadence on `bible:Hebrews:7` and a 14-day practice cadence on a module. What differed
+// was the vocabulary and the screens, not the model.
+//
+// ⚑ AND THE OLD KEYS ARE NOT MIGRATED, BY HIS RULING: "when we merge, let's just reset and I can
+// input review schedules myself." That deletes the one genuinely undecidable question — a unit
+// may carry a review cadence AND a practice cadence with different periods, and nothing can say
+// which should survive. ⚑ The reset is bounded to the SCHEDULES: `review.assign` and
+// `scripture.reviewIntervals`. Memorized progress, creed progress, modules, the practice history
+// and the session log are untouched. See `resetTrainSchedules`.
+const TRAIN = 'train';
+
+// intent: TRAIN (or the legacy 'review' / 'practice' when reading pre-merge state)
 function setUnitCadence(key, intent, cadence) { ensureUnit(key)[intent] = newAssignment(cadence); save(); }
 function clearUnitCadence(key, intent) { const u = ASG()[key]; if (u) { delete u[intent]; pruneUnit(key); save(); } }
 function setUnitMemBy(key, dateKey) { if (dateKey) ensureUnit(key).memBy = dateKey; else { const u = ASG()[key]; if (u) delete u.memBy; } pruneUnit(key); save(); }
@@ -2295,7 +2382,7 @@ function shuffled(arr, rnd = Math.random) {
   return a;
 }
 
-const RV = {allMemBy,assignmentStatus,bookAssignment,bookScopeKey,cadenceIntervalMs,cadenceLabel,calendarNextDue,chapterScopeKey,clearBookCadence,clearCovered,clearUnitCadence,coverageKey,coverageTs,coveredCount,cycleAnchor,cycleComplete,cycleCoveredCount,dowName,dowShort,ensureReview,getUnit,governingReviewInterval,isCovered,markCovered,missInsertIndex,moduleKeys,newAssignment,nextDueMs,normCadence,ordinal,practiceNextDueMs,practiceStatus,setBookCadence,setUnitCadence,setUnitMemBy,shuffled,splitKey,syncCycle,syncPracticeCycle,uncoveredDeck,unitDecay,unitMastery,unitMemBy,unitsWithCadence,verseFreshness,verseScopeKey};
+const RV = {TRAIN,allMemBy,assignmentStatus,bookAssignment,bookScopeKey,cadenceIntervalMs,cadenceLabel,calendarNextDue,chapterScopeKey,clearBookCadence,clearCovered,clearUnitCadence,coverageKey,coverageTs,coveredCount,cycleAnchor,cycleComplete,cycleCoveredCount,dowName,dowShort,ensureReview,getUnit,governingReviewInterval,isCovered,markCovered,missInsertIndex,moduleKeys,newAssignment,nextDueMs,normCadence,ordinal,practiceNextDueMs,practiceStatus,resetTrainSchedules,setBookCadence,setUnitCadence,setUnitMemBy,shuffled,splitKey,syncCycle,syncPracticeCycle,uncoveredDeck,unitDecay,unitMastery,unitMemBy,unitsWithCadence,verseFreshness,verseScopeKey};
 // Strive — Session log + Stats (Phase 11, D-AB "Stats page above Trends").
 //
 // WHY THIS MODULE EXISTS. The practice store in creeds.js (`CR.logPractice`) records one entry PER
@@ -4918,7 +5005,12 @@ function assessment(windowDays = LIVE_WINDOW_DAYS) {
         const shown = Math.round(value);
         if (!estByKey[k] || shown > estByKey[k]) estByKey[k] = shown;
       }
-      if (!per[k]) per[k] = { best: value, count: 0, ts: l.ts, estimated, estReps, src: new Set() };
+      // ⚑ `wid` RIDES WITH `ts` — thirtieth session. `per[k].ts` has tracked WHEN the best result
+      // was set since the engine was written, and the WORKOUT that produced it was thrown away.
+      // His note 13: "if I have done 5 workouts that have counted for assessment, I want to see
+      // those workouts and what my scores are for those" — the screen could name the curve and
+      // the number, and could not name the piece he actually did.
+      if (!per[k]) per[k] = { best: value, count: 0, ts: l.ts, wid: l.wid, estimated, estReps, src: new Set() };
       // ⚑ WHICH LOGS HAVE ALREADY BEEN COUNTED FOR THIS BENCHMARK. Engine 1 below reads the
       // same history through a different door, and a `1RM: Front Squat` arrives through both:
       // Engine 2 because the WORKOUT resolves to the curve, Engine 1 because the MOVEMENT
@@ -4932,7 +5024,7 @@ function assessment(windowDays = LIVE_WINDOW_DAYS) {
       // so a true 125 lb snatch keeps its place over a 7RM at 45 lb that converts to 56.
       // When an estimate does win, it wins because it is a better performance, and it brings
       // its own wider σ with it rather than borrowing the true result's.
-      if (isBetter) { per[k].best = value; per[k].ts = l.ts; per[k].estimated = estimated; per[k].estReps = estReps; }
+      if (isBetter) { per[k].best = value; per[k].ts = l.ts; per[k].wid = l.wid; per[k].estimated = estimated; per[k].estReps = estReps; }
     });
     // -----------------------------------------------------------------------------------
     // ⚑⚑ ENGINE 1 — MOVEMENT-DERIVED SCORING. Twenty-eighth session, batch 6. Designed in
@@ -4979,11 +5071,11 @@ function assessment(windowDays = LIVE_WINDOW_DAYS) {
       } else if (b.rtype === 'load') {
         return;   // a weighted single or a max set is not a load on THIS curve
       }
-      if (!per[k]) per[k] = { best: value, count: 0, ts: r.ts, estimated, estReps, src: new Set() };
+      if (!per[k]) per[k] = { best: value, count: 0, ts: r.ts, wid: r.wid, estimated, estReps, src: new Set() };
       per[k].src.add(sig);
       per[k].count++;
       const isBetter = b.dir === 'lower' ? value < per[k].best : value > per[k].best;
-      if (isBetter) { per[k].best = value; per[k].ts = r.ts; per[k].estimated = estimated; per[k].estReps = estReps; }
+      if (isBetter) { per[k].best = value; per[k].ts = r.ts; per[k].wid = r.wid; per[k].estimated = estimated; per[k].estReps = estReps; }
       per[k].engine1 = true;
     });
 
@@ -5006,6 +5098,9 @@ function assessment(windowDays = LIVE_WINDOW_DAYS) {
         // printed a date. Found by rendering the row and reading the output, not the branch.
         // It is load-bearing now: an expired row's whole job is to say what you got and when.
         ts: r.ts,
+        // ⚑ The workout behind the best result. Moves with `ts` on every improvement, for the
+        // same reason `ts` does — provenance that lags the value it describes is worse than none.
+        wid: r.wid || null,
         rtype: b.rtype, unit: b.unit, tier,
         sigma: +sigmaOfResult(b, r.estimated, r.estReps).toFixed(2),
         precision: precisionOfResult(b, r.count, r.estimated, r.estReps),
@@ -8390,7 +8485,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260814-1022'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260814-1022';
+const BUILD_ID = '20260814-1700'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260814-1700';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -8445,7 +8540,7 @@ function render(screen, pushToStack = true) {
   main().scrollTop = 0;
   screen();
 }
-// Floating close ✕ for practice-session screens (fade / typer / flashcards / scramble / binary).
+// Floating close ✕ for training-session screens (fade / typer / flashcards / scramble).
 // Top-right corner, exits straight to that mode's summary/scorecard. The review Timer keeps its
 // own stop/log controls and does NOT use this. Append the returned element to the screen's wrap.
 function practiceCloseX(onClose) {
@@ -9048,7 +9143,11 @@ function statsScreen() {
   corpRow.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { statsFilter.corpus = b.dataset.c || null; rerender(); });
   wrap.append(corpRow);
 
-  const modes = [[null, 'All modes'], ['flash', 'Cards 1–5'], ['binary', 'Cards ✓'], ['typer', 'Typing'], ['fade', 'Fade'], ['scramble', 'Scramble'], ['timer', 'Recite ⏱']];
+  // ⚑ 'binary' STAYS ON THIS LIST AS A READER. The ✓ card was deleted in the thirtieth session
+  // and nothing can create a new one — but his history HAS them, and dropping the filter option
+  // along with the mode would have hidden real sessions he actually did. Deleting a feature must
+  // not delete the record of having used it.
+  const modes = [[null, 'All modes'], ['flash', 'Cards 1–5'], ['typer', 'Typing'], ['fade', 'Fade'], ['scramble', 'Scramble'], ['timer', 'Recite ⏱'], ['binary', 'Cards ✓ (retired)']];
   const modeRow = h(`<div class="pillrow" style="margin-bottom:4px;flex-wrap:wrap">${modes.map(([v, l]) =>
     `<button class="pill${statsFilter.mode === v ? ' on' : ''}" data-m="${v === null ? '' : v}" style="padding:5px 10px;font-size:12px">${l}</button>`).join('')}</div>`).firstElementChild;
   modeRow.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { statsFilter.mode = b.dataset.m || null; rerender(); });
@@ -9103,7 +9202,7 @@ function statsSessionRow(s) {
       <div class="row">
         <div class="grow">
           <div class="title">${esc(s.title || ST.modeLabel(s.mode))}</div>
-          <div class="sub">${esc(ST.modeLabel(s.mode))}${s.intent === 'review' ? ' · review' : ''} · ${when} ${esc(time)}</div>
+          <div class="sub">${esc(ST.modeLabel(s.mode))} · ${when} ${esc(time)}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-weight:700;font-variant-numeric:tabular-nums">${s.score == null ? (s.secs ? SC.fmtSecs(s.secs) : '—') : s.score + '%'}</div>
@@ -9298,49 +9397,49 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
   // reviews due (Phase 11 cadence layer) — a module/book whose cycle is due; tap to review it
   const revRows = reviewRowsForDate(dk);
   if (revRows.length) {
-    wrap.append(sectionTitle('Reviews due'));
+    wrap.append(sectionTitle('Training due'));
     revRows.forEach(r => {
       const el = h(`
         <div class="list-item" style="${r.scheduled ? '' : 'cursor:pointer'}${r.late ? ';border-color:var(--danger)' : ''}">
           <div class="check" style="color:var(--accent);border-color:var(--accent)">◎</div>
           <div class="grow">
             <div class="title">${esc(r.title)}</div>
-            <div class="sub">${r.scheduled ? '◎ review due' : (r.late ? '⚠ overdue · ' : '') + r.st.covered + '/' + r.st.total + ' reviewed this cycle · ' + RV.cadenceLabel(r.a.cadence)}</div>
+            <div class="sub">${r.scheduled ? '◎ training due' : (r.late ? '⚠ overdue · ' : '') + r.st.covered + '/' + r.st.total + ' reviewed this cycle · ' + RV.cadenceLabel(r.a.cadence)}</div>
           </div>
         </div>`);
       // due (not a future scheduled marker) → tap launches your remembered review mode; ▾ picks a different one
       if (!r.scheduled) {
         const li = el.querySelector('.list-item');
-        li.onclick = () => launchScoped(r, 'review');
+        li.onclick = () => launchScoped(r, RV.TRAIN);
         const dd = h(`<button class="pill" title="Choose mode" style="padding:5px 8px;font-size:12px;align-self:center;flex-shrink:0">▾</button>`).firstChild;
-        dd.onclick = e => { e.stopPropagation(); scopeModeSheet(r, 'review'); };
+        dd.onclick = e => { e.stopPropagation(); scopeModeSheet(r, RV.TRAIN); };
         li.append(dd);
       }
       wrap.append(el);
     });
   }
 
-  // practice due (D-AF) — its own section, NOT folded into Reviews due: practice marks nothing while
-  // review counts as coverage, and keeping them visually separate keeps that distinction legible (D-AB).
+  // ⚑ LEGACY practice cadences, folded UNDER the same heading rather than given their own.
+  // They stop existing the moment the reset runs; until then they are still his.
   const prRows = practiceRowsForDate(dk);
   if (prRows.length) {
-    wrap.append(sectionTitle('Practice due'));
+    if (!revRows.length) wrap.append(sectionTitle('Training due'));
     prRows.forEach(r => {
       const el = h(`
         <div class="list-item" style="${r.scheduled ? '' : 'cursor:pointer'}${r.late ? ';border-color:var(--danger)' : ''}">
           <div class="check" style="color:var(--gold);border-color:var(--gold)">◈</div>
           <div class="grow">
             <div class="title">${esc(r.title)}</div>
-            <div class="sub">${r.scheduled ? '◈ practice due' : (r.late ? '⚠ overdue · ' : '') + 'rehearse · ' + RV.cadenceLabel(r.a.cadence)}</div>
+            <div class="sub">${r.scheduled ? '◈ training due' : (r.late ? '⚠ overdue · ' : '') + 'rehearse · ' + RV.cadenceLabel(r.a.cadence)}</div>
           </div>
         </div>`);
       if (!r.scheduled) {
-        const t = r.creed ? creedLaunchTarget(r.sc, r.key, 'practice', r.title) : scopeLaunchTarget(r.sc, r.key, 'practice', r.title);
+        const t = r.creed ? creedLaunchTarget(r.sc, r.key, RV.TRAIN, r.title) : scopeLaunchTarget(r.sc, r.key, RV.TRAIN, r.title);
         const li = el.querySelector('.list-item');
         if (t) {
-          li.onclick = () => launchScoped(t, 'practice');
+          li.onclick = () => launchScoped(t, RV.TRAIN);
           const dd = h(`<button class="pill" title="Choose mode" style="padding:5px 8px;font-size:12px;align-self:center;flex-shrink:0">▾</button>`).firstChild;
-          dd.onclick = e => { e.stopPropagation(); scopeModeSheet(t, 'practice'); };
+          dd.onclick = e => { e.stopPropagation(); scopeModeSheet(t, RV.TRAIN); };
           li.append(dd);
         }
       }
@@ -9651,8 +9750,8 @@ function planMonth(body) {
     const dots = [];
     if (st.total) dots.push(`<span style="width:5px;height:5px;border-radius:50%;background:${st.done === st.total ? 'var(--accent)' : 'var(--gold)'}"></span>`);
     if (hasTarget) dots.push(`<span title="reading/pace target" style="width:5px;height:5px;border-radius:50%;border:1.5px solid var(--accent);background:transparent"></span>`);
-    if (reviewRowsForDate(dk).length) dots.push(`<span title="review due" style="width:5px;height:5px;border-radius:50%;background:var(--text)"></span>`);
-    if (practiceRowsForDate(dk).length) dots.push(`<span title="practice due" style="width:5px;height:5px;border-radius:50%;background:var(--gold)"></span>`);
+    if (reviewRowsForDate(dk).length) dots.push(`<span title="training due" style="width:5px;height:5px;border-radius:50%;background:var(--text)"></span>`);
+    if (practiceRowsForDate(dk).length) dots.push(`<span title="training due (legacy)" style="width:5px;height:5px;border-radius:50%;background:var(--gold)"></span>`);
     if (memByRowsForDate(dk).length) dots.push(`<span title="memorize by" style="width:5px;height:5px;border-radius:50%;background:var(--forest)"></span>`);
     // one dot per DAILY target applying this day: filled (forest) if met, hollow (gold) if not (9.5)
     PL.targets().filter(t => t.period === 'day' && TG.targetAppliesOn(t, dk)).slice(0, 4).forEach(t => {
@@ -10896,19 +10995,37 @@ function scopeTitle(sc, b) {
 // Has every memorized verse in the scope been practiced since `since`? Practice MARKS NOTHING (D-AB),
 // so this reads the practice log, not the coverage store. Shared by assignment-step completion (D-AG)
 // and the practice-due planner rows — one definition, so the step and the row can never disagree.
-function practiceScopeDone(sc, since) {
-  const vs = scopeVerses(sc, true);
-  return vs.length > 0 && vs.every(([bn, ci, v]) => CR.lastPracticeTs('bible:' + bn + ':' + (ci + 1), v) >= (since || 1));
+// ⚑⚑ TWO COVERAGE STORES BECAME ONE QUESTION — THIRTIETH SESSION, THE TRAIN MERGE.
+// Practice asked "has every memorized verse been PRACTICED since the cycle start", reading
+// `CR.lastPracticeTs`; review asked "has every memorized verse been COVERED since the cycle
+// start", reading `RV.isCovered`. Two stores answering one question is how they drift, and one
+// of them had to win. **`RV.covered` wins**, because it is the cycle-aware watermark that
+// `markCovered` maintains, and because `CR.practice` is a rich HISTORY (mode, score, timestamp,
+// capped at 20) that every mode keeps writing regardless — history is not a watermark.
+//
+// ⚑ AND WHAT TRAIN *SERVES* IS NOT WHAT TRAIN *COUNTS*. It draws every verse in the scope, so a
+// book he has not memorized is workable — that was practice's rule and losing it would make
+// memorizing anything new impossible. The CYCLE is still measured over the MEMORIZED set, which
+// was review's rule: "have I been over everything I know here". Two questions, two answers, and
+// conflating them is what made the old split look necessary.
+function trainCycleStart(key) {
+  const u = RV.getUnit(key);
+  if (!u) return 0;
+  // Legacy keys are read but never written — the reset clears them and nothing recreates them.
+  const a = u[RV.TRAIN] || u.review || u.practice;
+  return a ? a.cycleStart : 0;
 }
-function practiceCycleStart(key) { const u = RV.getUnit(key); return u && u.practice ? u.practice.cycleStart : 0; }
-// Compact summary of EVERYTHING assigned to a scope: review cadence ◎ · practice cadence ◈ · memorize-by ◆.
-// The pills previously showed the review cadence alone, so a practice cadence or a memorize-by date you'd
-// just set read as unsaved the moment you closed the sheet. `reviewA` is passed in because whole-book and
-// module review live outside the assign store (state.review.books / mod.review).
-function assignPillLabel(key, reviewA) {
+// Compact summary of EVERYTHING assigned to a scope: train cadence ◎ · memorize-by ◆.
+// The pills previously showed the review cadence alone, so a cadence or a memorize-by date he had
+// just set read as unsaved the moment he closed the sheet. `trainA` is passed in because
+// whole-book and module assignments live outside the assign store (state.review.books / mod).
+// ⚑ TWO BITS NOW, NOT THREE. The merge removed the ◈ practice cadence as a SEPARATE thing to
+// assign — there is one cadence — and the reason this still reads more than one field is the
+// original one: a label that shows a subset of what is assigned makes the rest look unsaved.
+function assignPillLabel(key, trainA) {
   const u = RV.getUnit(key), bits = [];
-  if (reviewA) bits.push('◎ ' + RV.cadenceLabel(reviewA.cadence));
-  if (u && u.practice) bits.push('◈ ' + RV.cadenceLabel(u.practice.cadence));
+  const a = trainA || (u && (u[RV.TRAIN] || u.review || u.practice));
+  if (a) bits.push('◎ ' + RV.cadenceLabel(a.cadence));
   if (u && u.memBy) bits.push('◆ ' + shortDate(u.memBy));
   return 'Assign' + (bits.length ? ' · ' + bits.join(' · ') : '');
 }
@@ -10945,9 +11062,13 @@ function creedAssignScope(docId, kind, n) {
 }
 // Has every memorized section in a creed scope been practiced since `since`? Practice marks nothing
 // (D-AB), so like its scripture twin this reads the practice log rather than coverage.
-function creedPracticeScopeDone(sc, since) {
-  const secs = CR.creedScopeSections(sc, true);
-  return secs.length > 0 && secs.every(s => CR.lastPracticeTs(sc.docId, s.n) >= (since || 1));
+function creedTrainScopeDone(sc, since) {
+  const ck = CR.creedCoverageKeys(sc);
+  return ck.length > 0 && ck.every(k => RV.isCovered(k, since));
+}
+function trainScopeDone(sc, since) {
+  const ck = scopeCoverageKeys(sc);
+  return ck.length > 0 && ck.every(k => RV.isCovered(k, since));
 }
 // Launch target for a creed scope, shaped like scopeLaunchTarget's so launchScopeMode/scopeModeSheet
 // need no creed branch beyond fetching (creed text is local — there is no ESV call).
@@ -10956,14 +11077,17 @@ function creedLaunchTarget(sc, key, intent, title) {
   const d = CR.getDoc(sc.docId); if (!d) return null;
   const keys = CR.creedCoverageKeys(sc);
   const u = RV.getUnit(key);
-  const a = u && u[intent === 'practice' ? 'practice' : 'review'] ? u[intent === 'practice' ? 'practice' : 'review'] : null;
+  const a = (u && (u[RV.TRAIN] || u.review || u.practice)) || null;
   return { kind: 'creed', creed: true, doc: d, sc, key, a, keys, title: title || CR.creedScopeTitle(sc), intent };
 }
 
-function scopeReviewAssign(sc, key) {
-  if (sc.kind === 'module') { const r = scopeModule(sc); return r && r[1].review ? r[1].review : null; }
+// ⚑ THE MODULE AND WHOLE-BOOK ASSIGNMENTS LIVE OUTSIDE THE ASSIGN STORE (`mod.review`,
+// `state.review.books`) and are read here through the same one function, so the merge did not
+// have to find three places later. Legacy keys are read; only `TRAIN` is written.
+function scopeTrainAssign(sc, key) {
+  if (sc.kind === 'module') { const r = scopeModule(sc); return r ? (r[1][RV.TRAIN] || r[1].review || r[1].practice || null) : null; }
   if (sc.kind === 'book') return RV.bookAssignment(sc.book);
-  const u = RV.getUnit(key); return u && u.review ? u.review : null;
+  const u = RV.getUnit(key); return (u && (u[RV.TRAIN] || u.review || u.practice)) || null;
 }
 // Derived completion of an assignment-step (single source of truth — D-AG).
 // Returns true/false, or NULL meaning "the engine has no opinion" — an unrecognized key namespace,
@@ -10988,8 +11112,9 @@ function refStepDone(step) {
     if (intent === 'memorize') return all.every(s => CR.isDone(csc.docId, s.n));
     const ck = CR.creedCoverageKeys(csc);
     if (!ck.length) return false;
-    if (intent === 'review') { const u = RV.getUnit(key), since = u && u.review ? u.review.cycleStart : 0; return ck.every(k => RV.isCovered(k, since)); }
-    return creedPracticeScopeDone(csc, practiceCycleStart(key));
+    // ⚑ ONE ANSWER FOR BOTH LEGACY INTENTS. A pathway step written before the merge carries
+    // `intent: 'review'` or `'practice'`; both now mean Train and both read coverage.
+    return ck.every(k => RV.isCovered(k, trainCycleStart(key)));
   }
   if (!key.startsWith('bible:') && !key.startsWith('mod:')) return null;
   const sc = parseScopeKey(key);
@@ -10997,8 +11122,8 @@ function refStepDone(step) {
   if (intent === 'memorize') { const all = scopeVerses(sc, false); return all.length > 0 && all.every(([bn, ci, v]) => { const b = allBooks.find(x => x.name === bn); return b && SC.verseDone(b, ci, v); }); }
   const memKeys = scopeCoverageKeys(sc);
   if (!memKeys.length) return false;
-  if (intent === 'review') { const a = scopeReviewAssign(sc, key), since = a ? a.cycleStart : 0; return memKeys.every(k => RV.isCovered(k, since)); }
-  return practiceScopeDone(sc, practiceCycleStart(key));   // practice: every memorized verse practiced since the cycle start (or ever)
+  const a = scopeTrainAssign(sc, key);
+  return memKeys.every(k => RV.isCovered(k, a ? a.cycleStart : 0));
 }
 // s.manualDone is a deliberate TRI-STATE (Baruch, Aug 3): true = force done, false = force open,
 // null/undefined = let the engine decide. It has to be PERSISTED on the step, because this sync runs
@@ -11148,7 +11273,9 @@ function refStepLaunch(step) {
   const b = allBooks.find(x => x.name === sc.book); if (!b) return;
   if (sc.kind === 'book') render(() => bookScreen(b)); else render(() => chapterScreen(b, sc.ci));
 }
-const intentVerb = i => i === 'memorize' ? 'Memorize' : i === 'practice' ? 'Practice' : 'Review';
+// ⚑ `memorize` is a DIFFERENT AXIS and survives the merge — it is a pathway step meaning "get
+// this memorized by then", not a session mode. Practice and Review both became Train.
+const intentVerb = i => i === 'memorize' ? 'Memorize' : 'Train';
 // pick a pathway (or create one) to add this scope as an assignment-step, with an intent
 function pathwayAddSheet(scopeKey, title) {
   openSheet('Add to pathway · ' + title, (body, close) => {
@@ -11237,7 +11364,8 @@ function collectReviewAssignments() {
   // and can't double-count (guarded anyway). This loop is the seam that was missing until July 31 2026:
   // the store and the decay resolver shipped in the seventh session, the surfacing never did, so a
   // chapter cadence lit the circle but never reached Today/Week/Month.
-  RV.unitsWithCadence('review').forEach(({ key, a }) => {
+  // ⚑ TRAIN cadences plus any legacy `review` ones that survive until the reset runs.
+  [...RV.unitsWithCadence(RV.TRAIN), ...RV.unitsWithCadence('review')].forEach(({ key, a }) => {
     // creeds first — parseScopeKey rejects the namespace, and a `continue` here rather than a guard
     // there would be the create-only bug all over again: stored, resolved, never surfaced (D-AH).
     if (isCreedKey(key)) {
@@ -11253,9 +11381,15 @@ function collectReviewAssignments() {
   });
   return out;
 }
-// every active PRACTICE cadence, any scope (all of them live in the assign store — book, chapter,
-// verse, and module alike). Separate from review because practice marks nothing (D-AB): its cycle
-// completion is read from the practice log, not from coverage.
+// ⚑⚑ THE SECOND SECTION IS GONE — THIRTIETH SESSION, THE TRAIN MERGE. Today used to carry
+// "Reviews due" AND "Practice due" as two lists, deliberately kept apart (D-AB) because practice
+// marked nothing while review counted as coverage. **That distinction no longer exists**, so two
+// sections showing one kind of obligation is two answers to one question — and the second would
+// have quietly stayed empty forever once nothing wrote a `practice` cadence again.
+//
+// ⚑ THE FUNCTION SURVIVES AND RETURNS THE LEGACY ROWS ONLY. Anything still carrying an old
+// `practice` cadence keeps surfacing until the reset clears it, so nothing he had assigned
+// vanishes silently the moment he upgrades — it merges into the one list instead.
 function collectPracticeAssignments() {
   const out = [];
   RV.unitsWithCadence('practice').forEach(({ key, a }) => {
@@ -11279,7 +11413,7 @@ function syncReviewCycles() {
   // practice cycles roll on their own rule — completion comes from the practice log, so it's computed
   // here and handed to the pure roller rather than derived from coverage inside it.
   collectPracticeAssignments().forEach(P => {
-    const pDone = P.creed ? creedPracticeScopeDone(P.sc, P.a.cycleStart) : practiceScopeDone(P.sc, P.a.cycleStart);
+    const pDone = P.creed ? creedTrainScopeDone(P.sc, P.a.cycleStart) : trainScopeDone(P.sc, P.a.cycleStart);
     if (RV.syncPracticeCycle(P.a, pDone)) changed = true;
   });
   if (changed) save();
@@ -11300,7 +11434,7 @@ function reviewRowsForDate(dk, today = todayKey()) {
 function practiceRowsForDate(dk, today = todayKey()) {
   const rows = [];
   collectPracticeAssignments().forEach(P => {
-    const done = P.creed ? creedPracticeScopeDone(P.sc, P.a.cycleStart) : practiceScopeDone(P.sc, P.a.cycleStart);
+    const done = P.creed ? creedTrainScopeDone(P.sc, P.a.cycleStart) : trainScopeDone(P.sc, P.a.cycleStart);
     const st = RV.practiceStatus(P.a, done);
     if (!st.complete) { if (dk === today) rows.push({ ...P, st, late: st.late, scheduled: false }); }
     else { const ndKey = todayKey(new Date(st.nextDueMs)); if (dk === ndKey) rows.push({ ...P, st, scheduled: true }); }
@@ -11354,15 +11488,16 @@ async function fetchScopeDoc(b, keys) {
   doc.sections = doc.sections.filter(sec => keep.has(RV.coverageKey(prDocId(doc, sec), prN(sec))));
   return doc.sections.length ? doc : null;
 }
-// Launch a mode scoped to a unit, for practice OR review. Review is cycle/whole-scoped and marks coverage
-// (rank-5 / Got-it / typing ≥90% / logged timer). Practice runs the whole scope and marks nothing (rank-5 /
-// typing ≥90% still mark memorized per D-AF). t = { kind, book, mod?, a?, keys, title }.
+// Launch a mode scoped to a unit. ⚑ ONE INTENT — TRAIN. It is cycle/whole-scoped, marks coverage
+// as it goes, and still marks MEMORIZED at the thresholds (a rank-5, or a typing pass he
+// confirms). t = { kind, book, mod?, a?, keys, title }.
 async function launchScopeMode(t, mode, scope, intent, btn) {
-  // remember this pick as the one-tap default for this intent (choosing in the sheet updates the default too)
-  if (intent === 'review' || intent === 'practice') {
-    const pref = state.settings.scopeLaunch[intent] || (state.settings.scopeLaunch[intent] = {});
+  // Remember this pick as the one-tap default. ⚑ Stored under TRAIN now; the old per-intent
+  // preferences are simply not read, which is the cheapest possible migration for a preference.
+  {
+    const pref = state.settings.scopeLaunch[RV.TRAIN] || (state.settings.scopeLaunch[RV.TRAIN] = {});
     pref.mode = mode;
-    if (intent === 'review' && scope) pref.scope = scope;
+    if (scope) pref.scope = scope;
     save();
   }
   // The review TIMER is scripture-only — reviewTimer files into scripture.reviewTimes, which is keyed
@@ -11373,7 +11508,7 @@ async function launchScopeMode(t, mode, scope, intent, btn) {
     return;
   }
   const cycleStart = (t.a && t.a.cycleStart) || 0;
-  let keys = (intent === 'review' && scope === 'cycle') ? t.keys.filter(k => !RV.isCovered(k, cycleStart)) : t.keys.slice();
+  let keys = scope === 'cycle' ? t.keys.filter(k => !RV.isCovered(k, cycleStart)) : t.keys.slice();
   if (!keys.length) keys = t.keys.slice();   // all covered this cycle → a fresh pass over the whole unit
   if (!keys.length) { toast(t.creed ? 'Nothing learned in this scope yet' : 'No verses in this scope yet'); return; }
   const orig = btn ? btn.textContent : '';
@@ -11392,23 +11527,19 @@ async function launchScopeMode(t, mode, scope, intent, btn) {
   const queue = doc.sections.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn, ci: x.ci }));
   if (mode === 'flash') { const ordered = queue.slice().sort((a, b) => a.n - b.n); render(() => orderedFlashCard(doc, ordered, 0, {}, intent)); }
   else if (mode === 'typer') render(() => typerScreen(doc, queue, 0, [], intent));
-  else if (mode === 'fade') render(() => fadeScreen(doc, queue, 0, 0, []));
-  else {   // binary Got-it/Missed — a coverage-marking pass in review, plain rehearsal in practice
-    let deck = doc.sections.map(sec => ({ n: sec.n, q: sec.label, a: sec.text, docId: sec.docId, vn: sec.vn, ci: sec.ci, key: RV.coverageKey(prDocId(doc, sec), prN(sec)) }));
-    if (binaryOpts.order === 'shuffled') deck = RV.shuffled(deck);
-    render(() => binaryFlashScreen(doc, deck, { order: binaryOpts.order, miss: binaryOpts.miss, intent }));
-  }
+  else render(() => fadeScreen(doc, queue, 0, 0, []));
 }
-// The mode sheet's body: review → scope toggle (This cycle / Whole) + Cards 1–5 · Cards ✓ · Typing · Timer;
-// practice → the whole scope + Cards 1–5 · Cards ✓ · Typing · Fade. No scramble pill (11.4).
+// The mode sheet's body: the scope toggle (This cycle / Whole) + every mode.
+// ⚑ ONE LIST, AND FADE IS ON IT. Fade used to be practice-only and Timer review-only, which was
+// arbitrary in both directions — the mode you choose is not the same question as what the
+// session counts for, and splitting them meant a mode could be unreachable depending on which
+// door you came through. No scramble pill (11.4).
 function scopeModeControls(t, intent) {
   let scope = 'cycle';
   const wholeLbl = t.kind === 'module' ? 'module' : t.kind === 'chapter' ? 'chapter' : t.kind === 'verse' ? 'verse' : 'book';
-  const modes = intent === 'review'
-    ? [['flash', 'Cards 1–5'], ['binary', 'Cards ✓'], ['typer', 'Typing'], ['timer', 'Timer']]
-    : [['flash', 'Cards 1–5'], ['binary', 'Cards ✓'], ['typer', 'Typing'], ['fade', 'Fade']];
+  const modes = [['flash', 'Cards 1–5'], ['typer', 'Typing'], ['fade', 'Fade'], ['timer', 'Timer']];
   const wrap = document.createElement('div');
-  if (intent === 'review') {
+  {
     const sc = h(`<div class="pillrow" style="margin-bottom:6px">
       <button class="pill on" data-s="cycle" style="padding:4px 10px;font-size:12px">This cycle</button>
       <button class="pill" data-s="whole" style="padding:4px 10px;font-size:12px">Whole ${wholeLbl}</button></div>`).firstElementChild;
@@ -11421,8 +11552,8 @@ function scopeModeControls(t, intent) {
   return wrap;
 }
 function scopeModeSheet(t, intent) {
-  openSheet((intent === 'review' ? 'Review' : 'Practice') + ' · ' + t.title, (body) => {
-    body.append(h(`<div class="muted" style="font-size:12px;margin:0 2px 8px">${intent === 'review' ? 'Pick a mode — it counts as review coverage.' : 'Pick a mode to rehearse this passage.'}</div>`));
+  openSheet('Train · ' + t.title, (body) => {
+    body.append(h(`<div class="muted" style="font-size:12px;margin:0 2px 8px">Pick a mode — whatever you clear counts toward this cycle.</div>`));
     body.append(scopeModeControls(t, intent));
   });
 }
@@ -11433,9 +11564,14 @@ function scopeModeSheet(t, intent) {
 // scopes "this cycle"); practice runs every verse in scope. Shared by pathway steps and the planner's
 // practice-due rows so both launch identically.
 function scopeLaunchTarget(sc, key, intent, title) {
-  const keys = scopeVerses(sc, intent === 'review').map(([bn, ci, v]) => 'bible:' + bn + ':' + (ci + 1) + '#' + v);
-  const u = RV.getUnit(key);
-  const a = (intent === 'review' ? scopeReviewAssign(sc, key) : (u && u.practice)) || { cycleStart: 0 };
+  // ⚑⚑ EVERY VERSE IN THE SCOPE, WHICH IS PRACTICE'S RULE AND THE ONE THE MERGE HAD TO KEEP.
+  // Review drew MEMORIZED verses only (`scopeVerses(sc, true)`), so a literal "keep review,
+  // delete practice" would have made it impossible to work on a book he has not memorized —
+  // which is how a book gets memorized. It would also make the typing tick-list unreachable: a
+  // session cannot end with "are these memorized?" if it could only ever serve verses that
+  // already were.
+  const keys = scopeVerses(sc, false).map(([bn, ci, v]) => 'bible:' + bn + ':' + (ci + 1) + '#' + v);
+  const a = scopeTrainAssign(sc, key) || { cycleStart: 0 };
   let book, mod = null;
   if (sc.kind === 'module') { const r = scopeModule(sc); if (!r) return null; book = allBooks.find(x => x.name === r[0]); mod = r[1]; }
   else book = allBooks.find(x => x.name === sc.book);
@@ -11448,7 +11584,7 @@ function stepScopeTarget(s) {
   return sc ? scopeLaunchTarget(sc, s.ref.key, s.ref.intent, s.label) : null;
 }
 // One-tap launch: mode labels + the remembered preference per intent (D-AG one-tap scoped launch).
-const MODE_LABEL = { flash: 'Cards 1–5', binary: 'Cards ✓', typer: 'Typing', timer: 'Timer', fade: 'Fade' };
+const MODE_LABEL = { flash: 'Cards 1–5', typer: 'Typing', timer: 'Timer', fade: 'Fade', binary: 'Cards ✓ (retired)' };
 const scopePref = intent => (state.settings.scopeLaunch && state.settings.scopeLaunch[intent]) || {};
 // The ▸ pill's label — shows the remembered mode so one tap is transparent (e.g. "▸ Review · Typing").
 function refPillLabel(intent) {
@@ -11459,10 +11595,12 @@ function refPillLabel(intent) {
 }
 // Launch a resolved target in one tap using the remembered mode; no default yet → open the sheet to pick one.
 function launchScoped(t, intent, btn) {
-  if (intent === 'review' && !t.keys.length) { toast('Nothing memorized in this scope to review yet'); return; }
+  // ⚑ THE "NOTHING MEMORIZED HERE YET" GATE IS GONE. It was review's, and it is exactly what
+  // would have made memorizing anything new impossible once the two merged.
+  if (!t.keys.length) { toast('No verses in this scope yet'); return; }
   const pref = scopePref(intent);
   if (!pref.mode) return scopeModeSheet(t, intent);   // first time → pick a mode; it becomes the default
-  launchScopeMode(t, pref.mode, intent === 'review' ? (pref.scope || 'cycle') : undefined, intent, btn);
+  launchScopeMode(t, pref.mode, pref.scope || 'cycle', intent, btn);
 }
 // Resolve a ref-step + open its mode sheet (the ▾ / long-press "change mode" path).
 function refStepSheet(s) {
@@ -12072,7 +12210,7 @@ async function fetchChaptersProgress(b, cis, btn) {
 // intent 'practice' | 'review' — same scope→mode flow for both (D-AB unification);
 // Review currently differs only in label. Marking a module reviewed (coverage) is the Phase 11 engine.
 function practiceScope(b, intent = 'practice') {
-  setHeader((intent === 'review' ? 'Review' : 'Practice') + ' · ' + b.name, { back: () => bookScreen(b) });
+  setHeader('Train · ' + b.name, { back: () => bookScreen(b) });
   if (prScope.book !== b.name) prScope = { book: b.name, mode: b.chapters <= WHOLE_BOOK_CAP ? 'book' : 'chapters', chapters: {}, vch: null, verses: {} };
   const s = prScope;
   const wrap = document.createElement('div');
@@ -14023,12 +14161,29 @@ const prDocId = (d, x) => x.docId || d.id;
 const prN = x => x.vn != null ? x.vn : x.n;
 
 // Rating-5 terminal action for the rank 1–5 flashcards, by intent (chunk-1 flashcard cleanup):
-//   practice → mark the verse memorized (like the binary Memorized button)
-//   review   → mark the verse reviewed (RV coverage), same as a binary "Got it"
+//   ⚑ TRAIN → marks coverage always, and marks MEMORIZED at the threshold (a rank-5, or a
+//   typing pass he confirms). One session, both facts, no mode to choose between them.
 // 1–4 do neither. Mastery is logged separately (rating × 20) by the caller.
-function flashRankFive(d, item, intent) {
-  if (intent === 'review') RV.markCovered(RV.coverageKey(prDocId(d, item), prN(item)));
-  else binaryMarkMemorized(d, item);
+// ⚑⚑ THREE FACTS THAT USED TO BE ONE BRANCH — THIRTIETH SESSION. `if (r === 5)` retired the
+// card AND fired the terminal action AND was the only threshold in the mode. Baruch's two notes
+// read together separate them:
+//
+//     "Everything over a 3 should count as practiced or reviewed in 1-5 flashcards."
+//     "I think number 5 on the 5-option flashcards counts as memorized."
+//
+//   ≥ 4   marks TRAINED — coverage, the thing the cycle is measured in
+//   = 5   marks MEMORIZED — the stronger claim, and the only rating that makes it
+//   = 5   retires the card from the active set (unchanged)
+//
+// ⚑ A 4 THEREFORE COUNTS AND COMES BACK, which is the point of separating them: "I know this
+// well enough to have covered it" and "I know this" are different sentences and were sharing
+// a number.
+const FLASH_TRAINED_MIN = 4;
+const FLASH_MEMORIZED_MIN = 5;
+
+function flashRate(d, item, r) {
+  if (r >= FLASH_TRAINED_MIN) RV.markCovered(RV.coverageKey(prDocId(d, item), prN(item)));
+  if (r >= FLASH_MEMORIZED_MIN) markMemorized(d, item);
 }
 
 // gradient tile: white = 100% mastery → black = never practiced
@@ -14050,7 +14205,7 @@ function reviewScopeFromDoc(d) {
 }
 
 function practiceSetup(d, intent = 'practice') {
-  setHeader(intent === 'review' ? 'Review' : 'Practice', { back: true });
+  setHeader('Train', { back: true });
   const wrap = document.createElement('div');
   const s = prSetup;
   // Review is Scripture-only; the shared setup is reused for creeds, so fall back.
@@ -14082,7 +14237,6 @@ function practiceSetup(d, intent = 'practice') {
     <button class="pill ${s.mode === 'typer' ? 'on' : ''}" data-m="typer">First-Letter</button>
     <button class="pill ${s.mode === 'flash' ? 'on' : ''}" data-m="flash">Flashcards [1–5]</button>
     <button class="pill ${s.mode === 'scramble' ? 'on' : ''}" data-m="scramble">Scramble</button>
-    <button class="pill ${s.mode === 'binary' ? 'on' : ''}" data-m="binary">Flashcards [✓]</button>
     ${d.bible ? `<button class="pill ${s.mode === 'review' ? 'on' : ''}" data-m="review">Review ⏱</button>` : ''}
   </div>`);
   modes.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { s.mode = b.dataset.m; rerender(); });
@@ -14093,9 +14247,8 @@ function practiceSetup(d, intent = 'practice') {
     // "Three misses" on the SETUP screen while the session itself allowed two — the same rule
     // stated in two places, disagreeing. Renders from the constant now, like the other one.
     typer: `Type the first letter of each word. ${TYPER_MISS_LIMIT === 1 ? 'A miss' : TYPER_MISS_LIMIT + ' misses'} reveals the word. Accuracy feeds mastery.`,
-    flash: `Rate each card 1–5. Weak cards return often; a 5 retires the card${intent === 'review' ? ' and marks that verse reviewed' : ' and marks that verse memorized'}. Exit ratings feed mastery.`,
+    flash: `Rate each card 1–5. Weak cards return often. ${FLASH_TRAINED_MIN}+ counts it trained; a ${FLASH_MEMORIZED_MIN} marks it memorized and retires the card. Exit ratings feed mastery.`,
     scramble: 'Rebuild the text by tapping the pieces in order. First-try accuracy feeds mastery.',
-    binary: intent === 'review' ? 'Two buttons — Missed or Got it. Got it marks the verse reviewed; missed cards repeat until cleared. Tap ✕ anytime.' : 'Three buttons — Missed, Memorized, or Got it. Memorized marks a verse memorized; missed cards repeat until cleared. Tap ✕ anytime.',
     review: 'Timed recitation of this selection — logs to the review tracker. Tap 📖 View text to peek without stopping the clock.'
   }[s.mode]}</div>`));
 
@@ -14111,12 +14264,6 @@ function practiceSetup(d, intent = 'practice') {
     const startR = h(`<button class="btn" style="margin-top:16px">⏱ Start review timer</button>`).firstChild;
     startR.onclick = () => render(() => reviewTimer(bk, scope));
     wrap.append(startR);
-    main().append(wrap);
-    return;
-  }
-
-  if (s.mode === 'binary') {
-    wrap.append(binarySetupBlock(d, intent));
     main().append(wrap);
     return;
   }
@@ -14214,7 +14361,7 @@ function practiceSetup(d, intent = 'practice') {
     wrap.append(r);
   }
 
-  const startBtn = h(`<button class="btn" style="margin-top:16px">Start practice</button>`);
+  const startBtn = h(`<button class="btn" style="margin-top:16px">Start</button>`);
   startBtn.firstChild.onclick = () => {
     let list = [];
     if (s.sel === 'all') list = d.sections.slice();   // practice anything — memorized or not (that's the point)
@@ -14373,12 +14520,45 @@ function fadeScreen(d, queue, qi, stage, results) {
 // stores keystrokes today, so that is a build-then-measure, not a one-line change.
 const TYPER_MISS_LIMIT = 2;
 
+// ---------------------------------------------------------------------------------------
+// ⚑⚑ ≥90% NO LONGER MARKS A VERSE MEMORIZED BEHIND HIS BACK. Thirtieth session. His proposal:
+//
+//     "Maybe after I have done the Scripture typing I get a prompt if I got over 90 to say,
+//      'Are these memorized?' and I just have to click the verses that I got over 90 on."
+//
+// ⚑ IT USED TO DO IT SILENTLY. `finishVerse` called `markMemorized` and printed a toast reading
+// "· memorized ✓". He never agreed to it — the app decided, told him afterwards, and there was
+// no way to say no short of un-memorizing the verse by hand later.
+//
+// ⚑⚑ AND THE APP HAD ALREADY RULED ON THIS ONE LEVEL UP, WHICH IS THE STRONGEST FORM OF THE
+// ARGUMENT (invariant 4). Engine 1's entire design is that a DERIVED value never counts until
+// he attests to it: "the attestation is the gate, not the log." A typing score is a derived
+// claim about memorization in exactly the same way a rep max derived from a movement is a
+// derived claim about strength. The fitness half of the app has required his signature since
+// the twenty-eighth session; the memorization half was still auto-signing.
+//
+// ⚑ AND HIS OWN DATA SHOWS WHY A TICK-LIST BEATS A THRESHOLD. His Hebrews 7 session scored
+// 92 · 94 · 96 · 88 · 74 · 77 — three clear the gate, and the 88 misses it by two points.
+// Whether he claims that one is a judgement, and therefore his.
+const TYPER_MEMORIZED_MIN = 90;
+
 function typerScreen(d, queue, qi0, results, intent = 'practice') {
   statsStamp(results, 'typer', d.id);
   const isCreed = queue.length && queue[0].vn == null;   // creeds carry .n (question); scripture carries .vn
   const NOUN = isCreed ? 'Question' : 'Verse';
+  // Verses that cleared the bar this session, collected rather than acted on.
+  const memorizedOffer = [];
 
   const finishSession = () => {
+    // ⚑ THE SUMMARY IS DRAWN FIRST AND THE OFFER OPENS OVER IT. `render()` clears `main` and then
+    // closes any open sheet (the exit invariant added earlier this session), so opening the sheet
+    // before the summary would have left it floating over a blank screen and then closed it.
+    // Order matters here for a reason that only exists because of another fix.
+    showSummary();
+    const pending = memorizedOffer.filter(o => !alreadyMemorized(d, o.item));
+    if (pending.length) memorizedSheet(d, pending, () => {});
+  };
+  const showSummary = () => {
     practiceSummary(d, 'First-Letter', results.map(r => `Q${r.n} — ${r.acc}% (${r.missed.length ? 'missed: ' + r.missed.join(', ') : 'perfect'})`), queue.length, {
       carrier: results, mode: 'typer', intent,
       score: avgOf(results.map(r => r.acc)),
@@ -14462,11 +14642,13 @@ function typerScreen(d, queue, qi0, results, intent = 'practice') {
     const acc = total ? Math.round(100 * correct / total) : 100;
     results.push({ n: item.n, acc, missed: missedWords, secs });
     CR.logPractice(prDocId(d, item), prN(item), 'typer', acc);
-    if (acc >= 90) {   // ≥90% is a success (D-M4/D-AE): practice marks the verse memorized, review marks it reviewed
-      if (intent === 'review') RV.markCovered(RV.coverageKey(prDocId(d, item), prN(item)));
-      else binaryMarkMemorized(d, item);
-    }
-    toast(`${NOUN} ${item.n}: ${acc}%${acc >= 90 && intent !== 'review' ? ' · memorized ✓' : ''} in ${SC.fmtSecs(secs)}`);
+    // ⚑ EVERY VERSE HE GETS THROUGH COUNTS AS TRAINED, at any accuracy. Practice used to mark
+    // nothing at all, so an hour on a passage left no trace on the cycle it belonged to.
+    RV.markCovered(RV.coverageKey(prDocId(d, item), prN(item)));
+    // ⚑⚑ AND ≥90% NO LONGER MARKS IT MEMORIZED BEHIND HIS BACK. It is COLLECTED here and
+    // offered at the end of the session — see `memorizedOffer` and the note on `finishSession`.
+    if (acc >= TYPER_MEMORIZED_MIN) memorizedOffer.push({ item, acc });
+    toast(`${NOUN} ${item.n}: ${acc}% in ${SC.fmtSecs(secs)}`);
     // NOT a render — load() swaps the content in place so the keyboard never closes.
     if (qi + 1 >= queue.length) { done = true; render(finishSession, false); return; }
     load(qi + 1);
@@ -14772,7 +14954,8 @@ function flashCard(d, session) {
     session.shown.push(item.n);
     session.ratings[item.n] = r;
     session.exit[item.n] = r;
-    if (r === 5) { session.active = session.active.filter(c => c.n !== item.n); flashRankFive(d, item, session.intent); }   // retire + terminal action
+    flashRate(d, item, r);                                                    // ≥4 trained · 5 memorized
+    if (r >= FLASH_MEMORIZED_MIN) session.active = session.active.filter(c => c.n !== item.n);   // and a 5 retires it
     flashIntroduce(session);
     render(() => flashCard(d, session), false);
   }
@@ -14836,7 +15019,7 @@ function orderedFlashCard(d, queue, idx, exit, intent = 'practice') {
   function rate(r) {
     exit[item.n] = r;
     CR.logPractice(prDocId(d, item), prN(item), 'flash', r * 20);
-    if (r === 5) flashRankFive(d, item, intent);
+    flashRate(d, item, r);
     render(() => orderedFlashCard(d, queue, idx + 1, exit, intent), false);
   }
 }
@@ -14845,25 +15028,78 @@ function orderedFlashCard(d, queue, idx, exit, intent = 'practice') {
 // Distinct flashcard mode. Two dials (order × miss placement), deck = first N not-yet-reviewed
 // verses, each Got-it marks the verse reviewed (RV coverage, incremental + auto-saved), missed
 // cards repeat until cleared. Save & exit anytime → scorecard; resume picks up the next un-dotted.
-let binaryOpts = { order: 'inorder', miss: 'fold', count: 20 };
+// ⚑⚑ THE ✓ CARD IS GONE — THIRTIETH SESSION, THE TRAIN MERGE. His words: "I think we do not
+// need the flashcards that will go not memorized, memorized, or got it, did not get it."
+//
+// ⚑ AND THE COST WAS MEASURED BEFORE IT WENT, not assumed. `markMemorized` was called from
+// THREE places and only one of them was this card — the typing path and the fade path use it
+// too — so **deleting the card does not delete the ability to mark something memorized.** What
+// went with it: one mode, its setup panel, its session, its scorecard, two entries in the mode
+// lists and one ＋-fan launch.
+//
+// ⚑ AND IT SURVIVES AS A *READER* IN STATS, WHICH IS THE PART THAT WOULD HAVE BEEN EASY TO MISS.
+// His history contains `mode: 'binary'` sessions. Removing the filter option along with the mode
+// would have hidden real sessions he actually did — a feature deletion quietly deleting data
+// from view. The option stays; nothing can create a new one.
 
-// Build the coverage-aware deck from the current dials and launch the cards. Shared by the
-// on-screen setup (book-screen Practice/Review) and the quick-log direct launch.
-function binaryStart(d, intent, o = binaryOpts, sinceMs = 0) {
-  const full = d.sections.map(sec => ({ n: sec.n, q: sec.label, a: sec.text, docId: sec.docId, vn: sec.vn, ci: sec.ci, key: RV.coverageKey(prDocId(d, sec), prN(sec)) }));
-  let deck;
-  if (intent === 'review') {
-    deck = RV.uncoveredDeck(full, o.count, sinceMs);                                   // review walks verses not covered THIS cycle (sinceMs=cycle watermark)
-    if (!deck.length) deck = (o.count && o.count > 0) ? full.slice(0, o.count) : full;   // all reviewed → fresh pass
-  } else {
-    deck = (o.count && o.count > 0) ? full.slice(0, o.count) : full;                   // practice = the verses you chose, NOT coverage-filtered
+// ⚑ RENAMED OUT OF ITS `binary` PREFIX — it was never binary-only. It is called from the typing
+// path and the fade path as well as from the ✓ card, which is precisely why deleting that card
+// does NOT delete the ability to mark something memorized. One name for one fact.
+//
+// ⚑ AND ITS INVERSE IS EXPORTED ALONGSIDE IT, because the memorized OFFER has to know what is
+// already claimed — a sheet that asks him to confirm verses he marked months ago is asking him
+// to do work the app could have done. One rule, read in both directions.
+function alreadyMemorized(d, item) {
+  if (d.bible) {
+    const book = allBooks.find(b => b.name === d.bible.book);
+    const ci = item.ci != null ? item.ci : d.bible.ci;
+    const v = item.vn != null ? item.vn : item.n;
+    return !!(book && ci != null && SC.verseDone(book, ci, v));
   }
-  if (!deck.length) { toast('No verses in that selection'); return; }
-  if (o.order === 'shuffled') deck = RV.shuffled(deck);
-  render(() => binaryFlashScreen(d, deck, { order: o.order, miss: o.miss, intent }));
+  return CR.isDone(d.id, item.n);
 }
 
-function binaryMarkMemorized(d, item) {
+// ⚑⚑ THE OFFER ITSELF. Everything that cleared the bar, pre-ticked, with its score printed —
+// pre-ticked because clearing 90% IS the app's recommendation and making him tick six boxes to
+// accept the obvious is its own kind of friction. What it must not do is decide.
+function memorizedSheet(d, pending, done) {
+  const picked = new Set(pending.map(o => o.item.n));
+  const isCreed = pending.length && pending[0].item.vn == null;
+  const NOUN = isCreed ? 'Question' : 'Verse';
+  openSheet('Memorized?', (body, close) => {
+    body.append(h(`<div class="muted" style="font-size:12.5px;line-height:1.6;margin:0 2px 10px">You typed ${pending.length === 1 ? 'this one' : 'these'} at ${TYPER_MEMORIZED_MIN}% or better. Tick the ${pending.length === 1 ? 'one' : 'ones'} you want marked memorized — untick anything you are not sure of.</div>`));
+    pending.forEach(o => {
+      const row = h(`<div class="row" style="gap:10px;padding:9px 0;align-items:center;border-top:1px solid var(--line);cursor:pointer">
+          <span data-a="box" style="font-size:16px;line-height:1.2">☑</span>
+          <div class="grow" style="font-size:14px">${NOUN} ${esc(String(o.item.n))}</div>
+          <b style="font-size:13px">${o.acc}%</b>
+        </div>`).firstElementChild;
+      row.onclick = () => {
+        if (picked.has(o.item.n)) picked.delete(o.item.n); else picked.add(o.item.n);
+        row.querySelector('[data-a=box]').textContent = picked.has(o.item.n) ? '☑' : '☐';
+      };
+      body.append(row);
+    });
+    const go = h(`<button class="btn" style="margin-top:14px">Done</button>`).firstChild;
+    go.onclick = () => {
+      pending.forEach(o => { if (picked.has(o.item.n)) markMemorized(d, o.item); });
+      const n = picked.size;
+      if (n) toast(`${n} ${NOUN.toLowerCase()}${n === 1 ? '' : 's'} marked memorized`);
+      close();
+      done();
+      rerender();   // the summary behind it may print memorized state
+    };
+    body.append(go);
+    // ⚑ SKIPPING IS A REAL ANSWER AND HAS TO BE ONE TAP. A sheet whose only exit is "Done" makes
+    // "no, none of these" cost more than "yes, all of them", which is how a confirmation turns
+    // back into an auto-mark with extra steps.
+    const skip = h(`<button class="btn secondary" style="margin-top:8px">Not yet</button>`).firstChild;
+    skip.onclick = () => { close(); done(); };
+    body.append(skip);
+  });
+}
+
+function markMemorized(d, item) {
   if (d.bible) {
     const book = allBooks.find(b => b.name === d.bible.book);
     const ci = item.ci != null ? item.ci : d.bible.ci;
@@ -14872,136 +15108,6 @@ function binaryMarkMemorized(d, item) {
   } else if (!CR.isDone(d.id, item.n)) {
     CR.toggleSection(d.id, item.n);
   }
-}
-
-// The setup (rendered inside practiceSetup's 'binary' mode): coverage readout + two dials + count.
-function binarySetupBlock(d, intent) {
-  const wrap = document.createElement('div');
-  const keys = d.sections.map(sec => RV.coverageKey(prDocId(d, sec), prN(sec)));
-  const total = keys.length, covered = RV.coveredCount(keys), remaining = total - covered;
-  const o = binaryOpts;
-  wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 10px">${intent === 'review' ? 'Missed or Got it. Each verse you clear gets marked reviewed; missed cards repeat until you clear them. Tap ✕ anytime — nothing is lost.' : 'Missed, Memorized, or Got it. Memorized marks a verse memorized; missed cards repeat until you clear them. Tap ✕ anytime — nothing is lost.'}</div>`));
-  // Coverage readout is a Review concern only — Practice isn't gated by what's been reviewed.
-  if (intent === 'review') wrap.append(h(`<div class="card"><div class="row"><span class="grow">Reviewed</span><b>${covered} / ${total}</b></div>
-    <div class="progressbar" style="margin-top:8px;height:7px"><div style="width:${total ? covered / total * 100 : 0}%"></div></div>
-    ${remaining === 0 ? `<div class="muted" style="font-size:12px;margin-top:8px">All reviewed — a fresh pass reviews them again without changing the dots.</div>` : ''}</div>`));
-
-  wrap.append(sectionTitle('Order'));
-  const ord = h(`<div class="pillrow">
-    <button class="pill ${o.order === 'inorder' ? 'on' : ''}" data-o="inorder">In order</button>
-    <button class="pill ${o.order === 'shuffled' ? 'on' : ''}" data-o="shuffled">Shuffled</button>
-  </div>`);
-  ord.querySelectorAll('[data-o]').forEach(b => b.onclick = () => { o.order = b.dataset.o; rerender(); });
-  wrap.append(ord);
-
-  wrap.append(sectionTitle('Missed cards'));
-  const mis = h(`<div class="pillrow">
-    <button class="pill ${o.miss === 'fold' ? 'on' : ''}" data-x="fold">Fold back in</button>
-    <button class="pill ${o.miss === 'end' ? 'on' : ''}" data-x="end">At the end</button>
-  </div>`);
-  mis.querySelectorAll('[data-x]').forEach(b => b.onclick = () => { o.miss = b.dataset.x; rerender(); });
-  wrap.append(mis);
-  wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 4px">${o.miss === 'fold' ? 'A missed card comes back 3–5 cards later.' : 'Missed cards line up at the very end — you finish only after clearing them.'}</div>`));
-
-  wrap.append(sectionTitle('How many cards'));
-  const cnt = h(`<div class="pillrow">${[[20, '20'], [50, '50'], [0, 'All']].map(([v, l]) => `<button class="pill ${o.count === v ? 'on' : ''}" data-c="${v}">${l}</button>`).join('')}</div>`);
-  cnt.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { o.count = Number(b.dataset.c); rerender(); });
-  wrap.append(cnt);
-
-  const startLabel = remaining === 0 ? (intent === 'review' ? 'Review again (fresh pass)' : 'Practice again (fresh pass)') : (intent === 'review' ? 'Start review' : 'Start practice');
-  const start = h(`<button class="btn" style="margin-top:16px">${startLabel}</button>`);
-  start.firstChild.onclick = () => binaryStart(d, intent, o);
-  wrap.append(start);
-  return wrap;
-}
-
-function binaryFlashScreen(d, deck, opts) {
-  const session = { queue: deck.slice(), total: deck.length, cleared: 0, missEvents: 0, memorized: 0, missedNs: new Set(), firstTryNs: new Set(), startTs: Date.now(), opts };
-  binaryCard(d, session);
-}
-
-function binaryCard(d, session) {
-  const intent = session.opts.intent;
-  if (!session.queue.length) { render(() => binaryScorecard(d, session), false); return; }
-  const item = session.queue[0];
-  setHeader((intent === 'review' ? 'Review' : 'Practice') + ' · Flashcards [✓]', { back: true });
-  let flipped = false;
-  const wrap = document.createElement('div');
-  const card = immersiveCard();
-  draw();
-  wrap.append(card);
-  immersiveSession(wrap, session.total ? session.cleared / session.total : 0, () => render(() => binaryScorecard(d, session), false));
-  main().append(wrap);
-
-  function draw() {
-    card.innerHTML = '';
-    if (!flipped) {
-      card.append(h(`<div><div class="muted" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">${esc(item.q)}</div><div class="muted" style="margin-top:18px;font-size:13px">tap to reveal</div></div>`));
-      card.onclick = () => { flipped = true; draw(); };
-    } else {
-      card.onclick = null;
-      const memBtn = intent === 'review' ? '' : '<button class="pill" data-b="mem" style="padding:11px 13px">Memorized</button>';
-      card.append(h(`<div><div class="imm-a">${esc(item.a)}</div>
-        <div class="row" style="justify-content:center;gap:8px;margin-top:18px">
-          <button class="pill" data-b="missed" style="border-color:var(--danger);color:var(--danger);padding:11px 13px">Missed</button>
-          ${memBtn}
-          <button class="pill" data-b="got" style="border-color:var(--forest);color:var(--forest);padding:11px 13px">Got it</button>
-        </div></div>`));
-      card.querySelector('[data-b=missed]').onclick = () => answer('missed');
-      const mb = card.querySelector('[data-b=mem]'); if (mb) mb.onclick = () => answer('mem');
-      card.querySelector('[data-b=got]').onclick = () => answer('got');
-    }
-  }
-  function answer(kind) {
-    session.queue.shift();
-    if (kind === 'got') {
-      if (intent === 'review') RV.markCovered(item.key);   // practice marks nothing; review covers
-      CR.logPractice(prDocId(d, item), prN(item), 'flash', 100, { binary: true });   // tag: drives the decay fill, NOT the proficiency ring (D-AE)
-      session.cleared++;
-      if (!session.missedNs.has(item.n)) session.firstTryNs.add(item.n);
-    } else if (kind === 'missed') {
-      session.missEvents++;
-      session.missedNs.add(item.n);
-      session.firstTryNs.delete(item.n);
-      session.queue.splice(RV.missInsertIndex(session.opts.miss, session.queue.length), 0, item);
-    } else {
-      binaryMarkMemorized(d, item);
-      session.memorized++;
-    }
-    render(() => binaryCard(d, session), false);
-  }
-}
-
-function binaryScorecard(d, session) {
-  const s = session, review = s.opts.intent === 'review';
-  setHeader(review ? 'Review scorecard' : 'Practice scorecard', { back: true });
-  const secs = Math.round((Date.now() - s.startTs) / 1000);
-  const left = s.total - s.cleared - s.memorized;
-  const firstTry = s.firstTryNs.size, repeated = s.cleared - firstTry;
-  statsStamp(s, 'binary', d.id, s.startTs);   // the binary session already tracks its own start
-  logStatsSession(s, d, {
-    mode: 'binary', intent: s.opts.intent, total: s.total, done: s.cleared, secs,
-    score: s.total ? Math.round(s.cleared / s.total * 100) : null,
-    items: [...new Set([...s.firstTryNs, ...s.missedNs])].sort((a, b) => a - b).map(n => ({
-      n, label: 'Q' + n,
-      val: s.firstTryNs.has(n) ? 'first try' : 'needed another pass',
-      tag: s.firstTryNs.has(n) ? 'ok' : 'miss'
-    }))
-  });
-  const wrap = document.createElement('div');
-  wrap.append(h(`<div class="card" style="text-align:center;padding:24px 16px">
-    <div class="big">${s.cleared}/${s.total}</div>
-    <div style="font-weight:700;margin-top:4px">${review ? 'reviewed' : 'cleared'} this session</div>
-    <div class="muted" style="margin-top:4px">${SC.fmtSecs(secs)}${s.memorized ? ' · ' + s.memorized + ' marked memorized' : ''}</div></div>`));
-  const lines = [`${firstTry} first try · ${repeated} needed another pass`, `${s.missEvents} miss${s.missEvents === 1 ? '' : 'es'} total`];
-  lines.push(left > 0 ? `${left} still to go — pick up next time where you left off` : `Selection fully ${review ? 'reviewed' : 'cleared'} ✓`);
-  const card = document.createElement('div'); card.className = 'card';
-  lines.forEach(l => card.append(h(`<div style="font-size:13px;padding:5px 0;border-bottom:1px solid var(--line)">${esc(l)}</div>`)));
-  wrap.append(card);
-  const done = h(`<button class="btn">Done</button>`);
-  done.firstChild.onclick = () => { if (stack.length > 1) stack.pop(); rerender(); };
-  wrap.append(done);
-  main().append(wrap);
 }
 
 // `stats` (optional) = { carrier, mode, intent, items, score } — the structured record for the Stats
@@ -15029,7 +15135,7 @@ function practiceSummary(d, mode, lines, count, stats = null) {
     lines.forEach(l => card.append(h(`<div style="font-size:13px;padding:4px 0;border-bottom:1px solid var(--line)">${esc(l)}</div>`)));
     wrap.append(card);
   }
-  const again = h(`<button class="btn">Practice again</button>`);
+  const again = h(`<button class="btn">Train again</button>`);
   again.firstChild.onclick = () => { stack.pop(); rerender(); };
   wrap.append(again);
   const done = h(`<button class="btn secondary">Done</button>`);
@@ -15245,7 +15351,12 @@ function fmtBench(item) {
   if (item.rtype === 'dist') return Math.round(item.best) + ' ft';
   if (item.rtype === 'reps') return Math.round(item.best) + ' ' + (item.unit || 'reps');
   if (item.rtype === 'rounds') return String(item.best).replace(/\.(\d+)$/, (m, d) => '+' + Number('0.' + d) * 1000);
-  return item.best + ' lb';
+  // ⚑ ROUNDED, LIKE EVERY OTHER BRANCH ABOVE IT. This was the one type that printed its raw
+  // value, so an INTERPOLATED level threshold — the curve is published at a few points and read
+  // on the line between them — rendered as "363.3333333333333 lb" on the ladder. Found by
+  // probing the 1RM screen while checking the rep-unit conversion, which is the only reason
+  // anyone looked at a non-integer rung. Nothing lifts a third of a pound.
+  return Math.round(item.best) + ' lb';
 }
 
 // Ring radial (Phase 8 chunk c): number centered, brass progress arc around it (folio —
@@ -15769,6 +15880,63 @@ function ftDomainScreenBody(d, label) {
     </div>`);
   toggle.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { ftDomainView = b.dataset.v; render(() => ftDomainScreen(d)); });
   wrap.append(toggle);
+  // ---------------------------------------------------------------------------------------
+  // ⚑⚑ WHAT ACTUALLY COUNTED, WITH THE WORKOUT NAMED — thirtieth session, his note 13:
+  //
+  //     "When I click into a domain, I want to see all of the active workouts for that and what
+  //      my scores are for those. If I have done 5 workouts that have counted for assessment, I
+  //      want to see those workouts and what my scores are for those."
+  //
+  // ⚑ THE SCREEN COULD NAME THE CURVE AND THE NUMBER AND NOT THE PIECE HE DID. Every row below
+  // was a BENCHMARK — "Deadlift · Level 62 · 391 lb" — which answers "how strong am I" and not
+  // "what did I do". The assessment item now carries `wid` (the workout behind the best result,
+  // moved with `ts` on every improvement), so this can say both.
+  //
+  // ⚑ AND IT IS THE **LIVE** LIST, deliberately. "Counted" means counting NOW: a 2019 result is
+  // history and has its own greyed placement further down. Same rule as the ladder's You row.
+  //
+  // ⚑⚑ AND IT RENDERS WHEN THE ANSWER IS ZERO, which is the state he is actually in for three of
+  // his seven domains ("bodyweight, heavy and long are empty"). A section that disappears when
+  // empty makes "nothing counts here" indistinguishable from "this screen has no such section" —
+  // the denominator rule applied to a list, and the same reason the 8C.2 banner is conditional on
+  // eligible === 0 rather than simply omitted.
+  if (ftDomainView === 'assess') {
+    const counted = (domL.items || []).slice().sort((x, y) => (y.level || 0) - (x.level || 0));
+    const everCount = (domA.items || []).length;
+    const card = h(`<div class="card" style="padding:11px 13px">
+        <div class="row" style="align-items:baseline">
+          <div class="grow" style="font-size:13px;font-weight:700">What is counting</div>
+          <div class="muted" style="font-size:11.5px">${counted.length} result${counted.length === 1 ? '' : 's'}</div>
+        </div>
+        <div class="muted" style="font-size:11.5px;margin:4px 0 8px;line-height:1.55">${counted.length
+          ? `The workouts behind your ${esc(label)} level right now, and what you got.`
+          : everCount
+            ? `⚑ Nothing in the last 12 months, so nothing is counting toward ${esc(label)} today. You have ${everCount} result${everCount === 1 ? '' : 's'} further down that would count again if you repeated ${everCount === 1 ? 'it' : 'them'}.`
+            : `Nothing has counted toward ${esc(label)} yet — the list below is everything that could.`}</div>
+        <div data-a="rows"></div>
+      </div>`).firstElementChild;
+    const rowsBox = card.querySelector('[data-a=rows]');
+    counted.forEach((it, i) => {
+      const w = it.wid ? FT.getWorkout(it.wid) : null;
+      const when = it.ts ? new Date(it.ts).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : '';
+      // ⚑ THE ESTIMATE IS FLAGGED ON THE ROW. A converted rep max is not a measured single, and
+      // presenting one as the other is the thing §6 of the twenty-eighth session refused to do.
+      const est = it.estimated ? ` <span class="muted" style="font-size:11px">· est. from a ${it.estReps}RM</span>` : '';
+      const el = h(`<div class="row" style="justify-content:space-between;align-items:center;padding:7px 0;${i ? 'border-top:1px solid var(--line)' : ''}${w ? ';cursor:pointer' : ''}">
+          <div class="grow" style="min-width:0">
+            <div style="font-size:13.5px">${esc(w ? w.name : it.label)}</div>
+            <div class="muted" style="font-size:11.5px">${esc(fmtBench(it))}${est}${when ? ' · ' + esc(when) : ''}</div>
+          </div>
+          <b style="font-size:13px;flex-shrink:0">Level ${it.level}</b>
+        </div>`).firstElementChild;
+      // ⚑ Bound to its own node — dom-shim has no bubbling, so a delegated handler is one no
+      // suite can reach by clicking (invariant 1).
+      if (w) el.onclick = () => render(() => workoutDetail(w));
+      rowsBox.append(el);
+    });
+    wrap.append(card);
+  }
+
   const list = document.createElement('div');
   if (ftDomainView === 'assess') {
     // ⚑ ONE SCORING LIST, ORDERED BY WHETHER IT IS COUNTING. His instruction: "all the
@@ -17053,6 +17221,38 @@ function ftMovements(body) {
 // covers all 441 workouts rather than the 37 that carry a `kit` field.
 let mvMode = 'only';
 let mvUseKit = true;
+// ---------------------------------------------------------------------------------------
+// ⚑⚑ A THIRD FILTER AXIS — "DOES THIS COUNT?" Thirtieth session. His note 6:
+//
+//     "I love the filter to find a workout... I wanna add one toggle that is workouts that count
+//      towards assessment versus all workouts... and what's more be able to see those that apply
+//      to each domain."
+//
+// ⚑ THE SAME SHAPE AS THE TWO THAT ALREADY EXIST — movement mode and equipment kit — so it is a
+// third pill row with its count printed on the button, not a new screen.
+//
+// ⚑⚑ AND "COUNTS TOWARD ASSESSMENT" IS NOT ONE FACT, WHICH IS THE THING THE TOGGLE HAS TO SAY.
+// A workout counts only if it has a CURVE, and he has a RESULT on it, and that result is inside
+// the 12-month window. Those are three different conditions with three different fixes, and a
+// toggle that silently means all three at once is the silent-no-op defect class aimed at a
+// filter (invariant 10). So there are two settings, and each says which question it answers:
+//
+//   'scorable' — has a curve at all. A property of the WORKOUT. What to pick when planning.
+//   'counting' — has a curve AND a live result. A property of his HISTORY. What is voting today.
+//
+let mvScored = 'all';        // 'all' | 'scorable' | 'counting'
+let mvDomainFilter = 'all';  // 'all' | one of ASSESS_DOMAINS
+// A workout is SCORABLE when the engine can put a number on it — `benchmarkFor` is the same
+// call Engine 2 makes, so this cannot drift from what actually scores.
+const mvIsScorable = w => !!FT.benchmarkFor(w);
+// ...and COUNTING when he also has a result inside the window. `resultView` already owns that
+// rule (live / stale / never), so this asks it rather than re-deriving it.
+const mvIsCounting = w => { if (!mvIsScorable(w)) return false; const rv = FT.resultView(w.id); return !!(rv && rv.live); };
+const mvScoredPass = w => mvScored === 'all' ? true : mvScored === 'scorable' ? mvIsScorable(w) : mvIsCounting(w);
+// The domain a workout's CURVE belongs to when it has one, else the workout's own tag — so
+// filtering Lifts finds the pieces that score into Lifts rather than the ones merely labelled it.
+const mvDomainOf = w => { const k = FT.benchmarkFor(w); const b = k ? FT.BENCHMARKS[k] : null; return (b && b.domain) || w.domain || 'light'; };
+const mvDomainPass = w => mvDomainFilter === 'all' || mvDomainOf(w) === mvDomainFilter;
 let finderReturn = null;      // where "Use this workout" should hand the choice back to
 
 function workoutFinder(ids, opts = {}) {
@@ -17064,7 +17264,8 @@ function workoutFinder(ids, opts = {}) {
 
   const base = MV.visibleWorkouts(!sel.length ? FT.allWorkouts()
     : mvMode === 'only' ? MV.workoutsOnly(sel) : MV.workoutsWithAll(sel));
-  const hits = mvUseKit ? base.filter(w => !MV.missingKit(w, kit).length) : base;
+  const kitOk = mvUseKit ? base.filter(w => !MV.missingKit(w, kit).length) : base;
+  const hits = kitOk.filter(w => mvScoredPass(w) && mvDomainPass(w));
 
   // the two questions, with their answers on the buttons
   if (sel.length) {
@@ -17106,6 +17307,43 @@ function workoutFinder(ids, opts = {}) {
     kitRow.append(b);
   });
   wrap.append(kitCard);
+
+  // ---- does it count? its own axis, with the counts on the buttons ----
+  // ⚑ COUNTED OVER `kitOk`, NOT OVER `hits` — a button that reports how many rows it would leave
+  // must not be computed from the rows a DIFFERENT button already removed, or every count reads
+  // as whatever is on screen and the row stops being a preview.
+  const nScorable = kitOk.filter(mvIsScorable).length;
+  const nCounting = kitOk.filter(mvIsCounting).length;
+  const scoreCard = h(`<div class="card" style="padding:11px 13px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px">Does it count?</div>
+      <div class="pillrow" data-a="scored">
+        <button class="pill ${mvScored === 'all' ? 'on' : ''}" data-sc="all">All · ${kitOk.length}</button>
+        <button class="pill ${mvScored === 'scorable' ? 'on' : ''}" data-sc="scorable">Can score · ${nScorable}</button>
+        <button class="pill ${mvScored === 'counting' ? 'on' : ''}" data-sc="counting">Counting now · ${nCounting}</button>
+      </div>
+      <div class="muted" style="font-size:11.5px;margin-top:6px;line-height:1.55">${mvScored === 'all'
+        ? 'Everything, whether the assessment can read it or not.'
+        : mvScored === 'scorable'
+          ? '⚑ Sits on a scoring curve — what to pick if you want the session to move a Level. It does not mean you have done it.'
+          : '⚑ Sits on a curve <b>and</b> you have a result inside the last 12 months. This is what is voting for your Level right now.'}</div>
+    </div>`).firstElementChild;
+  scoreCard.querySelectorAll('[data-sc]').forEach(b => b.onclick = () => { mvScored = b.dataset.sc; render(() => workoutFinder(sel, opts)); });
+  wrap.append(scoreCard);
+
+  // ---- and which domain it scores INTO ----
+  const domCard = h(`<div class="card" style="padding:11px 13px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px">Domain</div>
+      <div class="pillrow" data-a="dom" style="flex-wrap:wrap"></div>
+      <div class="muted" style="font-size:11.5px;margin-top:6px;line-height:1.55">⚑ The domain its <b>curve</b> scores into, not the label on the workout — so Lifts finds the pieces that actually move Lifts.</div>
+    </div>`).firstElementChild;
+  const domRow = domCard.querySelector('[data-a=dom]');
+  [['all', 'All']].concat(FT.ASSESS_DOMAINS).forEach(([d, lab]) => {
+    const n2 = d === 'all' ? kitOk.filter(mvScoredPass).length : kitOk.filter(w => mvScoredPass(w) && mvDomainOf(w) === d).length;
+    const b = h(`<button class="pill ${mvDomainFilter === d ? 'on' : ''}" style="font-size:11px">${esc(lab)} · ${n2}</button>`).firstElementChild;
+    b.onclick = () => { mvDomainFilter = d; render(() => workoutFinder(sel, opts)); };
+    domRow.append(b);
+  });
+  wrap.append(domCard);
 
   wrap.append(sectionTitle(`${hits.length} workout${hits.length === 1 ? '' : 's'}`));
   if (!hits.length) {
@@ -17638,6 +17876,39 @@ function ftLevelLadderCard(w) {
 
   const fmt = v => fmtBench({ rtype: b.rtype, best: v, unit: b.unit, key });
 
+  // ---------------------------------------------------------------------------------------
+  // ⚑⚑ THE LADDER IS PRINTED IN THIS WORKOUT'S OWN REP UNITS. Thirtieth session. His note:
+  //
+  //     "If I click on 3 rep max and look at the levels — what is 99, what is all that — it is
+  //      the same as the one rep max, but it should be different."
+  //
+  // ⚑ AND HE IS RIGHT ABOUT THE SCREEN AND WRONG ABOUT THE SCORING, WHICH IS WORTH SEPARATING.
+  // Measured: all 75 rep-scheme workouts carry the SAME `bkey` as the 1RM, so there is one curve
+  // and one ladder for every rep scheme — which is why his 3RM screen showed him an L99 of 485
+  // beside a 285 triple. **But the scoring is already doing what he wants**: Epley converts
+  // before scoring, so 285 x 3 → 313.5 against a true 315, and the app rates those two lifts as
+  // within a pound and a half of each other. That is correct, and it is measured rather than
+  // assumed — SEE ≈ ±5% at 2-5 reps, and a converted rep max already carries a widened σ.
+  //
+  // ⚑⚑ SO THE DEFECT IS THE DISPLAY, AND A SEPARATE MEASURED 3RM CURVE IS THE FORK THIS PROJECT
+  // DECLINES. It would need real 3RM population anchors; btwb scores 1RMs and the Games score
+  // 1RMs, so the numbers would have to be INVENTED — the same ground on which OpenPowerlifting,
+  // the distance-rep rule, the Quarterfinals rebase and tier G were all declined. Dividing the
+  // published curve by the published conversion invents nothing: it restates the same threshold
+  // in the units of the piece he is looking at.
+  //
+  // ⚑ AND HIS OWN ROW IS CONVERTED TOO, WITH THE REASON SAID OUT LOUD. `mine.best` is an
+  // ESTIMATED 1RM and may have come from a different rep scheme entirely — his 225 single. At
+  // 3 reps that reads 205, which is the triple EQUIVALENT to where he stands, not a lift he
+  // performed. Mixing units inside one column would be worse than either; printing both in rep
+  // units and saying which is which is the honest form. Invariant 10: when a number means
+  // something other than what it looks like, the screen has to say so.
+  const wScheme = MV.schemeOf(w);
+  const repUnits = (b.rtype === 'load' && wScheme && wScheme.reps > 1 && wScheme.reps <= FT.REPMAX_MAX_REPS)
+    ? wScheme.reps : null;
+  // The published Epley factor, and the SAME one the scoring path uses — one rule per fact.
+  const toRepUnits = v => (repUnits && Number.isFinite(v)) ? Math.round(v / (1 + repUnits / 30)) : v;
+
   // ⚑ HIS RESULT GETS ITS OWN ROW, IN ORDER — it is not a marker on the nearest rung, and the
   // first version was. Row 500 m proved why: he has rowed 1:42, valueAtLevel(50) is 101.7s
   // which ALSO formats as 1:42, and levelFromCurve rounds his 102s to 49. So the card showed
@@ -17676,7 +17947,10 @@ function ftLevelLadderCard(w) {
     const label = r.you ? '▸ You — Level ' + r.level
       : r.past ? `◦ Your best — Level ${r.level}<span style="font-size:11px;font-weight:400">${pastWhen ? ' · ' + esc(pastWhen) : ''} · not counting</span>`
       : 'Level ' + r.level + (r.level === 99 ? ' <span class="muted" style="font-size:11px;font-weight:400">top of the scale</span>' : '');
-    const value = r.item ? fmtBench(r.item) : fmt(r.value);
+    // ⚑ When there are no rep units to convert to, this path is byte-identical to what it was —
+    // `fmtBench(item)` for a real item, `fmt(value)` for a rung. The conversion is additive.
+    const value = repUnits ? fmt(toRepUnits(r.item ? r.item.best : r.value))
+      : (r.item ? fmtBench(r.item) : fmt(r.value));
     return `<div class="row" style="justify-content:space-between;padding:6px 0;${style}${i ? ';border-top:1px solid var(--line)' : ''}">
       <span>${label}</span>
       <b>${esc(value)}</b></div>`;
@@ -17695,6 +17969,7 @@ function ftLevelLadderCard(w) {
   const el = h(`<div class="card" style="padding:8px 13px 11px;font-size:13.5px">
     ${rows}
     ${noneLine}
+    ${repUnits ? `<div class="muted" style="font-size:11px;margin-top:8px;line-height:1.55"><b>Shown as ${repUnits}-rep loads.</b> The curve is published as one-rep maxes, so every row here is that threshold converted at ${repUnits} reps — including yours, which is where your standing sits expressed as a ${repUnits}-rep lift rather than a set you have done.</div>` : ''}
     <div class="muted" style="font-size:11px;margin-top:6px;line-height:1.55">These are read off the same curve that scores you: a result landing between two published points already scores on the line between them, so these are the numbers the engine would return for each level.${srcFlag(b.room)}</div>
   </div>`).firstElementChild;
   bindSrcFlags(el);
@@ -19008,6 +19283,37 @@ function youProfile() {
 
   wrap.append(plusFanSettingsCard());
 
+  // ⚑⚑ THE TRAIN RESET, AND ITS BOUNDARY IS PRINTED ON THE BUTTON. His instruction was "when we
+  // merge, let's just reset and I can input review schedules myself", followed immediately by
+  // "don't reset that, only reset practice and review schedules" — so what it does NOT touch is
+  // the part worth stating, on the screen, before he taps.
+  //
+  // ⚑ A DESTRUCTIVE ACTION THAT LISTS WHAT IT SPARES rather than what it clears is the same rule
+  // the card's delete follows ("all entries stay in your logbook"): the fear is not that it does
+  // too little, it is that it does more than it says.
+  const rst = h(`<div class="card"><h3>Training schedules</h3>
+    <div class="muted" style="font-size:12px;line-height:1.6;margin-bottom:10px">Clears every review/practice cadence so you can set them fresh under Train.
+    <b>Nothing you have memorized is touched</b> — books, creeds, modules, your typing history and your session log all stay exactly as they are.</div>
+    <button class="btn secondary" id="s-reset-train">Reset training schedules</button>
+  </div>`);
+  rst.querySelector('#s-reset-train').onclick = () => {
+    openSheet('Reset training schedules?', (body, close) => {
+      body.append(h(`<div class="muted" style="font-size:13px;line-height:1.6;margin-bottom:12px">This clears the cadences only. Your memorized verses, creed progress, modules, practice history and stats are not affected.</div>`));
+      const go = h(`<button class="btn danger">Reset schedules</button>`).firstChild;
+      go.onclick = () => {
+        const r = RV.resetTrainSchedules(state.scripture);
+        close();
+        toast(`Cleared ${r.units + r.books} schedule${r.units + r.books === 1 ? '' : 's'}`);
+        rerender();
+      };
+      body.append(go);
+      const no = h(`<button class="btn secondary" style="margin-top:8px">Cancel</button>`).firstChild;
+      no.onclick = close;
+      body.append(no);
+    });
+  };
+  wrap.append(rst);
+
   const exp = h(`<div class="card"><h3>Backup</h3>
     <button class="btn secondary" id="s-export">Export all data</button>
     <button class="btn secondary" id="s-import">Import backup / old app export</button>
@@ -19533,33 +19839,26 @@ function plusBiblePlan(fan, plan, dk = todayKey()) {
 // ===== Practice (Scripture/Creeds → item → scope → mode → launch session) =====
 // ===== Target ◎ — unified Practice + Review front door (D-AB) =====
 // tap → Practice or Review → domain → book (recent-first) → scope (incl. Modules) → mode.
-// Practice modes: Flashcards · First-Letter · Fade.  Review modes: Flashcards · First-Letter · Timer.
-// (Flashcards/typing COUNTING as review is the later coverage engine + D-O binary flashcards; today
-//  the Timer logs and flash/typer launch the session, same as Practice.)
-const plusIntentTitle = intent => (intent === 'review' ? 'Review' : 'Practice');
+// ⚑⚑ THE FIRST SCREEN OF THE FAN USED TO ASK "PRACTICE OR REVIEW" — a question he had to answer
+// before he could reach any material, and the answer to which the app can work out for itself.
+// It is gone. `plusPractice` now IS the domain picker, one tap shallower than it was.
+const plusIntentTitle = () => 'Train';
 function plusPractice(fan) {
-  plusChoose(fan, 'Practice or Review', [
-    { label: 'Practice', sub: 'Rehearse — flashcards · typing · fade', on: () => plusPRDomain(fan, 'practice') },
-    { label: 'Review', sub: 'Flashcards · typing · timer', on: () => plusPRDomain(fan, 'review') },
+  plusChoose(fan, 'Train', [
+    { label: 'Scripture', sub: 'Any book', on: () => plusPracticeScripture(fan, RV.TRAIN) },
+    { label: 'Creeds, Catechisms & Confessions', on: () => plusPracticeCreeds(fan, RV.TRAIN) },
   ]);
 }
-function plusPRDomain(fan, intent) {
-  plusChoose(fan, plusIntentTitle(intent), [
-    { label: 'Scripture', sub: intent === 'review' ? 'Memorized books' : 'Any book', on: () => plusPracticeScripture(fan, intent) },
-    { label: 'Creeds, Catechisms & Confessions', on: () => plusPracticeCreeds(fan, intent) },
-  ], () => plusPractice(fan));
-}
+function plusPRDomain(fan) { plusPractice(fan); }
 function plusPracticeScripture(fan, intent) {
-  // Review is limited to memorized books (you review what you know); Practice can reach ANY book,
-  // memorized or not — memorized/recent first, then the rest of the canon.
-  let books;
-  if (intent === 'review') books = memorizedBooksRecentFirst();
-  else {
-    const mem = memorizedBooksRecentFirst();
-    const memSet = new Set(mem.map(b => b.name));
-    books = [...mem, ...allBooks.filter(b => !memSet.has(b.name))];
-  }
-  if (!books.length) { toast(intent === 'review' ? 'Memorize a book first' : 'No books available'); return; }
+  // ⚑⚑ EVERY BOOK, MEMORIZED OR NOT — memorized and recent first, then the rest of the canon.
+  // Review used to be limited to memorized books ("you review what you know"), which is the one
+  // restriction the merge could not inherit: a book you have not memorized is exactly the one
+  // you need to be able to open.
+  const mem = memorizedBooksRecentFirst();
+  const memSet = new Set(mem.map(b => b.name));
+  const books = [...mem, ...allBooks.filter(b => !memSet.has(b.name))];
+  if (!books.length) { toast('No books available'); return; }
   plusChoose(fan, plusIntentTitle(intent) + ' · book', books.map(b => { const done = SC.bookStats(b).done; return { label: b.name, sub: done > 0 ? done + ' verses' : b.chapters + ' ch', on: () => plusPracticeChapter(fan, b, intent) }; }), () => plusPRDomain(fan, intent));
 }
 // Clean top-level scope choose (mirrors the dedicated Timer): Whole book / By chapter / Modules —
@@ -19612,11 +19911,13 @@ function plusPracticeMode(fan, b, scope, intent) {
   const shared = [
     { label: 'Flashcards [1–5]', on: () => plusPracticeLaunch(fan, b, scope, 'flash', intent) },
     { label: 'First-Letter', on: () => plusPracticeLaunch(fan, b, scope, 'typer', intent) },
-    { label: 'Flashcards [✓]', on: () => plusPracticeLaunch(fan, b, scope, 'binary', intent) },
+
   ];
-  const modes = intent === 'review'
-    ? [...shared, { label: 'Timer ⏱', on: () => plusPracticeLaunch(fan, b, scope, 'timer', intent) }]
-    : [...shared, { label: 'Fade', on: () => plusPracticeLaunch(fan, b, scope, 'fade', intent) }];
+  // ⚑ ONE LIST — Fade was practice-only and Timer review-only, which meant the mode you could
+  // reach depended on a question you no longer answer.
+  const modes = [...shared,
+    { label: 'Fade', on: () => plusPracticeLaunch(fan, b, scope, 'fade', intent) },
+    { label: 'Timer ⏱', on: () => plusPracticeLaunch(fan, b, scope, 'timer', intent) }];
   plusChips(fan, plusIntentTitle(intent) + ' · mode', modes, back);
 }
 async function plusPracticeLaunch(fan, b, scope, mode, intent) {
@@ -19645,8 +19946,7 @@ async function plusPracticeLaunch(fan, b, scope, mode, intent) {
       doc = bibleDoc(b, scope.ci, e.verses);
       if (scope.kind === 'verses') doc.sections = doc.sections.filter(x => scope.verses.includes(x.n));
     }
-    if (mode === 'binary') { closePlusFan(); binaryStart(doc, intent); }
-    else plusLaunchSession(doc, mode, intent);
+    plusLaunchSession(doc, mode, intent);
   } catch (err) { closePlusFan(); esvErrToast(err); }
 }
 function plusPracticeCreeds(fan, intent) {
