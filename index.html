@@ -8524,7 +8524,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260815-1248'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260815-1248';
+const BUILD_ID = '20260815-1311'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260815-1311';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -19603,24 +19603,50 @@ const PLUS_ICONS = {
   practice: '<circle r="11"/><circle r="6.5"/><circle r="2" fill="currentColor" stroke="none"/>',
   creed:    '<path d="M0 -13.2 A11.8 11.8 0 0 1 0 4.8 A11.8 11.8 0 0 1 0 -13.2 Z"/><path d="M0 -13.2 A11.8 11.8 0 0 1 0 4.8 A11.8 11.8 0 0 1 0 -13.2 Z" transform="rotate(120)"/><path d="M0 -13.2 A11.8 11.8 0 0 1 0 4.8 A11.8 11.8 0 0 1 0 -13.2 Z" transform="rotate(240)"/>',
   bibleplan:'<path d="M0 -6 Q-5 -9 -10 -7 L-10 7 Q-5 5 0 8 Q5 5 10 7 L10 -7 Q5 -9 0 -6 Z"/><path d="M0 -6 V8"/><path d="M0 -8 L-2 11 L0 9 L2 11 Z" fill="currentColor" stroke="none"/>',
+  // ⚑ E3 DOMAIN GLYPHS. The fan has been icons-only since the July 24 shell pass, so a domain
+  // without an entry here renders as an empty circle — present, tappable, and unreadable. Drawn
+  // in the same -14..14 art box and the same engraved line style, and deliberately REUSING the
+  // established vocabulary where one exists: `creeds` is his triquetra and `bible` the open book
+  // with a ribbon, both already confirmed with him, so the same thing does not acquire a second
+  // picture depending on which arch you opened.
+  memorize: '<path d="M0 -12 V10 M-7 -5 H7"/><path d="M-10 10 H10"/>',
+  bible:    '<path d="M0 -6 Q-5 -9 -10 -7 L-10 7 Q-5 5 0 8 Q5 5 10 7 L10 -7 Q5 -9 0 -6 Z"/><path d="M0 -6 V8"/><path d="M0 -8 L-2 11 L0 9 L2 11 Z" fill="currentColor" stroke="none"/>',
+  creeds:   '<path d="M0 -13.2 A11.8 11.8 0 0 1 0 4.8 A11.8 11.8 0 0 1 0 -13.2 Z"/><path d="M0 -13.2 A11.8 11.8 0 0 1 0 4.8 A11.8 11.8 0 0 1 0 -13.2 Z" transform="rotate(120)"/><path d="M0 -13.2 A11.8 11.8 0 0 1 0 4.8 A11.8 11.8 0 0 1 0 -13.2 Z" transform="rotate(240)"/>',
+  reading:  '<path d="M-11 -8 Q-5 -10 0 -7 Q5 -10 11 -8 L11 8 Q5 6 0 9 Q-5 6 -11 8 Z"/><path d="M0 -7 V9"/>',
+  training: '<path d="M-7 0 H7 M-7 -8 V8 M-10 -5 V5 M7 -8 V8 M10 -5 V5"/>',
+  health:   '<path d="M-12 0 H-6 L-3 -7 L2 7 L5 0 H12"/>',
 };
 function plusIconSvg(key, size) {
   const inner = PLUS_ICONS[key] || '';
-  const sw = key === 'creed' ? 1.8 : (key === 'verses' ? 2.4 : 2.1);
+  const sw = (key === 'creed' || key === 'creeds') ? 1.8 : (key === 'verses' || key === 'memorize' ? 2.4 : 2.1);
   const s = size || 26;
   return `<svg class="plus-ico" viewBox="-14 -14 28 28" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
 }
 
 // per-loggable fan assignment: 'click' | 'long' | 'off'. Additive + sync-safe on state.settings.
+// ⚑⚑ E3 LEAVES ONE FAN, AND THE MIGRATION IS THE WHOLE RISK. Tap now opens the domains, so the
+// 'click' fan has no gesture left to open it — and Baruch's own configuration puts SEVEN of his
+// eleven items there (pages · verses · workout · review · practice · creed · bibleplan). Shipping
+// E3 without this line would make seven quick-adds silently unreachable while every one of them
+// still appeared, configured and ticked, in the You → Quick-add customizer.
+//
+// ⚑ THAT IS THE SILENT-CAPABILITY-LOSS CLASS THIS PROJECT KEEPS CATCHING — the retired ✓ card
+// whose history had to survive it, the reset that must not take memorize-by dates. A feature that
+// moves a gesture has to carry what was reachable through it. So 'click' becomes 'long': every
+// item stays reachable, in his order, one gesture deeper. 'off' is untouched — a deliberate
+// refusal is not a casualty.
 function plusFanCfg() {
   const s = state.settings;
   if (!s.plusFan || typeof s.plusFan !== 'object') {
     s.plusFan = {};
-    PLUS_ITEMS.forEach(it => { s.plusFan[it.key] = it.def; });
+    PLUS_ITEMS.forEach(it => { s.plusFan[it.key] = it.def === 'off' ? 'off' : 'long'; });
     save();
   } else {
     let changed = false;
-    PLUS_ITEMS.forEach(it => { if (!s.plusFan[it.key]) { s.plusFan[it.key] = it.def; changed = true; } });
+    PLUS_ITEMS.forEach(it => { if (!s.plusFan[it.key]) { s.plusFan[it.key] = it.def === 'off' ? 'off' : 'long'; changed = true; } });
+    // The one-time E3 migration. Idempotent by construction: after it runs there is no 'click'
+    // left to find, so it costs one pass over eleven keys and never fires again.
+    PLUS_ITEMS.forEach(it => { if (s.plusFan[it.key] === 'click') { s.plusFan[it.key] = 'long'; changed = true; } });
     if (changed) save();
   }
   return s.plusFan;
@@ -19640,6 +19666,28 @@ function orderedPlusItems() {
   return plusFanOrder().map(k => PLUS_ITEMS.find(it => it.key === k)).filter(Boolean);
 }
 
+// ⚑⚑ E3 — TAP ＋ OPENS THE DOMAINS. Decided Aug 14 (`strive-notes-triage-20260814.md` §E3),
+// built Aug 15. His measured pain was reaching a DOMAIN, not reaching a log: "Tap ＋ → the
+// domains (Memorize · Bible · Creeds · Reading · Training · Health). Long-press ＋ → quick entry,
+// kept as the interim." So the ＋ is promoted to the thing he actually does and quick-add drops
+// one level.
+//
+// ⚑ THE DESTINATIONS ARE THE DASHBOARD'S OWN, NOT NEW ONES. Each of these is the exact call the
+// corresponding dashboard card already makes (`app.js:605-651`), so the ＋ is a shortcut to the
+// hub rather than a second navigation model that can drift from it — the D-P always-home rule
+// reached by a different door.
+const PLUS_DOMAINS = [
+  { key: 'memorize', label: 'Memorize', go: () => render(scriptureHome) },
+  { key: 'bible',    label: 'Bible',    go: () => render(plansScreen) },
+  { key: 'creeds',   label: 'Creeds',   go: () => render(creedsHome) },
+  { key: 'reading',  label: 'Reading',  go: () => render(readingHome) },
+  { key: 'training', label: 'Training', go: () => ftGo('hub') },
+  // ⚑ Health is a GROUP inside fitness, not a sibling area, so it lands on the group's first
+  // member (his order: Weight · Water · Macros · Sleep) which renders the Health pill row.
+  // Sending it to the fitness hub as well would make Training and Health the same button.
+  { key: 'health',   label: 'Health',   go: () => ftGo('weight') },
+];
+
 function wirePlusFan() {
   const btn = document.querySelector('nav.tabbar .tab-plus');
   if (!btn) return;
@@ -19647,23 +19695,22 @@ function wirePlusFan() {
   const cancel = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
   btn.addEventListener('pointerdown', () => { lpFired = false; cancel(); lpTimer = setTimeout(() => { lpFired = true; openPlusFan('long'); }, 480); });
   ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => btn.addEventListener(ev, cancel));
-  btn.onclick = () => { if (lpFired) { lpFired = false; return; } openPlusFan('click'); };
+  btn.onclick = () => { if (lpFired) { lpFired = false; return; } openPlusDomains(); };
 }
 
 function closePlusFan() { const o = document.getElementById('plus-overlay'); if (o) o.remove(); }
 
-function openPlusFan(which) {
+// The overlay + arch, shared by both fans. ⚑ ONE GEOMETRY, TWO CONTENTS — the domains fan and the
+// quick-add fan are the same control showing different things, and giving the new one its own
+// copy of the arch maths is how two screens end up disagreeing about what an arch is.
+function openPlusArch(items, emptyTitle, emptyMsg, onPick) {
   closePlusFan();
-  const cfg = plusFanCfg();
-  const want = which === 'long' ? 'long' : 'click';
-  const items = orderedPlusItems().filter(it => cfg[it.key] === want);
   const ov = h(`<div class="plus-overlay" id="plus-overlay"><div class="plus-fan" id="plus-fan"></div></div>`).firstElementChild;
   ov.onclick = e => { if (e.target === ov || e.target.id === 'plus-fan') closePlusFan(); };
   document.body.append(ov);
   const fan = ov.querySelector('#plus-fan');
   if (!items.length) {
-    plusEntryShell(fan, which === 'long' ? 'Long-press fan' : 'Quick add',
-      `<div class="muted" style="font-size:13px">No actions on this fan yet — assign some in You → Quick-add.</div>`);
+    plusEntryShell(fan, emptyTitle, `<div class="muted" style="font-size:13px">${emptyMsg}</div>`);
     return;
   }
   // Tightened Gothic (pointed) arch — narrower base, taller point, icons only.
@@ -19691,9 +19738,24 @@ function openPlusFan(which) {
     const p = posForS(svals[i]);
     const el = h(`<div class="plus-item" style="left:${p.x}px;top:${p.y}px;animation-delay:${i * 22}ms" title="${esc(it.label)}" aria-label="${esc(it.label)}">
       <div class="g">${plusIconSvg(it.key)}</div></div>`).firstElementChild;
-    el.onclick = ev => { ev.stopPropagation(); plusRoute(it, fan); };
+    el.onclick = ev => { ev.stopPropagation(); onPick(it, fan); };
     fan.append(el);
   });
+}
+
+// Tap ＋ → the six domains. ⚑ A domain pick NAVIGATES, so the overlay closes first: leaving it up
+// over the destination is the immersive-shell exit invariant, and `openSheet` learned the same
+// lesson one level over when 41 call sites were each individually responsible for closing.
+function openPlusDomains() {
+  openPlusArch(PLUS_DOMAINS, 'Domains', 'No domains configured.', (it) => { closePlusFan(); it.go(); });
+}
+
+function openPlusFan(which) {
+  const cfg = plusFanCfg();
+  const want = which === 'long' ? 'long' : 'click';
+  const items = orderedPlusItems().filter(it => cfg[it.key] === want);
+  openPlusArch(items, which === 'long' ? 'Quick add' : 'Quick add',
+    'No actions on this fan yet — assign some in You → Quick-add.', plusRoute);
 }
 
 function plusEntryShell(fan, title, innerHTML) {
@@ -20103,8 +20165,12 @@ function plusWorkoutResult(fan, w) {
 // customization card (lives in You/Profile): assign each loggable to click / long-press / off
 function plusFanSettingsCard() {
   const cfg = plusFanCfg();
+  // ⚑ THE CUSTOMIZER SAYS WHAT THE GESTURES NOW DO. E3 moved tap to the domains, so a three-way
+  // Click/Long/Off control would offer a "Click" that no gesture can reach — a setting the user
+  // can select and that then does nothing, which is the silent-no-op class aimed at a preference.
+  // Two states, and the copy names the gesture that opens the fan.
   const card = h(`<div class="card"><h3>Quick-add (＋)</h3>
-    <div class="muted" style="font-size:12px;margin-bottom:10px"><b>Click</b> = tap-＋ fan · <b>Long</b> = long-press-＋ fan · <b>Off</b> = hidden. Drag ≡ to reorder — top→bottom is left→right in the arch.</div>
+    <div class="muted" style="font-size:12px;margin-bottom:10px"><b>Tap ＋</b> opens your domains. <b>Long-press ＋</b> opens this quick-add arch — <b>On</b> = in the arch · <b>Off</b> = hidden. Drag ≡ to reorder — top→bottom is left→right in the arch.</div>
     <div id="plus-order"></div>
   </div>`).firstElementChild;
   const list = card.querySelector('#plus-order');
@@ -20116,7 +20182,7 @@ function plusFanSettingsCard() {
       <div class="pillrow" data-seg style="margin:0;gap:5px;flex-wrap:nowrap"></div>
     </div>`).firstElementChild;
     const seg = row.querySelector('[data-seg]');
-    [['click', 'Click'], ['long', 'Long'], ['off', 'Off']].forEach(([v, lbl]) => {
+    [['long', 'On'], ['off', 'Off']].forEach(([v, lbl]) => {
       const b = h(`<button class="plus-chip ${cfg[it.key] === v ? 'on' : ''}" style="white-space:nowrap">${lbl}</button>`).firstElementChild;
       b.onclick = () => { cfg[it.key] = v; save(); seg.querySelectorAll('.plus-chip').forEach(x => x.classList.remove('on')); b.classList.add('on'); };
       seg.append(b);
