@@ -941,6 +941,9 @@ function defaultState() {
       completions: {},     // completions['YYYY-MM-DD'][ruleId] = true
       monthGoals: {},      // monthGoals['YYYY-MM'] = [{id, label, done}]
       yearGoals: {},       // yearGoals['YYYY'] = [{id, label, done}]
+      order: {},           // (Aug 18 2026) order['YYYY-MM-DD'] = ['<kind>:<id>', …] — his arrangement of
+                           // the day. A day with no entry INHERITS the nearest earlier one, so an
+                           // arrangement persists without a second "default order" concept to keep in sync.
       skips: {},           // (Aug 18 2026) skips['YYYY-MM-DD']['<kind>:<id>'] = true — TODAY ONLY, by
                            // construction: the day key IS the scope, so a skipped row reappears
                            // tomorrow with nothing to expire and no sweeper to write.
@@ -1190,6 +1193,7 @@ function ensureShapes() {
   // written by a possibly-older build (D-B), so "this field is always present" is a claim about
   // THIS version only. An older build's planner has no `skips` and must not throw on read.
   if (!state.planner.skips || typeof state.planner.skips !== 'object' || Array.isArray(state.planner.skips)) state.planner.skips = {};
+  if (!state.planner.order || typeof state.planner.order !== 'object' || Array.isArray(state.planner.order)) state.planner.order = {};
   if (!state.modules || typeof state.modules !== 'object' || Array.isArray(state.modules)) state.modules = {};   // D-AB Modules (additive)
   if (!state.review || typeof state.review !== 'object' || Array.isArray(state.review)) state.review = { covered: {}, books: {} };   // D-AB review coverage (additive)
   if (!state.review.covered || typeof state.review.covered !== 'object') state.review.covered = {};
@@ -2778,6 +2782,75 @@ function setSkipped(dk, key, on = true) {
 }
 function skippedKeys(dk) { const m = skipsFor(dk); return m ? Object.keys(m) : []; }
 
+// ---- order (Aug 18 2026) -------------------------------------------------------------------
+// Baruch: "its a very cluttered to-do list… I'd like to be able to move things from first to last
+// or reorder in any way."
+//
+// ⚑⚑ A DAY WITH NO SAVED ORDER INHERITS THE NEAREST EARLIER ONE, and that is the design decision
+// worth stating. Storing an order strictly per-day is easy and useless: he arranges Tuesday, wakes
+// up on Wednesday, and it is gone. Storing ONE standing arrangement is the other trap — a second
+// concept that has to be kept in sync with the per-day one the moment he wants Thursday different.
+// Inheriting gives both from one store: yesterday's arrangement is today's default until he moves
+// something, and moving something materialises THIS day without touching any other.
+//
+// ⚑ AND IT LOOKS BACKWARD ONLY. Rearranging today must not silently rewrite a day he has already
+// lived, and a future day he arranged deliberately must not be overwritten by a later edit to
+// today. The nearest key STRICTLY EARLIER than dk, or dk's own if it has one.
+function orderStore() { return P().order || (P().order = {}); }
+function storedOrder(dk) { const o = orderStore(); return Array.isArray(o[dk]) ? o[dk] : null; }
+function dayOrder(dk) {
+  const own = storedOrder(dk);
+  if (own) return own;
+  const o = orderStore();
+  let best = null;
+  for (const k in o) if (k < dk && Array.isArray(o[k]) && (best === null || k > best)) best = k;
+  return best === null ? [] : o[best];
+}
+function setDayOrder(dk, keys) {
+  const o = orderStore();
+  // ⚑ A key that is not a string is not an identity. `rowKey` returns null for a row with no
+  // stable id (see above), and letting a null into the array would make one unorderable row
+  // silently claim a position and shift everything under it.
+  const clean = (keys || []).filter(k => typeof k === 'string' && k);
+  if (clean.length) o[dk] = clean; else delete o[dk];
+  save();
+}
+// Apply the day's order to a list of {key,…} rows. Rows he has never arranged fall to the BOTTOM
+// in their source order — a new item must not be able to insert itself into the middle of a list
+// he laid out on purpose.
+function orderRows(dk, rows) {
+  const list = rows || [];
+  const ord = dayOrder(dk);
+  if (!ord.length) return list.slice();
+  const pos = new Map();
+  ord.forEach((k, i) => { if (!pos.has(k)) pos.set(k, i); });
+  const known = [], fresh = [];
+  list.forEach((r, i) => {
+    const p = (r && r.key && pos.has(r.key)) ? pos.get(r.key) : null;
+    (p === null ? fresh : known).push({ r, p, i });
+  });
+  known.sort((a, b) => (a.p - b.p) || (a.i - b.i));
+  return known.map(x => x.r).concat(fresh.map(x => x.r));
+}
+// Move one key to an index within the CURRENTLY DISPLAYED order, and persist the result.
+// ⚑ It takes the displayed keys rather than reading them back out of the store, because the store
+// may hold an INHERITED order that does not mention today's newest rows at all. Persisting what is
+// on screen is what makes "new rows fall to the bottom" survive the first drag.
+function moveRow(dk, keys, key, to) {
+  const arr = (keys || []).filter(k => typeof k === 'string' && k);
+  const from = arr.indexOf(key);
+  if (from < 0) return arr;
+  arr.splice(from, 1);
+  // ⚑ THIS CLAMP IS EXPLICITNESS, NOT A GUARD, and it is labelled so nobody writes a negative
+  // case against it twice. `Array.prototype.splice` already clamps its start index in both
+  // directions, so removing this line changes no behaviour — it is here to say out loud what
+  // range `to` is allowed to be. The negative runner caught me claiming otherwise, twice.
+  const t = Math.max(0, Math.min(arr.length, Number(to) || 0));
+  arr.splice(t, 0, key);
+  setDayOrder(dk, arr);
+  return arr;
+}
+
 function dayStats(dk) {
   // projected future plan portions are read-only — they can't be completed, so they don't count
   const rows = itemsForDate(dk).filter(i => !i.readonly);
@@ -2789,7 +2862,7 @@ function dayStats(dk) {
   return { total: items.length, done: items.filter(i => i.done).length, skipped };
 }
 
-const PL = {DOW,MONTHS,addDays,addGoal,addItem,addRule,addTarget,dayStats,entryKey,fmtDate,goals,isSkipped,itemsForDate,key,monthKey,parseKey,removeGoal,removeItem,removeRule,removeTarget,rowKey,setSkipped,skippedKeys,targetItems,targets,toggle,toggleGoal,updateTarget,weekStart,yearKey};
+const PL = {DOW,MONTHS,addDays,addGoal,addItem,addRule,addTarget,dayOrder,dayStats,entryKey,fmtDate,goals,isSkipped,itemsForDate,key,monthKey,moveRow,orderRows,parseKey,removeGoal,removeItem,removeRule,removeTarget,rowKey,setDayOrder,setSkipped,skippedKeys,storedOrder,targetItems,targets,toggle,toggleGoal,updateTarget,weekStart,yearKey};
 // Strive — pathways: ordered stepping stones grouped into milestones (Duolingo-style modules)
 
 
@@ -8698,7 +8771,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260819-0320'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260819-0320';
+const BUILD_ID = '20260819-0336'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260819-0336';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -9642,6 +9715,109 @@ function rowIconHtml(key) {
     : `<span class="row-ico" style="width:22px;flex-shrink:0"></span>`;
 }
 
+// ⚑⚑ THE MOVE SHEET IS THE TESTABLE HALF OF REORDERING, AND THE BETTER ONE ON A PHONE.
+// A drag is pointer physics no headless suite can drive — the same position `pickerValues` is in,
+// and the same answer: the gesture cannot be asserted, the RESULT is pure and must be. So the ≡
+// handle is both. Tap it and you get four unambiguous destinations; drag it and you get the direct
+// manipulation. Both funnel into `PL.moveRow`, so there is one rule about what a move means.
+function dayMoveSheet(dk, keys, key) {
+  const list = (keys || []).filter(Boolean);
+  const i = list.indexOf(key);
+  openSheet('Move this row', (body, close) => {
+    if (i < 0) { body.append(h(`<div class="muted" style="font-size:13px">This row cannot be reordered.</div>`)); return; }
+    body.append(h(`<div class="muted" style="font-size:12px;margin-bottom:10px">Position ${i + 1} of ${list.length}</div>`));
+    const go = to => { PL.moveRow(dk, list, key, to); close(); rerender(); };
+    // ⚑ THE EDGES ARE DISABLED, NOT HIDDEN. A button that vanishes at the top of the list makes the
+    // other three jump under your thumb; one that is present and dimmed says "already there".
+    const mk = (label, to, dead) => {
+      const b = h(`<button class="btn ${dead ? 'secondary' : ''}" data-to="${to}" style="margin-bottom:8px${dead ? ';opacity:.4' : ''}">${label}</button>`).firstChild;
+      if (!dead) b.onclick = () => go(to);
+      body.append(b);
+      return b;
+    };
+    mk('⤒  Move to top', 0, i === 0);
+    mk('↑  Up one', i - 1, i === 0);
+    mk('↓  Down one', i + 1, i === list.length - 1);
+    mk('⤓  Move to bottom', list.length - 1, i === list.length - 1);
+  });
+}
+
+// Read the arrangement back out of the DOM after a drop and persist it — the same shape
+// `persistPwOrder` uses, and for the same reason: the browser has already computed the answer.
+function persistDayOrder(list, dk) {
+  const keys = [...list.querySelectorAll('[data-rowkey]')].map(el => el.getAttribute('data-rowkey')).filter(Boolean);
+  if (keys.length) PL.setDayOrder(dk, keys);
+}
+
+// ⚑ A FLAT SIBLING OF `initPwDnD`, NOT A GENERALISATION OF IT. The pathway drag carries two kinds
+// (a step, and a whole milestone group that steps travel inside), and widening it to serve a flat
+// list would be invariant 8 — widening a shared predicate to fit one branch. This is the same
+// twenty lines with the group logic removed, which is cheaper to read and impossible to break by
+// changing the other one.
+function initDayDnD(list, dk) {
+  let drag = null;
+  const afterEl = y => {
+    const els = [...list.querySelectorAll('[data-rowkey]')].filter(el => el !== drag.row && el !== drag.ph);
+    let best = null, bestOff = -Infinity;
+    for (const el of els) {
+      const r = el.getBoundingClientRect();
+      const off = y - (r.top + r.height / 2);
+      if (off < 0 && off > bestOff) { bestOff = off; best = el; }
+    }
+    return best;
+  };
+  const onMove = e => {
+    if (!drag) return;
+    e.preventDefault();
+    const y = e.clientY;
+    drag.row.style.top = (y - drag.grabY) + 'px';
+    drag.row.style.left = drag.left + 'px';
+    const after = afterEl(y);
+    if (after) list.insertBefore(drag.ph, after); else list.append(drag.ph);
+    const sc = document.scrollingElement || document.documentElement, edge = 64;
+    if (y < edge) sc.scrollTop -= (edge - y) / 5;
+    else if (y > window.innerHeight - edge) sc.scrollTop += (y - (window.innerHeight - edge)) / 5;
+  };
+  const end = () => {
+    if (!drag) return;
+    const { row, ph } = drag;
+    row.classList.remove('pw-dragging');
+    ['position', 'top', 'left', 'width', 'zIndex', 'pointerEvents'].forEach(k => row.style[k] = '');
+    ph.parentNode.insertBefore(row, ph);
+    ph.remove();
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', end);
+    window.removeEventListener('pointercancel', end);
+    drag = null;
+    persistDayOrder(list, dk);
+    rerender();
+  };
+  list.querySelectorAll('.day-handle').forEach(handle => {
+    handle.addEventListener('pointerdown', e => {
+      if (e.button != null && e.button > 0) return;
+      const row = handle.closest ? handle.closest('[data-rowkey]') : null;
+      if (!row) return;
+      e.preventDefault();
+      const rect = row.getBoundingClientRect();
+      const ph = document.createElement('div');
+      ph.className = 'pw-ph';
+      ph.style.height = rect.height + 'px';
+      row.parentNode.insertBefore(ph, row);
+      drag = { row, ph, grabY: e.clientY - rect.top, left: rect.left };
+      row.classList.add('pw-dragging');
+      row.style.width = rect.width + 'px';
+      row.style.position = 'fixed';
+      row.style.left = rect.left + 'px';
+      row.style.top = rect.top + 'px';
+      row.style.zIndex = '999';
+      row.style.pointerEvents = 'none';
+      window.addEventListener('pointermove', onMove, { passive: false });
+      window.addEventListener('pointerup', end);
+      window.addEventListener('pointercancel', end);
+    });
+  });
+}
+
 function renderDayChecklist(container, dk, { showPathways = false } = {}) {
   const wrap = document.createElement('div');
   syncReviewCycles();
@@ -9651,6 +9827,14 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
   // them from `PL.skippedKeys(dk)` would mean a second pass that has to know how to reconstruct
   // ten row shapes from a string — and it would happily render a key whose row no longer exists.
   const skippedRows = [];
+  // ⚑ ROWS ARE COLLECTED, NOT APPENDED, because the order they are BUILT in is no longer the order
+  // they are shown in. Every source below hands its row to `push`; one loop at the end sorts them
+  // by his arrangement and appends once.
+  const rowsOut = [];
+  // ⚑ READ AT CLICK TIME, NOT AT BUILD TIME. The ≡ handle needs the keys AS DISPLAYED, and nothing
+  // is displayed yet when the handle is bound. A snapshot taken here would move rows against the
+  // build order — which is exactly the order he is trying to override.
+  let orderedKeys = [];
   const hidden = (kind, id, title, icon) => {
     const k = PL.rowKey(kind, id);
     if (!k) return false;                    // no stable identity → not skippable, and never collides
@@ -9665,7 +9849,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
   // rows up rather than a new convention. Those rows put a handler on the whole `.list-item`
   // (tap to launch), so a nested button HAS to stop the bubble in a real browser; `dom-shim` has
   // no bubbling and fires only the button. One pattern per row, not two.
-  const deco = (el, kind, id, icon) => {
+  const push = (el, kind, id, icon) => {
     const li = el.querySelector('.list-item') || el.firstElementChild;
     if (!li) return el;
     const grow = li.querySelector('.grow');
@@ -9674,10 +9858,22 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
     // ⚑ NO KEY, NO BUTTON. A Skip that cannot name its row is worse than an absent one: it would
     // look configured and hide something else. Absent is visible; wrong is not.
     const rk = PL.rowKey(kind, id);
-    if (!rk) return el;
+    if (!rk) { rowsOut.push({ key: null, el }); return el; }
     const b = h(`<button class="pill row-skip" title="Skip today" style="padding:4px 8px;font-size:11px;align-self:center;flex-shrink:0">Skip</button>`).firstChild;
     b.onclick = e => { if (e && e.stopPropagation) e.stopPropagation(); PL.setSkipped(dk, rk, true); rerender(); };
     li.append(b);
+    // ⚑ THE KEY RIDES ON THE NODE. The drop handler reads the new arrangement back out of the DOM,
+    // which is only possible if each row can name itself — the same shape `persistPwOrder` uses.
+    li.setAttribute('data-rowkey', rk);
+    // ⚑⚑ THE HANDLE IS A DRAG *AND* A BUTTON, AND THE BUTTON IS THE HALF THAT IS TESTABLE.
+    // A drag is pointer physics `dom-shim` cannot reach — the same position the rep/distance drums
+    // are in, and the same answer: the gesture is untestable, the RESULT is pure. So the handle
+    // also opens a four-way move sheet on tap, which every check below drives by clicking. It is
+    // also the better affordance on a phone: dragging one row past twenty is miserable.
+    const hnd = h(`<span class="day-handle" title="Drag to reorder · tap to move" style="cursor:grab;color:var(--text-2);font-size:15px;padding:0 6px 0 0;align-self:center;flex-shrink:0;touch-action:none;user-select:none;-webkit-user-select:none">≡</span>`).firstChild;
+    hnd.onclick = e => { if (e && e.stopPropagation) e.stopPropagation(); dayMoveSheet(dk, orderedKeys, rk); };
+    li.insertBefore(hnd, li.firstChild);
+    rowsOut.push({ key: rk, el });
     return el;
   };
   const itemTitle = e => e.title || e.label || e.scopeLabel || e.domainLabel || 'Item';
@@ -9692,7 +9888,6 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
   // counting what disappeared, which is why §5 of the suite now counts.
   const revRows = reviewRowsForDate(dk).filter(r => !hidden('rev', r.id, r.title, r.creed ? 'creeds' : 'memorize'));
   if (revRows.length) {
-    wrap.append(sectionTitle('Training due'));
     revRows.forEach(r => {
       const el = h(`
         <div class="list-item" style="${r.scheduled ? '' : 'cursor:pointer'}${r.late ? ';border-color:var(--danger)' : ''}">
@@ -9710,8 +9905,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
         dd.onclick = e => { e.stopPropagation(); scopeModeSheet(r, RV.TRAIN); };
         li.append(dd);
       }
-      deco(el, 'rev', r.id, r.creed ? 'creeds' : 'memorize');
-      wrap.append(el);
+      push(el, 'rev', r.id, r.creed ? 'creeds' : 'memorize');
     });
   }
 
@@ -9719,7 +9913,6 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
   // They stop existing the moment the reset runs; until then they are still his.
   const prRows = practiceRowsForDate(dk).filter(r => !hidden('prac', r.id, r.title, r.creed ? 'creeds' : 'memorize'));
   if (prRows.length) {
-    if (!revRows.length) wrap.append(sectionTitle('Training due'));
     prRows.forEach(r => {
       const el = h(`
         <div class="list-item" style="${r.scheduled ? '' : 'cursor:pointer'}${r.late ? ';border-color:var(--danger)' : ''}">
@@ -9739,15 +9932,13 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
           li.append(dd);
         }
       }
-      deco(el, 'prac', r.id, r.creed ? 'creeds' : 'memorize');
-      wrap.append(el);
+      push(el, 'prac', r.id, r.creed ? 'creeds' : 'memorize');
     });
   }
 
   // memorize-by targets (D-AF) — a marker, not a pace amount; tapping opens the scope to work on it
   const mbRows = memByRowsForDate(dk).filter(r => !hidden('memby', r.id, r.title, r.creed ? 'creeds' : 'memorize'));
   if (mbRows.length) {
-    wrap.append(sectionTitle('Memorize by'));
     mbRows.forEach(r => {
       const when = r.late ? '⚠ overdue by ' + Math.abs(r.daysLeft) + 'd'
                  : r.daysLeft === 0 ? 'due today'
@@ -9761,12 +9952,10 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
           </div>
         </div>`);
       el.querySelector('.list-item').onclick = () => refStepLaunch({ ref: { key: r.key, intent: 'memorize' } });
-      deco(el, 'memby', r.id, r.creed ? 'creeds' : 'memorize');
-      wrap.append(el);
+      push(el, 'memby', r.id, r.creed ? 'creeds' : 'memorize');
     });
   }
 
-  if (items.length) wrap.append(sectionTitle('Planned'));
   items.forEach(entry => {
     // a scheduled assignment-step (scope + intent) → offer the ▸ launch (Practice/Review modes, or memorize)
     if (entry.kind === 'pstep' && entry.ref && !entry.done) {
@@ -9782,8 +9971,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
         </div>`);
       const pill = s ? refLaunchPill(s) : null;
       if (pill) el.querySelector('.list-item').append(pill);
-      deco(el, entry.kind, entry.id, entryIconKey(entry));
-      wrap.append(el);
+      push(el, entry.kind, entry.id, entryIconKey(entry));
       return;
     }
     // a scheduled step on a timed (Scripture Review) pathway → offer the ⏱ inline, like the next-steps list
@@ -9800,8 +9988,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
         </div>`);
       el.querySelector('.check').onclick = () => { PL.toggle(dk, entry); rerender(); };
       el.querySelector('[data-a=t]').onclick = () => { if (p) render(() => stepTimer(p, entry.id)); };
-      deco(el, entry.kind, entry.id, entryIconKey(entry));
-      wrap.append(el);
+      push(el, entry.kind, entry.id, entryIconKey(entry));
       return;
     }
     // due-date pace nudge (9.4): informational, opens the underlying item; the check
@@ -9820,8 +10007,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
           </div>
         </div>`);
       el.querySelector('.list-item').onclick = () => navPace(entry.goto);
-      deco(el, entry.kind, entry.id, entryIconKey(entry));
-      wrap.append(el);
+      push(el, entry.kind, entry.id, entryIconKey(entry));
       return;
     }
     // standing target (9.5): readonly, auto-completes from real activity; opens the domain/item.
@@ -9846,8 +10032,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
       el.querySelector('.check').onclick = () => { PL.toggle(dk, entry); rerender(); };
       el.querySelector('.grow').onclick = () => navPace(entry.goto);
       el.querySelector('.chev').onclick = () => navPace(entry.goto);
-      deco(el, entry.kind, entry.id, entryIconKey(entry));
-      wrap.append(el);
+      push(el, entry.kind, entry.id, entryIconKey(entry));
       return;
     }
     if (entry.kind === 'target') {
@@ -9861,48 +10046,63 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
           </div>
         </div>`);
       el.querySelector('.list-item').onclick = () => navPace(entry.goto);
-      deco(el, entry.kind, entry.id, entryIconKey(entry));
-      wrap.append(el);
+      push(el, entry.kind, entry.id, entryIconKey(entry));
       return;
     }
     const el = checkRow(entry, () => { if (entry.readonly) return; PL.toggle(dk, entry); rerender(); },
       { sub: entry.kind === 'rule' ? 'recurring' + (entry.domain ? ' · ' + entry.domain : '') : entry.domain,
         onDelete: entry.kind === 'item' ? () => { PL.removeItem(dk, entry.id); rerender(); } : null });
     if (entry.readonly) el.querySelector('.check').style.opacity = '.35';
-    deco(el, entry.kind, entry.id, entryIconKey(entry));
-    wrap.append(el);
+    push(el, entry.kind, entry.id, entryIconKey(entry));
   });
-  if (!items.length) wrap.append(h(`<div class="empty">Nothing planned for this day yet.</div>`));
+  // overdue: dated steps whose day has passed and still aren't done → roll onto today (9.3)
+  if (showPathways && dk === todayKey()) {
+    const overdue = PW.scheduledSteps()
+      .filter(({ s }) => s.date < dk && !s.done)
+      .sort((a, b) => (a.s.date < b.s.date ? -1 : 1));
+    const overdueShown = overdue.filter(({ s }) => !hidden('pstep', s.id, s.label, 'practice'));
+    if (overdueShown.length) {
+      overdueShown.forEach(({ p, s }) => {
+        const el = h(`
+          <div class="list-item" style="cursor:default;border-color:var(--danger)">
+            <div class="check">✓</div>
+            <div class="grow">
+              <div class="title">${esc(s.label)}</div>
+              <div class="sub">${esc(p.name)} · was due ${shortDate(s.date)}</div>
+            </div>
+            ${!s.ref && PW.isTimed(p) ? '<button class="pill" data-a="t" style="padding:7px 11px;font-size:15px">⏱</button>' : ''}
+          </div>`);
+        el.querySelector('.check').onclick = () => { PW.completeStep(p, s.id); rerender(); };
+        const tb = el.querySelector('[data-a=t]');
+        if (tb) tb.onclick = () => render(() => stepTimer(p, s.id));
+        const rp = refLaunchPill(s);   // scoped step → ▸ launch (its modes include the timer)
+        if (rp) el.querySelector('.list-item').append(rp);
+        push(el, 'pstep', s.id, 'practice');
+      });
+    }
+  }
+
+  // ⚑⚑ ONE FLAT LIST — THE HEADINGS ARE GONE (Aug 18 2026). Baruch: "it's a very cluttered to-do
+  // list. I want to be able to organize my to-do list, but right now its all just there… I'd like to
+  // be able to move things from first to last or reorder in any way."
+  //
+  // ⚑ THEY COULD GO BECAUSE EVERY ROW ALREADY SAYS WHAT IT IS. The domain glyph landed in chunk 2
+  // and each sub-line names its own kind — "◎ training due", "🎯 Daily target", "🏋 2 parts · 1/2
+  // logged". A heading that repeats what the row beneath it already prints is one fact in two
+  // places, and it was the thing pinning an order he could not change.
+  //
+  // ⚑ "Next steps on your pathways" STAYS OUT of the list, deliberately. Those are undated
+  // suggestions rather than commitments for this day; folding them in would let a suggestion take a
+  // position above something he has actually scheduled.
+  const ordered = PL.orderRows(dk, rowsOut);
+  orderedKeys = ordered.map(r => r.key).filter(Boolean);
+  const dayList = h(`<div id="day-drag"></div>`).firstElementChild;
+  ordered.forEach(r => dayList.append(r.el));
+  wrap.append(dayList);
+  initDayDnD(dayList, dk);
+  if (!ordered.length) wrap.append(h(`<div class="empty">Nothing planned for this day yet.</div>`));
 
   if (showPathways) {
-    // overdue: dated steps whose day has passed and still aren't done → roll onto today (9.3)
-    if (dk === todayKey()) {
-      const overdue = PW.scheduledSteps()
-        .filter(({ s }) => s.date < dk && !s.done)
-        .sort((a, b) => (a.s.date < b.s.date ? -1 : 1));
-      const overdueShown = overdue.filter(({ s }) => !hidden('pstep', s.id, s.label, 'practice'));
-      if (overdueShown.length) {
-        wrap.append(sectionTitle('Overdue'));
-        overdueShown.forEach(({ p, s }) => {
-          const el = h(`
-            <div class="list-item" style="cursor:default;border-color:var(--danger)">
-              <div class="check">✓</div>
-              <div class="grow">
-                <div class="title">${esc(s.label)}</div>
-                <div class="sub">${esc(p.name)} · was due ${shortDate(s.date)}</div>
-              </div>
-              ${!s.ref && PW.isTimed(p) ? '<button class="pill" data-a="t" style="padding:7px 11px;font-size:15px">⏱</button>' : ''}
-            </div>`);
-          el.querySelector('.check').onclick = () => { PW.completeStep(p, s.id); rerender(); };
-          const tb = el.querySelector('[data-a=t]');
-          if (tb) tb.onclick = () => render(() => stepTimer(p, s.id));
-          const rp = refLaunchPill(s);   // scoped step → ▸ launch (its modes include the timer)
-          if (rp) el.querySelector('.list-item').append(rp);
-          deco(el, 'pstep', s.id, 'practice');
-          wrap.append(el);
-        });
-      }
-    }
     // next steps only for pathways whose next step ISN'T scheduled (scheduled ones show on their day / overdue)
     const active = PW.all().filter(p => { const s = PW.nextStep(p); return s && !s.date; });
     if (active.length) {
