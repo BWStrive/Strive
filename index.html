@@ -941,6 +941,9 @@ function defaultState() {
       completions: {},     // completions['YYYY-MM-DD'][ruleId] = true
       monthGoals: {},      // monthGoals['YYYY-MM'] = [{id, label, done}]
       yearGoals: {},       // yearGoals['YYYY'] = [{id, label, done}]
+      skips: {},           // (Aug 18 2026) skips['YYYY-MM-DD']['<kind>:<id>'] = true — TODAY ONLY, by
+                           // construction: the day key IS the scope, so a skipped row reappears
+                           // tomorrow with nothing to expire and no sweeper to write.
       targets: []          // (Phase 9.5) standing quotas: {id, domain, unit, amount, period:'day'|'week'|'month', dows:[0-6], scope:null|{...}}
     },
     pathways: [],          // {id, name, domain, milestones:[{id, name, steps:[{id, label, done, doneTs, secs}]}]}
@@ -1183,6 +1186,10 @@ function ensureShapes() {
   if (!Array.isArray(state.sermons)) state.sermons = [];
   if (!state.planner) state.planner = def.planner;
   if (!Array.isArray(state.planner.targets)) state.planner.targets = [];   // Phase 9.5 (additive)
+  // ⚑ ADDITIVE AND SYNC-SAFE, like `targets` above it: state arrives from sync as a whole blob
+  // written by a possibly-older build (D-B), so "this field is always present" is a claim about
+  // THIS version only. An older build's planner has no `skips` and must not throw on read.
+  if (!state.planner.skips || typeof state.planner.skips !== 'object' || Array.isArray(state.planner.skips)) state.planner.skips = {};
   if (!state.modules || typeof state.modules !== 'object' || Array.isArray(state.modules)) state.modules = {};   // D-AB Modules (additive)
   if (!state.review || typeof state.review !== 'object' || Array.isArray(state.review)) state.review = { covered: {}, books: {} };   // D-AB review coverage (additive)
   if (!state.review.covered || typeof state.review.covered !== 'object') state.review.covered = {};
@@ -2723,13 +2730,66 @@ function addGoal(scope, k, label) { goals(scope, k).push({ id: uid(), label, don
 function toggleGoal(scope, k, id) { const g = goals(scope, k).find(x => x.id === id); if (g) g.done = !g.done; save(); }
 function removeGoal(scope, k, id) { P()[scope][k] = goals(scope, k).filter(x => x.id !== id); save(); }
 
+// ---- row identity (Aug 18 2026) ------------------------------------------------------------
+// ⚑ ONE NAMESPACE FOR EVERY ROW ON THE DAY, INCLUDING THE THREE THIS MODULE DOES NOT OWN.
+// `itemsForDate` assembles seven kinds; the day screen renders three more that live in app.js
+// (review cadences, legacy practice cadences, memorize-by pins). Skipping — and, next chunk,
+// ordering — needs ONE identity for all ten, so the namespacing rule is stated here once rather
+// than half here and half in the screen. That is invariant 4: one rule per fact.
+//
+// ⚑ IT IS NAMESPACED BY KIND BECAUSE THE IDS ARE NOT GLOBALLY UNIQUE. A reading plan's `rplan`
+// row carries the PLAN's id and a pathway step carries the STEP's id; two different rows can
+// legitimately hold the same string. Skipping one would skip the other, silently, on the one
+// day it happened to collide.
+// ⚑⚑ AND IT REFUSES A MISSING ID RATHER THAN MINTING `kind:undefined`. This is not defensive
+// padding — it is the bug that actually happened, an hour after the paragraph above was written:
+// the day screen keyed its review rows on `r.key`, which is undefined on module and whole-book
+// rows, so all seven collapsed onto one key and skipping one hid every one of them. A silent
+// no-op is the defect class this app keeps producing; returning null makes the caller decide in
+// the open, and the caller's answer is to render no Skip button at all.
+function rowKey(kind, id) {
+  if (id === undefined || id === null || id === '') return null;
+  return String(kind) + ':' + String(id);
+}
+function entryKey(e) { return e ? rowKey(e.kind, e.id) : null; }
+
+// ---- skip (Aug 18 2026) --------------------------------------------------------------------
+// Baruch: "I'd also like to be able to skip certain targets instead of have them hanging there
+// all day making me feel like I didn't do something I knew I couldn't."
+//
+// ⚑ SKIPPED IS NOT DONE AND IT IS NOT UNDONE — IT IS OUT OF THE DENOMINATOR. Counting a skip as
+// done would inflate the day; leaving it in the total as not-done is exactly the accusation he
+// asked to stop seeing. So `dayStats` reports three numbers and the third travels with the other
+// two, which is the standing rule about denominators.
+function skipsFor(dk) { const s = P().skips || (P().skips = {}); return s[dk] || null; }
+function isSkipped(dk, key) { if (!key) return false; const m = skipsFor(dk); return !!(m && m[key]); }
+function setSkipped(dk, key, on = true) {
+  if (!key) return;
+  const all = P().skips || (P().skips = {});
+  if (on) { (all[dk] || (all[dk] = {}))[key] = true; }
+  else if (all[dk]) {
+    // ⚑ DELETED, NOT SET TO FALSE — absent is not false. Same ruling as `setCardManual`: a stored
+    // `false` is a standing opinion, and a map that only ever grows is a map that eventually
+    // disagrees with a row that no longer exists.
+    delete all[dk][key];
+    if (!Object.keys(all[dk]).length) delete all[dk];
+  }
+  save();
+}
+function skippedKeys(dk) { const m = skipsFor(dk); return m ? Object.keys(m) : []; }
+
 function dayStats(dk) {
   // projected future plan portions are read-only — they can't be completed, so they don't count
-  const items = itemsForDate(dk).filter(i => !i.readonly);
-  return { total: items.length, done: items.filter(i => i.done).length };
+  const rows = itemsForDate(dk).filter(i => !i.readonly);
+  // ⚑ COUNTED OFF THE LIVE ROWS, NOT OFF THE STORED MAP. A key can outlive its row — delete a
+  // planned session you had skipped and the skip entry remains — so counting keys would report a
+  // skip for something that is not on the day at all.
+  const skipped = rows.filter(i => isSkipped(dk, entryKey(i))).length;
+  const items = rows.filter(i => !isSkipped(dk, entryKey(i)));
+  return { total: items.length, done: items.filter(i => i.done).length, skipped };
 }
 
-const PL = {DOW,MONTHS,addDays,addGoal,addItem,addRule,addTarget,dayStats,fmtDate,goals,itemsForDate,key,monthKey,parseKey,removeGoal,removeItem,removeRule,removeTarget,targetItems,targets,toggle,toggleGoal,updateTarget,weekStart,yearKey};
+const PL = {DOW,MONTHS,addDays,addGoal,addItem,addRule,addTarget,dayStats,entryKey,fmtDate,goals,isSkipped,itemsForDate,key,monthKey,parseKey,removeGoal,removeItem,removeRule,removeTarget,rowKey,setSkipped,skippedKeys,targetItems,targets,toggle,toggleGoal,updateTarget,weekStart,yearKey};
 // Strive — pathways: ordered stepping stones grouped into milestones (Duolingo-style modules)
 
 
@@ -8638,7 +8698,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260819-0257'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260819-0257';
+const BUILD_ID = '20260819-0320'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260819-0320';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -9552,14 +9612,85 @@ function dueControl({ label, hint, value, onSet, info, unit }) {
   return card;
 }
 
+// ⚑⚑ THE ICONS REUSE THE ＋ FAN'S VOCABULARY RATHER THAN A SECOND SET DRAWN FOR THIS SCREEN.
+// `PLUS_ICONS` already carries memorize · bible · creeds · reading · training · health in one
+// engraved line style, and the triquetra and the ribboned book were confirmed with Baruch when
+// the fan was built. A domain that acquires a SECOND picture depending on which screen you opened
+// is the same defect as one fact living in two places — 7B.9's own ruling, which is why the ＋
+// fan's destinations are the dashboard card's own calls.
+//
+// ⚑ NULL IS A REAL ANSWER. A day item he typed himself carries no domain at all (`addItem` passes
+// ''), and inventing one would put a picture on a row that is not from anywhere. Those get the
+// gutter and no glyph, so the titles still line up.
+const ROW_ICON = {
+  reading: 'reading', memorize: 'memorize', creeds: 'creeds', bibleplan: 'bible',
+  fitness: 'training', flashcards: 'practice', typing: 'practice', bible: 'bible',
+  scripture: 'memorize', training: 'training', health: 'health', workout: 'training',
+};
+function entryIconKey(entry) {
+  if (!entry) return null;
+  switch (entry.kind) {
+    case 'wcard': return 'training';
+    case 'rplan': return 'bible';
+    case 'pstep': return 'practice';
+    default: return ROW_ICON[String(entry.domain || '').toLowerCase().trim()] || null;
+  }
+}
+function rowIconHtml(key) {
+  return key
+    ? `<span class="row-ico" style="display:flex;align-items:center;justify-content:center;width:22px;flex-shrink:0;color:var(--text-2)">${plusIconSvg(key, 17)}</span>`
+    : `<span class="row-ico" style="width:22px;flex-shrink:0"></span>`;
+}
+
 function renderDayChecklist(container, dk, { showPathways = false } = {}) {
   const wrap = document.createElement('div');
   syncReviewCycles();
   syncPathwayRefSteps();   // D-AG: assignment-steps auto-complete in Today from the engine
-  const items = PL.itemsForDate(dk);
+
+  // ⚑ SKIPPED ROWS ARE COLLECTED AS THEY ARE FILTERED OUT, not re-derived afterwards. Rebuilding
+  // them from `PL.skippedKeys(dk)` would mean a second pass that has to know how to reconstruct
+  // ten row shapes from a string — and it would happily render a key whose row no longer exists.
+  const skippedRows = [];
+  const hidden = (kind, id, title, icon) => {
+    const k = PL.rowKey(kind, id);
+    if (!k) return false;                    // no stable identity → not skippable, and never collides
+    if (!PL.isSkipped(dk, k)) return false;
+    skippedRows.push({ key: k, title: title || 'Item', icon });
+    return true;
+  };
+  // ⚑ BIND BEFORE APPEND — `h()` returns a fragment and `append()` empties it (invariant 2), so
+  // every call site below decorates the row while it is still a fragment it holds.
+  //
+  // ⚑ AND THE SKIP BUTTON STOPS PROPAGATION, which is a deliberate match to the ▾ mode pill two
+  // rows up rather than a new convention. Those rows put a handler on the whole `.list-item`
+  // (tap to launch), so a nested button HAS to stop the bubble in a real browser; `dom-shim` has
+  // no bubbling and fires only the button. One pattern per row, not two.
+  const deco = (el, kind, id, icon) => {
+    const li = el.querySelector('.list-item') || el.firstElementChild;
+    if (!li) return el;
+    const grow = li.querySelector('.grow');
+    const ico = h(rowIconHtml(icon)).firstChild;
+    if (grow) li.insertBefore(ico, grow); else li.append(ico);
+    // ⚑ NO KEY, NO BUTTON. A Skip that cannot name its row is worse than an absent one: it would
+    // look configured and hide something else. Absent is visible; wrong is not.
+    const rk = PL.rowKey(kind, id);
+    if (!rk) return el;
+    const b = h(`<button class="pill row-skip" title="Skip today" style="padding:4px 8px;font-size:11px;align-self:center;flex-shrink:0">Skip</button>`).firstChild;
+    b.onclick = e => { if (e && e.stopPropagation) e.stopPropagation(); PL.setSkipped(dk, rk, true); rerender(); };
+    li.append(b);
+    return el;
+  };
+  const itemTitle = e => e.title || e.label || e.scopeLabel || e.domainLabel || 'Item';
+  const items = PL.itemsForDate(dk).filter(e => !hidden(e.kind, e.id, itemTitle(e), entryIconKey(e)));
 
   // reviews due (Phase 11 cadence layer) — a module/book whose cycle is due; tap to review it
-  const revRows = reviewRowsForDate(dk);
+  // ⚑⚑ `r.id`, NOT `r.key` — AND THE FIRST DRAFT USED `r.key`, WHICH IS undefined ON MOST OF THESE
+  // ROWS. `collectReviewAssignments` gives a module row `mod-<book>-<modid>`, a whole-book row
+  // `book-<name>` and only the assign-store rows a `key`. Every row therefore keyed to
+  // `rev:undefined`, and skipping ONE hid ALL SEVEN — the exact collision the rowKey note two
+  // files away predicts, produced by me one hour after writing it. Found by clicking Skip and
+  // counting what disappeared, which is why §5 of the suite now counts.
+  const revRows = reviewRowsForDate(dk).filter(r => !hidden('rev', r.id, r.title, r.creed ? 'creeds' : 'memorize'));
   if (revRows.length) {
     wrap.append(sectionTitle('Training due'));
     revRows.forEach(r => {
@@ -9579,13 +9710,14 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
         dd.onclick = e => { e.stopPropagation(); scopeModeSheet(r, RV.TRAIN); };
         li.append(dd);
       }
+      deco(el, 'rev', r.id, r.creed ? 'creeds' : 'memorize');
       wrap.append(el);
     });
   }
 
   // ⚑ LEGACY practice cadences, folded UNDER the same heading rather than given their own.
   // They stop existing the moment the reset runs; until then they are still his.
-  const prRows = practiceRowsForDate(dk);
+  const prRows = practiceRowsForDate(dk).filter(r => !hidden('prac', r.id, r.title, r.creed ? 'creeds' : 'memorize'));
   if (prRows.length) {
     if (!revRows.length) wrap.append(sectionTitle('Training due'));
     prRows.forEach(r => {
@@ -9607,12 +9739,13 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
           li.append(dd);
         }
       }
+      deco(el, 'prac', r.id, r.creed ? 'creeds' : 'memorize');
       wrap.append(el);
     });
   }
 
   // memorize-by targets (D-AF) — a marker, not a pace amount; tapping opens the scope to work on it
-  const mbRows = memByRowsForDate(dk);
+  const mbRows = memByRowsForDate(dk).filter(r => !hidden('memby', r.id, r.title, r.creed ? 'creeds' : 'memorize'));
   if (mbRows.length) {
     wrap.append(sectionTitle('Memorize by'));
     mbRows.forEach(r => {
@@ -9628,6 +9761,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
           </div>
         </div>`);
       el.querySelector('.list-item').onclick = () => refStepLaunch({ ref: { key: r.key, intent: 'memorize' } });
+      deco(el, 'memby', r.id, r.creed ? 'creeds' : 'memorize');
       wrap.append(el);
     });
   }
@@ -9648,6 +9782,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
         </div>`);
       const pill = s ? refLaunchPill(s) : null;
       if (pill) el.querySelector('.list-item').append(pill);
+      deco(el, entry.kind, entry.id, entryIconKey(entry));
       wrap.append(el);
       return;
     }
@@ -9665,6 +9800,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
         </div>`);
       el.querySelector('.check').onclick = () => { PL.toggle(dk, entry); rerender(); };
       el.querySelector('[data-a=t]').onclick = () => { if (p) render(() => stepTimer(p, entry.id)); };
+      deco(el, entry.kind, entry.id, entryIconKey(entry));
       wrap.append(el);
       return;
     }
@@ -9684,6 +9820,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
           </div>
         </div>`);
       el.querySelector('.list-item').onclick = () => navPace(entry.goto);
+      deco(el, entry.kind, entry.id, entryIconKey(entry));
       wrap.append(el);
       return;
     }
@@ -9709,6 +9846,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
       el.querySelector('.check').onclick = () => { PL.toggle(dk, entry); rerender(); };
       el.querySelector('.grow').onclick = () => navPace(entry.goto);
       el.querySelector('.chev').onclick = () => navPace(entry.goto);
+      deco(el, entry.kind, entry.id, entryIconKey(entry));
       wrap.append(el);
       return;
     }
@@ -9723,6 +9861,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
           </div>
         </div>`);
       el.querySelector('.list-item').onclick = () => navPace(entry.goto);
+      deco(el, entry.kind, entry.id, entryIconKey(entry));
       wrap.append(el);
       return;
     }
@@ -9730,6 +9869,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
       { sub: entry.kind === 'rule' ? 'recurring' + (entry.domain ? ' · ' + entry.domain : '') : entry.domain,
         onDelete: entry.kind === 'item' ? () => { PL.removeItem(dk, entry.id); rerender(); } : null });
     if (entry.readonly) el.querySelector('.check').style.opacity = '.35';
+    deco(el, entry.kind, entry.id, entryIconKey(entry));
     wrap.append(el);
   });
   if (!items.length) wrap.append(h(`<div class="empty">Nothing planned for this day yet.</div>`));
@@ -9740,9 +9880,10 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
       const overdue = PW.scheduledSteps()
         .filter(({ s }) => s.date < dk && !s.done)
         .sort((a, b) => (a.s.date < b.s.date ? -1 : 1));
-      if (overdue.length) {
+      const overdueShown = overdue.filter(({ s }) => !hidden('pstep', s.id, s.label, 'practice'));
+      if (overdueShown.length) {
         wrap.append(sectionTitle('Overdue'));
-        overdue.forEach(({ p, s }) => {
+        overdueShown.forEach(({ p, s }) => {
           const el = h(`
             <div class="list-item" style="cursor:default;border-color:var(--danger)">
               <div class="check">✓</div>
@@ -9757,6 +9898,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
           if (tb) tb.onclick = () => render(() => stepTimer(p, s.id));
           const rp = refLaunchPill(s);   // scoped step → ▸ launch (its modes include the timer)
           if (rp) el.querySelector('.list-item').append(rp);
+          deco(el, 'pstep', s.id, 'practice');
           wrap.append(el);
         });
       }
@@ -9785,6 +9927,29 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
         wrap.append(el);
       });
     }
+  }
+
+  // ⚑⚑ SKIPPED ROWS LEAVE THE LIST AND DO NOT LEAVE THE DAY. Hiding them outright would make a
+  // skip indistinguishable from a deletion, and he would have no way back from a mis-tap; leaving
+  // them in place with a strike through them is the thing he asked to stop looking at. So they
+  // move to the bottom, under a count, one tap from being back.
+  if (skippedRows.length) {
+    wrap.append(sectionTitle('Skipped today (' + skippedRows.length + ')'));
+    skippedRows.forEach(r => {
+      const el = h(`
+        <div class="list-item" style="cursor:default;opacity:.6">
+          <div class="check" style="border-style:dashed;color:var(--text-2)">–</div>
+          <div class="grow">
+            <div class="title">${esc(r.title)}</div>
+            <div class="sub">skipped · back tomorrow if it is still due</div>
+          </div>
+          <button class="pill" data-a="unskip" style="padding:4px 9px;font-size:11px;align-self:center;flex-shrink:0">Undo</button>
+        </div>`);
+      const li = el.querySelector('.list-item');
+      li.insertBefore(h(rowIconHtml(r.icon)).firstChild, li.querySelector('.grow'));
+      el.querySelector('[data-a=unskip]').onclick = () => { PL.setSkipped(dk, r.key, false); rerender(); };
+      wrap.append(el);
+    });
   }
 
   wrap.append(addRow('Add an item for this day', v => { PL.addItem(dk, v); rerender(); }));
@@ -9898,7 +10063,7 @@ function planWeek(body) {
       <div class="list-item" style="${isToday ? 'border-color:var(--accent)' : ''}">
         <div class="grow">
           <div class="title">${PL.fmtDate(dk)}${isToday ? ' · today' : ''}</div>
-          <div class="sub">${st.total ? st.done + '/' + st.total + ' done' : (anyExtra ? 'targets below' : 'nothing planned')}</div>
+          <div class="sub">${st.total ? st.done + '/' + st.total + ' done' : (anyExtra ? 'targets below' : st.skipped ? '' : 'nothing planned')}${st.skipped ? ((st.total || anyExtra) ? ' · ' : '') + st.skipped + ' skipped' : ''}</div>
           ${paceLines}${tgtLines}${revLines}${prLines}${mbLines}
           ${st.total ? `<div class="progressbar" style="margin-top:6px"><div style="width:${st.done / st.total * 100}%"></div></div>` : ''}
         </div>
@@ -9956,6 +10121,10 @@ function planMonth(body) {
     cell.style.cssText = `aspect-ratio:1;border-radius:3px;border:1px solid ${isToday ? 'var(--accent)' : 'var(--line)'};background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;font-weight:600;cursor:pointer;gap:2px`;
     const dots = [];
     if (st.total) dots.push(`<span style="width:5px;height:5px;border-radius:50%;background:${st.done === st.total ? 'var(--accent)' : 'var(--gold)'}"></span>`);
+    // ⚑ A DAY WHERE EVERYTHING WAS SKIPPED MUST NOT LOOK LIKE A DAY WITH NOTHING ON IT. `st.total`
+    // now excludes skips, so without this dot the two states render identically — which is the
+    // "a section that vanishes when empty makes nothing-here look like no-such-thing" lesson.
+    if (st.skipped) dots.push(`<span title="skipped" style="width:5px;height:5px;border-radius:50%;border:1.5px dashed var(--text-2);background:transparent"></span>`);
     if (hasTarget) dots.push(`<span title="reading/pace target" style="width:5px;height:5px;border-radius:50%;border:1.5px solid var(--accent);background:transparent"></span>`);
     if (reviewRowsForDate(dk).length) dots.push(`<span title="training due" style="width:5px;height:5px;border-radius:50%;background:var(--text)"></span>`);
     if (practiceRowsForDate(dk).length) dots.push(`<span title="training due (legacy)" style="width:5px;height:5px;border-radius:50%;background:var(--gold)"></span>`);
@@ -10327,6 +10496,10 @@ function buildPathwayBody(wrap, p) {
     const globalNext = PW.nextStep(p);
     m.steps.forEach((s, i) => {
       const isNext = globalNext && s.id === globalNext.id;
+      // ⚑ COMPUTED ONCE PER ROW AND READ THREE TIMES — the pill, the sub-line and Undo all have to
+      // agree about whether the engine owns this step, or the screen contradicts itself.
+      const engineSays = refStepEngineSays(p, s);
+      const handOnly = !!s.ref && engineSays === null;
       const offset = [0, 26, 46, 26][i % 4];
       const stone = h(`
         <div class="row" style="margin-bottom:10px;margin-left:${offset}px;position:relative">
@@ -10340,11 +10513,12 @@ function buildPathwayBody(wrap, p) {
                 ${!pwEditMode && PW.stepWeight(s) > 1 ? ` <span style="font-size:11px;font-weight:700;color:var(--gold)">×${PW.stepWeight(s)}</span>` : ''}</div>
               ${s.ref && !s.done && !pwEditMode ? (isReadStep(s)
                 ? `<button class="pill" data-a="refgo" style="padding:5px 12px;font-size:12px">▸ Open</button><button class="pill" data-a="refman" title="Mark by hand" style="padding:5px 9px;font-size:12px">✓</button>`
-                : `<button class="pill" data-a="refgo" style="padding:5px 12px;font-size:12px">${refPillLabel(s.ref.intent)}</button>${s.ref.intent !== 'memorize' ? `<button class="pill" data-a="refmodes" title="Choose mode" style="padding:5px 8px;font-size:12px">▾</button>` : ''}`)
+                : `<button class="pill" data-a="refgo" style="padding:5px 12px;font-size:12px">${refPillLabel(s.ref.intent)}</button>${s.ref.intent !== 'memorize' ? `<button class="pill" data-a="refmodes" title="Choose mode" style="padding:5px 8px;font-size:12px">▾</button>` : ''}${handOnly ? `<button class="pill" data-a="refman" title="Mark by hand" style="padding:5px 9px;font-size:12px">✓</button>` : ''}`)
                 : isNext && !pwEditMode && !locked ? `<button class="pill on" data-a="go" style="padding:5px 12px;font-size:12px">Done</button>` +
                 (PW.isTimed(p) ? `<button class="pill" data-a="time" style="padding:5px 9px;font-size:13px">⏱</button>` : '') : ''}
               ${!s.done && !pwEditMode ? `<button class="pill pw-datechip ${s.date ? 'on' : ''}" data-a="date" style="padding:5px 9px;font-size:12px">${s.date ? '📅 ' + shortDate(s.date) : '📅'}</button>` : ''}
               ${s.done && pwEditMode ? '<button class="pill" data-a="undo" style="font-size:12px;padding:5px 10px">Undo</button>' : ''}
+              ${pwEditMode && s.ref && s.manualDone !== undefined ? `<button class="pill" data-a="refauto" title="Hand it back to the engine" style="padding:4px 9px;font-size:12px">↺</button>` : ''}
               ${pwEditMode ? `<button class="pill" data-a="wminus" style="padding:4px 9px;font-size:13px">−</button>
                 <span style="font-size:12px;font-weight:700;color:var(--gold);min-width:24px;text-align:center">×${PW.stepWeight(s)}</span>
                 <button class="pill" data-a="wplus" style="padding:4px 9px;font-size:13px">+</button>
@@ -10352,6 +10526,13 @@ function buildPathwayBody(wrap, p) {
             </div>
             ${s.done && s.doneTs ? `<div class="sub" style="margin-top:2px">done ${new Date(s.doneTs).toLocaleDateString()}${s.secs != null ? ' · ' + SC.fmtSecs(s.secs) : ''}</div>` : ''}
             ${isReadStep(s) ? (() => { const sub = readStepSub(s); return sub ? `<div class="sub" style="margin-top:2px">${esc(sub)}${s.manualDone !== undefined ? ' · set by hand' : ''}</div>` : (s.manualDone !== undefined ? `<div class="sub" style="margin-top:2px">set by hand</div>` : ''); })() : ''}
+            ${(!isReadStep(s) && s.ref) ? (() => {
+                const bits = [];
+                const why = refStepManualReason(p, s);
+                if (why) bits.push(why);
+                if (s.manualDone !== undefined) bits.push('set by hand');
+                return bits.length ? `<div class="sub" style="margin-top:2px">${esc(bits.join(' · '))}</div>` : '';
+              })() : ''}
             <div data-slot="timebox"></div>
             <div data-slot="datebox"></div>
           </div>
@@ -10364,8 +10545,8 @@ function buildPathwayBody(wrap, p) {
       if (refmodes) refmodes.onclick = () => refStepSheet(s);   // ▾ → choose mode/scope
       const refman = stone.querySelector('[data-a=refman]');    // reading: ✓ asserts by hand, long-press → back to the engine
       if (refman) {
-        refman.onclick = () => { toggleReadStepManual(s); drawPathway(p); };
-        attachLongPress(refman, () => { setRefStepManual(s, null); toast('Back to following your reading'); drawPathway(p); });
+        refman.onclick = () => { toggleRefStepManual(s); drawPathway(p); };
+        attachLongPress(refman, () => { setRefStepManual(s, null); toast(isReadStep(s) ? 'Back to following your reading' : 'Back to the engine'); drawPathway(p); });
       }
       const time = stone.querySelector('[data-a=time]');
       const timebox = stone.querySelector('[data-slot=timebox]');
@@ -10374,9 +10555,24 @@ function buildPathwayBody(wrap, p) {
       const datebox = stone.querySelector('[data-slot=datebox]');
       if (datebtn) datebtn.onclick = () => openDateBox(p, s, datebox);
       const undo = stone.querySelector('[data-a=undo]');
-      // A reading step's done is DERIVED, so a plain uncomplete would be re-derived away on the next
-      // render — reopening one has to be the persisted force-open, not a cleared flag.
-      if (undo) undo.onclick = () => { if (isReadStep(s)) setRefStepManual(s, false); else PW.uncomplete(p, s.id); drawPathway(p); };
+      // ⚑⚑ EVERY REF STEP'S DONE IS DERIVED, NOT JUST A READING STEP'S — and this line said
+      // `isReadStep(s)` for a month. Baruch: "Unable to make something not done if it's marked as
+      // done in a pathway." A Scripture-Review step took the `else` branch, `PW.uncomplete` cleared
+      // the flag, and `syncPathwayRefSteps` at the top of the very next `drawPathway` put it
+      // straight back. The Undo button was there, it was bound, and it did nothing you could see —
+      // the silent no-op this app keeps producing.
+      //
+      // ⚑ AND IT ASKS BEFORE IT PERSISTS. A force-open is a standing opinion; writing one on a step
+      // the engine has no view of (a repeat, a scope with no cadence) would leave a permanent
+      // override behind for no reason. If nothing is going to re-derive it, a plain uncomplete is
+      // the honest reopen — and it clears any override rather than leaving a stale one.
+      // ⚑ CURRENTLY UNREACHABLE — `buildPathwayBody` hands off to `buildPathwayEdit` whenever
+      // `pwEditMode` is true, so every `pwEditMode ? …` branch in this stone template is dead. It is
+      // wired to the same one rule as the editor's dot rather than left to rot differently, and the
+      // dead branches are recorded as owed cleanup rather than deleted mid-fix.
+      if (undo) undo.onclick = () => { setStepDoneByHand(p, s, false); drawPathway(p); };
+      const refauto = stone.querySelector('[data-a=refauto]');
+      if (refauto) refauto.onclick = () => { setRefStepManual(s, null); toast('Back to the engine'); drawPathway(p); };
       const del = stone.querySelector('[data-a=del]');
       if (del) del.onclick = () => { PW.removeStep(p, s.id); drawPathway(p); };
       const wminus = stone.querySelector('[data-a=wminus]');
@@ -10432,7 +10628,7 @@ function buildPathwayEdit(wrap, p) {
       const row = h(`
         <div class="pw-step row" data-sid="${s.id}">
           <div class="pw-handle pw-shandle" title="Drag to reorder">≡</div>
-          <div class="pw-sdot ${s.done ? 'done' : ''}">${s.done ? '✓' : ''}</div>
+          <div class="pw-sdot ${s.done ? 'done' : ''}" data-a="toggledone" title="${s.done ? 'Mark not done' : 'Mark done'}" style="cursor:pointer">${s.done ? '✓' : ''}</div>
           <input class="grow pw-rename" value="${esc(s.label)}" placeholder="Step">
           <button class="pw-wbtn" data-a="link" title="${s.ref ? 'Linked · ' + intentVerb(s.ref.intent) + ' — tap to unlink' : 'Link to a Scripture passage'}"${s.ref ? ' style="color:var(--gold)"' : ''}>🔗</button>
           <button class="pw-wbtn" data-a="wminus">−</button>
@@ -10440,6 +10636,16 @@ function buildPathwayEdit(wrap, p) {
           <button class="pw-wbtn" data-a="wplus">+</button>
           <button class="pw-del" data-a="del" title="Delete step">✕</button>
         </div>`).firstElementChild;
+      // ⚑⚑ THIS IS WHERE UNCHECKING HAD TO GO, AND FINDING THAT OUT IS HALF THE FIX. The stone
+      // template in `buildPathwayBody` carries an `Undo` pill guarded by `s.done && pwEditMode` —
+      // and `buildPathwayBody` returns to `buildPathwayEdit` on line one when `pwEditMode` is true.
+      // The button has never been reachable. It was bound, it was styled, and no render has ever
+      // produced it: a silent no-op made of two correct-looking halves that cannot both run. The
+      // editor's ✓ dot is the affordance he was already reaching for; it toggles now.
+      const dot = row.querySelector('[data-a=toggledone]');
+      dot.onclick = () => { setStepDoneByHand(p, s, !s.done); drawPathway(p); };
+      // Long-press hands a ref step back to the engine — the same gesture the reading steps use.
+      if (s.ref) attachLongPress(dot, () => { setRefStepManual(s, null); toast('Back to the engine'); drawPathway(p); });
       row.querySelector('.pw-rename').onchange = e => PW.renameStep(p, s.id, e.target.value);
       row.querySelector('[data-a=link]').onclick = () => {
         if (s.ref) { if (!confirm('Unlink this step from Scripture? It becomes a plain step again.')) return; delete s.ref; s.done = false; s.doneTs = null; save(); drawPathway(p); }
@@ -10449,6 +10655,12 @@ function buildPathwayEdit(wrap, p) {
       row.querySelector('[data-a=wplus]').onclick = () => { PW.setStepWeight(p, s.id, PW.stepWeight(s) + 1); drawPathway(p); };
       row.querySelector('[data-a=del]').onclick = () => { PW.removeStep(p, s.id); drawPathway(p); };
       group.append(row);
+      // ⚑ WHEN A FIELD IS LOAD-BEARING, THE SCREEN HAS TO SAY SO. A step the engine declines to
+      // score looks exactly like one it owns, right up until it never ticks itself.
+      const why = refStepManualReason(p, s);
+      const byHand = s.ref && s.manualDone !== undefined ? 'set by hand' : '';
+      const note = [why, byHand].filter(Boolean).join(' · ');
+      if (note) group.append(h(`<div class="pw-empty muted" style="margin:-4px 0 6px 34px;font-size:11.5px">${esc(note)}</div>`).firstElementChild);
     });
     if (!m.steps.length) group.append(h(`<div class="pw-empty muted">Empty — add a step below or drag one here.</div>`).firstElementChild);
     list.append(group);
@@ -11319,9 +11531,11 @@ function refStepDone(step) {
     if (intent === 'memorize') return all.every(s => CR.isDone(csc.docId, s.n));
     const ck = CR.creedCoverageKeys(csc);
     if (!ck.length) return false;
+    const ccs = trainCycleStart(key);
+    if (!(Number(ccs) > 0)) return null;   // no cycle, no opinion — see the Train branch below
     // ⚑ ONE ANSWER FOR BOTH LEGACY INTENTS. A pathway step written before the merge carries
     // `intent: 'review'` or `'practice'`; both now mean Train and both read coverage.
-    return ck.every(k => RV.isCovered(k, trainCycleStart(key)));
+    return ck.every(k => RV.isCovered(k, ccs));
   }
   if (!key.startsWith('bible:') && !key.startsWith('mod:')) return null;
   const sc = parseScopeKey(key);
@@ -11330,7 +11544,55 @@ function refStepDone(step) {
   const memKeys = scopeCoverageKeys(sc);
   if (!memKeys.length) return false;
   const a = scopeTrainAssign(sc, key);
-  return memKeys.every(k => RV.isCovered(k, a ? a.cycleStart : 0));
+  // ⚑⚑ NO CYCLE, NO OPINION — AND THE `: 0` THIS REPLACES WAS A REAL DEFECT IN HIS OWN DATA
+  // (Aug 18 2026). `RV.covered` is a CYCLE-RELATIVE WATERMARK: `isCovered(k, cycleStart)` asks
+  // "was this key covered since the current cycle began". Passing 0 asks "was it EVER covered,
+  // since the epoch" — a different question, and one that answers YES for anything he has
+  // reviewed at any point in recorded history.
+  //
+  // ⚑ SO A SCOPE WITH NO CADENCE READ AS PERMANENTLY COMPLETE. Reproduced against
+  // `strive-backup-2026-08-17.json`: module `ms0z5kt6hzutn` (Hebrews 1–7) carries
+  // `review: undefined` and `train: undefined` — no assignment, so `cycleStart` fell to 0 — while
+  // `state.review.covered` holds 93 Hebrews keys from months of work. The moment the last key
+  // landed, every pathway step pointing at that module flipped to done and stamped ITSELF WITH
+  // TODAY'S DATE, and a brand-new replacement step arrived already ticked. Both of Baruch's
+  // symptoms, from one fallback.
+  //
+  // ⚑ NULL, NOT FALSE. Returning false would be the opposite lie and would fight anything he
+  // ticked by hand; null is the contract this function already has for "the engine has no
+  // opinion", and the sync leaves `s.done` exactly where he put it.
+  if (!a || !(Number(a.cycleStart) > 0)) return null;
+  return memKeys.every(k => RV.isCovered(k, a.cycleStart));
+}
+
+// ⚑⚑ ONE FACT, ONE ANSWER — WHICH IS WHY A REPEATED STEP CANNOT BE DERIVED AT ALL.
+// `refStepDone` answers "is this scope covered". That is a single fact about the scope, not about
+// an occasion. Baruch wrote Hebrews 1–7 as EIGHT steps meant to be done on eight different
+// occasions; all eight asked the same question, got the same answer, and flipped together. There
+// is nothing in the coverage store that could tell occasion 6 from occasion 1 — coverage is a SET,
+// not a count — so the honest move is to stop pretending. The FIRST step carrying a given
+// key+intent still derives; every later one is his to tick, and the screen says so.
+function refDupKey(s) { return (s && s.ref && typeof s.ref.key === 'string') ? s.ref.key + '|' + String(s.ref.intent || '') : null; }
+function refStepIsRepeat(p, step) {
+  const k = refDupKey(step);
+  if (!k || !p) return false;
+  const same = PW.flatSteps(p).filter(x => refDupKey(x) === k);
+  return same.length > 1 && same[0].id !== step.id;
+}
+// The engine's opinion of a step IN ITS PATHWAY: true / false / null ("none of my business").
+function refStepEngineSays(p, step) {
+  if (!step || !step.ref) return null;
+  if (refStepIsRepeat(p, step)) return null;
+  return refStepDone(step);
+}
+// ⚑ WHEN A FIELD IS LOAD-BEARING, THE SCREEN HAS TO SAY SO (invariant 10). A step the engine
+// cannot score looks identical to one it can, right up until it never ticks itself and you assume
+// the app is broken.
+function refStepManualReason(p, step) {
+  if (!step || !step.ref || isReadStep(step)) return '';
+  if (refStepIsRepeat(p, step)) return 'a repeat — tick this one by hand';
+  if (refStepDone(step) === null) return 'no cadence set for this scope — tick by hand';
+  return '';
 }
 // s.manualDone is a deliberate TRI-STATE (Baruch, Aug 3): true = force done, false = force open,
 // null/undefined = let the engine decide. It has to be PERSISTED on the step, because this sync runs
@@ -11342,12 +11604,31 @@ function syncPathwayRefSteps() {
   let dirty = false;
   PW.all().forEach(p => p.milestones.forEach(m => m.steps.forEach(s => {
     if (!s.ref) return;
-    const d = (s.manualDone === true || s.manualDone === false) ? s.manualDone : refStepDone(s);
+    const d = (s.manualDone === true || s.manualDone === false) ? s.manualDone : refStepEngineSays(p, s);
     if (d === null || d === undefined) return;   // no opinion — never overwrite the user's own value
     if (d !== !!s.done) { s.done = d; s.doneTs = d ? Date.now() : null; dirty = true; }
   })));
   if (dirty) save();
 }
+// ⚑⚑ TICK OR UNTICK A STEP BY HAND — ONE FUNCTION, BECAUSE THERE WAS ALMOST ZERO.
+// Baruch, Aug 18 2026: "I need to be able to uncheck things in a pathway when editing. Unable to
+// make something not done if it's marked as done in a pathway."
+//
+// ⚑ THE OVERRIDE IS STORED ONLY WHEN IT DISAGREES WITH THE ENGINE — the same tri-state rule
+// `setCardManual` runs on, and for the same reason: an override that AGREES is how a step gets
+// stuck. It stops tracking the thing it was derived from and nothing on screen says why.
+//
+// ⚑ AND NO OVERRIDE AT ALL WHEN THE ENGINE HAS NO OPINION (a repeat, a scope with no cadence).
+// Nothing is going to re-derive that step, so a persisted force-open would be a standing opinion
+// about a question nobody is asking.
+function setStepDoneByHand(p, s, want) {
+  const eng = s.ref ? refStepEngineSays(p, s) : null;
+  if (s.ref) setRefStepManual(s, (eng === null || eng === want) ? null : want);
+  if (want) { s.done = true; s.doneTs = Date.now(); }
+  else { s.done = false; s.doneTs = null; s.secs = null; }
+  save();
+}
+
 // Force a ref-step done/open by hand, or hand it back to the engine (null).
 function setRefStepManual(step, v) {
   if (v === null) delete step.manualDone; else step.manualDone = v;
@@ -11361,7 +11642,10 @@ function isReadStep(s) { return !!(s && s.ref && typeof s.ref.key === 'string' &
 // Tap the ✓ on a reading step: assert the opposite of where it stands now. Long-press hands it back
 // to the engine. Needed for two cases — a book with no chapter page numbers (nothing to derive from)
 // and quotes steps (manual by design) — and it doubles as the override for the derivable ones.
-function toggleReadStepManual(s) { setRefStepManual(s, !s.done); }
+// ⚑ RENAMED FROM `toggleReadStepManual` (Aug 18 2026). It was never about reading — it asserts
+// the opposite of where a ref step stands, and every ref step needs that now that Scripture-Review
+// steps can be ones the engine declines to score.
+function toggleRefStepManual(s) { setRefStepManual(s, !s.done); }
 // Build a pathway from a book: one step per chapter, in order (D-N create-flow, locked).
 // Deliberately NOT offering the saved-Unit-scheme alternative yet — that ties to D-V, still an open
 // design lock, and per-chapter keeps 9.6 unblocked.
