@@ -4555,10 +4555,34 @@ function updateLog(id, patch = {}) {
 }
 
 // Same rule on the library side: a workout he built is his to change; a seeded or competition
-// workout is a published prescription and stays as it is. (Copy-and-modify is batch 2.)
+// workout is a published prescription and stays as it is. Copy-and-modify shipped as
+// `workoutCopySheet` ("⎘ My version") — ⚑ and the locked branch of the edit sheet went on saying
+// it was "coming next" for weeks after it landed, which is the ✅-means-two-things defect wearing
+// a third hat: a promise in the source, still on screen, for something already built.
+//
+// ⚑⚑ AND THE SECOND HALF IS BARUCH'S RULING, Aug 19: **editable only until it is logged.**
+// "There's space between when I make it and when I log it, that's when I want to be able to
+// click and edit." The reason it is a rule and not a preference: `updateCustomWorkout` rewrites
+// `w.moves`, `w.sets` and `w.movements` and drops the `_mv` movement cache — so editing a
+// prescription AFTER logging it silently changes what every stored result was a result OF. The
+// number in the log does not move; what it means does. That is the same failure class as the
+// `: 0` fallback — a wrong answer that does not look like an error.
+//
+// ⚑ ANY LOG LOCKS IT, not just one in the card he is looking at. A workout is reused across
+// sessions, so "logged" is a property of the workout, not of the occasion.
+// ⚑ AND IT UNLOCKS AGAIN IF HE DELETES THE LOG. No extra rule, no stored flag — the lock is
+// derived from the logs, which is the only thing that knows.
 function canEditWorkout(id) {
   ftEnsure();
-  return F().workouts.some(w => w.id === id && w.custom);
+  return editLockReason(id) === null;
+}
+// null = editable · 'published' = not his · 'logged' = his, but already trained · 'missing'
+function editLockReason(id) {
+  ftEnsure();
+  const w = F().workouts.find(x => x.id === id);
+  if (!w) return getWorkout(id) ? 'published' : 'missing';
+  if (!w.custom) return 'published';
+  return logsFor(id).length ? 'logged' : null;
 }
 
 function updateCustomWorkout(id, patch = {}) {
@@ -4587,6 +4611,15 @@ function updateCustomWorkout(id, patch = {}) {
   }
   ['resultType', 'format', 'domain'].forEach(k => { if (patch[k] != null) w[k] = patch[k]; });
   ['cap', 'interval', 'rounds', 'work', 'rest'].forEach(k => { if (patch[k] != null) w[k] = Number(patch[k]) || 0; });
+  // ⚑⚑ `sets` WAS NOT IN EITHER LIST, SO IT COULD NOT BE EDITED AT ALL — chunk 6. `addCustomWorkout`
+  // stores it and TWO things read it: `structuredScheme` (which is what prints "5 sets × 15 reps"
+  // and puts a lift on his Level) and the log form, which opens that many load rows. So a 5×15
+  // he wanted to make a 3×15 kept its five sets whatever he did on the edit screen — and 5×15 vs
+  // 3×15 is the exact pair sitting duplicated in his own data, which is how the workaround of
+  // building a SECOND workout got started.
+  // ⚑ Nulls, never zeros: clearing the field removes it rather than storing a 0 that
+  // `Number(w.sets) > 0` would have to keep stepping over.
+  if (patch.sets != null) { const ns = Number(patch.sets); if (ns > 0) w.sets = ns; else delete w.sets; }
   if (patch.ramp !== undefined) applyRamp(w, patch.ramp);
   // ⚑ `_mv` is the non-enumerable movement cache `movementsOf` pins on a workout the first time
   // it resolves one. Editing the prescription without dropping it would leave the registry
@@ -4688,6 +4721,37 @@ function addCard({ name = '', ts = Date.now(), parts = [] }) {
 }
 // ⚑ Through `cardPart` like every other writer, so a part added later cannot end up a different
 // shape from one added at save time — one rule for what a part IS.
+// ⚑⚑ AN EDIT PATH AT ALL — chunk 5. `workoutCardBuilder` has only ever called `addCard`. There
+// was no way to change a card's date, its name or its parts once it was saved, so a session
+// mis-dated by a day, or built with the metcon before the lift, could only be fixed by deleting
+// it and starting again. That is his opening complaint in this whole area, in his own words:
+// "I had to just keep deleting it and trying different things to make it look right instead of
+// just doing a quick edit."
+//
+// ⚑ THROUGH `cardPart`, LIKE EVERY OTHER WRITER, so an edited part cannot end up a different
+// shape from one added at save time — one rule for what a part IS.
+//
+// ⚑⚑ AND IT CARRIES `logId` ACROSS, WHICH IS THE LOAD-BEARING HALF. `duplicateCardParts`
+// deliberately DROPS it, because a re-plan starts unlogged; an edit must do the exact opposite.
+// Dropping it here would mean renaming a card silently unlinked every entry underneath it — the
+// session would read as never done, `cardDone` would flip, and nothing on any screen would say
+// why. Same failure class as the `: 0` fallback: a wrong answer that does not look like an error.
+function updateCard(id, patch = {}) {
+  cardsEnsure();
+  const c = F().cards.find(x => x.id === id);
+  if (!c) return null;
+  if (patch.ts != null && Number.isFinite(Number(patch.ts))) c.ts = Number(patch.ts);
+  // ⚑ A BLANK NAME FALLS BACK, it does not store an empty string — the same rule `addCard` runs,
+  // and it has to read the NEW date, because "Thu — Workout" on a card he just moved to Friday
+  // is a label that disagrees with the record it is on.
+  if (patch.name != null) c.name = String(patch.name).trim() || defaultCardName(c.ts);
+  if (Array.isArray(patch.parts)) c.parts = patch.parts.map(cardPart);
+  // ⚑ NO `markActivity` — `addCard` does not call it either, and for the same reason: editing
+  // the label on a session is not training. Bumping the activity marker here would let renaming
+  // a card feed a streak.
+  save();
+  return c;
+}
 function cardAddPart(cardId, wid, extra = {}) { const c = getCard(cardId); if (c) { c.parts.push(cardPart({ ...extra, wid })); save(); } return c; }
 function cardRemovePart(cardId, idx) { const c = getCard(cardId); if (c) { c.parts.splice(idx, 1); save(); } }
 function cardSetPartLog(cardId, idx, logId) { const c = getCard(cardId); if (c && c.parts[idx]) { c.parts[idx].logId = logId; save(); } }
@@ -5609,12 +5673,214 @@ function trainingStreak(now = new Date()) {
 // So this renders the whole session as plain text: what the workout actually was, what he
 // scored, whether it was Rx, and everything he typed alongside it. Plain text on purpose —
 // it has to survive being pasted into a message to a person who does not have the app.
+// ---------------------------------------------------------------------------------------
+// ⚑⚑ ONE PRESCRIPTION, TWO RENDERERS — chunk 4b, and the reason it is a bug fix and not a
+// feature. `ftPrescriptionBlock` COMPUTED the shape of a workout and DREW it, in one function,
+// in app.js. `sessionText` — the thing he actually hands to another person — never called it
+// and printed the raw prose `w.movements` instead. So the card on screen and the text he shared
+// already disagreed, today, for every one of the 406 records carrying a complete structured
+// prescription: the screen showed "21-15-9 / Thrusters @ 95 lb / Pull-ups" and the share showed
+// whatever sentence the record was imported with.
+//
+// > That is not a gap waiting to be built. It is this app's signature defect — one fact drawn
+// > twice — sitting inside the feature whose entire job is to say what the workout was.
+//
+// So the SHAPE lives here and is pure, and every renderer reads it: the HTML card, the share
+// text, and `cardText` below. A third drawing cannot be added without coming through here.
+//
+// ⚑⚑ AND THE FIELD CALLED `cap` HOLDS TWO DIFFERENT THINGS. `workoutBuilder` writes
+// `cap: (format === 'amrap' ? spec.window : spec.cap) * 60` — an AMRAP's DURATION and a for-time
+// workout's TIME CAP into one number — while `PRESCRIPTION` has said all along that they are
+// separate fields with separate labels ("Duration (min)" vs "Time cap (min)"). Across the
+// corpus **69 AMRAPs carry a "cap" that is really their duration, against 57 for-time workouts
+// where it genuinely is one**, so the majority of what the card called a cap was not a cap.
+//
+// > Baruch asked for the time cap to move BELOW the movements. A cap does: it is a limit you
+// > read when you are running out of time, and it is written at the bottom of a whiteboard. A
+// > window does NOT: it IS the workout, and Cindy is `AMRAP 20`, not five pull-ups with a
+// > footnote. Which one a number is comes from `prescriptionOf(format).fields`, the table that
+// > already knew, rather than from a second list that could drift from it.
+function prescriptionShape(w) {
+  if (!w) return null;
+  const pres = w.pres || {};
+  const fmt = (w.format && w.format !== 'other') ? w.format : (pres.format || formatOf(w));
+  const formatLabel = (FORMATS.find(f => f[0] === fmt) || ['', ''])[1];
+  // ⚑ AUTHORED FIRST, DERIVED SECOND, AND NEVER MERGED (twenty-ninth session). `w.moves` is what
+  // he typed into the builder; `w.pres.moves` is what the generator read out of the stored
+  // prose. Interleaving them produces a prescription neither source ever stated.
+  const authored = Array.isArray(w.moves) ? w.moves.filter(m => m && String(m.movement || '').trim()) : [];
+  const derived = Array.isArray(pres.moves) ? pres.moves.filter(m => m && String(m.movement || '').trim()) : [];
+  const incomplete = pres.complete === false;
+  const moves = (authored.length ? authored : derived).map(m => ({
+    reps: String(m.reps == null ? '' : m.reps).trim(),
+    movement: String(m.movement).trim(),
+    load: String(m.load == null ? '' : m.load).trim(),
+  }));
+  // ⚑ NOTHING STRUCTURED TO SAY → THE LEGACY STRING, AND IT MUST NOT PRETEND TO BE FINE. This
+  // branch still catches everything the generator could not read at all, and those are exactly
+  // the records least entitled to look complete.
+  if (!moves.length) {
+    return { format: fmt, formatLabel, legacy: String(w.movements || '').trim(),
+             params: [], scheme: null, moves: [], cap: 0, capLabel: null, incomplete };
+  }
+  const n = x => Number(x) || 0;
+  const v = k => (Number(w[k]) ? w[k] : pres[k]);   // the record's own value wins; derived fills a gap
+  const sc = schemeOf(w);
+  const params = [];
+  if (sc) params.push(sc.sets > 1 ? `${sc.sets} sets × ${sc.reps} reps` : `${sc.reps}-rep max`);
+  if (n(v('rounds')) && fmt !== 'emom') params.push(`${n(v('rounds'))} rounds`);
+  if (n(v('interval'))) params.push(`every ${n(v('interval'))}s`);
+  if (n(v('rounds')) && fmt === 'emom') params.push(`${n(v('rounds'))} rounds`);
+  if (n(v('work'))) params.push(`${n(v('work'))}s work`);
+  if (n(v('rest'))) params.push(`${n(v('rest'))}s rest`);
+  const secs = n(v('cap'));
+  const isWindow = prescriptionOf(fmt).fields.includes('window');
+  if (secs && isWindow) params.push(`${Math.round(secs / 60)} min`);
+  return {
+    format: fmt, formatLabel, legacy: null, params,
+    // ⚑⚑ THE REP SCHEME IS A PROPERTY OF THE ROUNDS, NOT OF A MOVEMENT. Fran is "21-15-9" of
+    // Thrusters AND Pull-ups — one scheme governing two rows. Repeating it on each row reads
+    // wrong the moment a scheme applies to only some of the movements, and it is a second place
+    // for one fact to live.
+    scheme: (w.scheme || pres.scheme) ? String(w.scheme || pres.scheme) : null,
+    moves,
+    cap: (secs && !isWindow) ? secs : 0,
+    capLabel: (secs && !isWindow) ? `Time cap ${Math.round(secs / 60)} min` : null,
+    incomplete,
+  };
+}
+
+// ---------------------------------------------------------------------------------------
+// ⚑⚑ THE WORK LIST — chunk 7, and it is the whole of "the 24.1 problem". `coopen241` stores FOUR
+// movement rows, each carrying `reps: "21-15-9"`, and a 15-minute cap. Written out, that is
+// 4 × 3 = **twelve lines** and 4 × (21+15+9) = **180 reps** — and the record's own prose says
+// "180 reps total", so the number is checkable rather than inferred. When the cap beat him the
+// app asked for "reps completed" as a bare box, which meant doing that expansion in his head,
+// mid-workout, having just been beaten by a clock.
+//
+// > So the app does the counting. This function is the pure half: the prescription expanded into
+// > the lines you would actually tick off, each with the running total through it. The screen
+// > above it only has to let him say which line he stopped on.
+//
+// ⚑ IT READS `prescriptionShape`, IT DOES NOT RE-DERIVE. Authored-vs-derived movements, the
+// scheme and the cap were settled in one place in chunk 4b, and a second expansion of the same
+// record is how two screens end up disagreeing about what a workout is.
+//
+// ⚑⚑ AND IT RETURNS `null` RATHER THAN A GUESS, WHICH IS MOST OF THE RULES BELOW. The list has
+// exactly one job — turning "where did I stop" into a rep count — so a list whose lines cannot
+// all be counted is worse than no list: it looks authoritative and adds up to the wrong number.
+//   · `"21-15-9"` is a ladder. `"21"` is one rung.
+//   · **`"1-5"` and `"1-10"` are REFUSED.** Two hyphenated numbers are ambiguous — a two-rung
+//     ladder, or the range 1,2,3,4,5? His own `Goblet Squat + EMOM 1-10` means the RANGE, and
+//     `10-8-6-4-2` means the ladder. Nothing in the record distinguishes them, so nothing here
+//     pretends to. Three rungs or more, or a single integer.
+//   · `"3-6-9-12-15-18…"`, `"Max"`, `"400 m"` — not a countable rep, so no list.
+//   · A ladder AND a round count is refused: nothing says whether the ladder repeats.
+const LADDER_RE = /^\d+(\s*-\s*\d+)+$/;
+function rungsOf(txt) {
+  const t = String(txt == null ? '' : txt).trim();
+  if (/^\d+$/.test(t)) return [Number(t)];
+  if (!LADDER_RE.test(t)) return null;
+  const parts = t.split('-').map(x => Number(x.trim()));
+  if (parts.some(n => !Number.isFinite(n) || n < 0)) return null;
+  return parts.length >= 3 ? parts : null;   // exactly two is ambiguous — see above
+}
+// A single pass must stay something a person can look at on a phone. A 1→100 ladder across four
+// movements is 400 lines, which is not a checklist, it is a wall.
+const WORK_LIST_MAX = 200;
+function repWorkList(w) {
+  const s = prescriptionShape(w);
+  if (!s || s.legacy != null || !s.moves.length) return null;
+  const per = s.moves.map(m => rungsOf(m.reps));
+  if (per.some(x => x === null)) return null;
+  const depth = Math.max(...per.map(x => x.length));
+  if (per.some(x => x.length !== 1 && x.length !== depth)) return null;
+  const declared = Number(w.rounds) || Number((w.pres || {}).rounds) || 0;
+  const kind = depth > 1 ? 'ladder' : 'rounds';
+  if (kind === 'ladder' && declared > 1) return null;
+  const rounds = kind === 'ladder' ? depth : Math.max(1, declared);
+  if (rounds * s.moves.length > WORK_LIST_MAX) return null;
+  const items = [];
+  let cumulative = 0;
+  for (let r = 0; r < rounds; r++) {
+    s.moves.forEach((m, i) => {
+      const reps = per[i].length === 1 ? per[i][0] : per[i][r];
+      cumulative += reps;
+      items.push({
+        // ⚑ THE LABEL IS THE RUNG FOR A LADDER AND THE ROUND NUMBER OTHERWISE, because that is
+        // what he calls out loud. "The round of 15", not "round 2".
+        roundLabel: kind === 'ladder' ? `Round of ${reps}` : `Round ${r + 1}`,
+        round: r + 1, reps, movement: m.movement, load: m.load || '', cumulative,
+      });
+    });
+  }
+  return { kind, rounds, items, total: cumulative };
+}
+
+// The same shape as plain text, for anything that is not a screen.
+function prescriptionText(w) {
+  const s = prescriptionShape(w);
+  if (!s) return '';
+  const note = 'Details not stored — the reps or the time domain are missing from this record.';
+  if (s.legacy != null) return (s.legacy + (s.incomplete ? '\n' + note : '')).trim();
+  const out = [s.formatLabel + (s.params.length ? ' · ' + s.params.join(' · ') : '')];
+  if (s.scheme) out.push(s.scheme);
+  s.moves.forEach(m => out.push((m.reps ? m.reps + ' ' : '') + m.movement + (m.load ? ' @ ' + m.load : '')));
+  // ⚑ BELOW THE MOVEMENTS, in the text exactly as on the card. Two renderers that disagree
+  // about where the cap goes is the thing this whole function exists to make impossible.
+  if (s.capLabel) out.push(s.capLabel);
+  if (s.incomplete) out.push(note);
+  return out.join('\n').trim();
+}
+
+// ⚑⚑ A COMPOUND SESSION, READABLE BY SOMEBODY WITHOUT THE APP — the second half of §5.6's
+// complaint. `sessionText` answers "what did I do" for ONE piece; a card is what he actually
+// trained on a Thursday, and sharing it printed nothing at all because no such renderer
+// existed. The bar is the same one `test-session-share.mjs` set: a person handed this text can
+// tell what was done, which means the prescription AND the result, per part, in order.
+function cardText(card, { includeDate = true } = {}) {
+  if (!card) return '';
+  const out = [card.name || defaultCardName(card.ts)];
+  if (includeDate) out.push(new Date(card.ts).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }));
+  const parts = card.parts || [];
+  parts.forEach((p, i) => {
+    const w = getWorkout(p.wid);
+    const log = p.logId ? allLogs().find(l => l.id === p.logId) : null;
+    // ⚑ A PART WHOSE WORKOUT IS GONE SAYS SO. `p.wid` is a bare id with no integrity; printing
+    // an empty heading would hand somebody a session with a hole in it and no way to know.
+    out.push('', cardPartLabel(i) + ' — ' + (w ? w.name : '(this piece has been deleted)') + (p.slot ? '  · ' + p.slot : ''));
+    const pt = w ? prescriptionText(w) : '';
+    if (pt) out.push(pt);
+    if (log) {
+      const pr = prFor(log.wid);
+      const isPr = pr && pr.ts === log.ts && pr.result === log.result;
+      const meta = [];
+      const rx = log.rxStatus || log.rx;
+      if (rx) meta.push({ rx: 'Rx', down: 'Scaled', up: 'Above Rx' }[rx] || String(rx));
+      if (log.rpe) meta.push('effort ' + log.rpe + '/5');
+      out.push('Result: ' + (log.result || '—') + (isPr ? '  ★ PR' : '') + (meta.length ? '  (' + meta.join(' · ') + ')' : ''));
+      if (log.weights) out.push('Weights: ' + log.weights);
+      if (log.notes) out.push(log.notes);
+    } else {
+      // ⚑ NOT LOGGED IS A REAL ANSWER AND IS PRINTED. A part that silently prints no result
+      // reads as one he did and forgot to score.
+      out.push('Not logged');
+    }
+    if (p.restAfter > 0 && i < parts.length - 1) out.push('— rest ' + p.restAfter + ' min —');
+  });
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function sessionText(log, { includeDate = true } = {}) {
   if (!log) return '';
   const w = getWorkout(log.wid);
   const out = [];
   out.push(w ? w.name : 'Workout');
-  if (w && w.movements) out.push('', String(w.movements).trim());
+  // ⚑⚑ THIS LINE USED TO BE `out.push('', String(w.movements).trim())` — the RAW PROSE, while
+  // the card on screen drew the structured prescription. One workout, two answers, and the
+  // wrong one went to the person he was trying to show. See `prescriptionShape` above.
+  const pt = w ? prescriptionText(w) : '';
+  if (pt) out.push('', pt);
 
   const meta = [];
   if (includeDate) meta.push(new Date(log.ts).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }));
@@ -5653,7 +5919,7 @@ function ftStats() {
   };
 }
 
-const FT = {ASSESS_DOMAINS,AUTO_RESULT_TYPE,BENCHMARKS,CAL_STEPS,DIST_COMMON,DIST_STEPS,ENGINE1_DOMAINS,FORMATS,LEVEL_RUNGS,LIBRARY,LIVE_WINDOW_DAYS,PRESCRIPTION,PRESCRIPTION_FIELDS,REPMAX_MAX_REPS,REP_STEPS,RESULT_TYPES,ROOMS,RX_STATES,SIGMA_EST_1RM,SIGMA_REPEAT,STREAK_DEFAULTS,TIER_SIGMA,UNLOCK_MIN,WORKOUT_TEMPLATES,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,applyRamp,assessment,axisValue,benchmarkFor,buildResult,byDomain,canEditLog,canEditWorkout,canonicalName,cardAddPart,cardDerivedDone,cardDone,cardForLog,cardFromLogs,cardIsManual,cardLoggedCount,cardPart,cardPartLabel,cardRemovePart,cardSetPartLog,cardSetRest,cardsForDate,currentBodyweight,defaultCardName,dietTargets,doneCards,duplicateCardParts,estBand,formatOf,ftStats,getCard,getWorkout,groupableDays,isLiveTs,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,levelLadder,libraryFor,liveCutoff,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,pickerFor,plannedCards,prFor,precisionOf,precisionOfResult,prescriptionOf,prescriptionUnit,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,repMaxesInLog,resultTypeFor,resultTypeOf,resultView,rxLabel,rxStatusOf,sessionText,setCardManual,setDietTargets,setStreakSettings,setWaterGoal,setWeightGoal,sigmaFromPrecision,sigmaOf,sigmaOfResult,sleepForDate,sleepList,staleLabel,streakSettings,trainingStreak,updateCustomWorkout,updateLog,valueAtLevel,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights,withCustomValue,workoutsBetween};
+const FT = {ASSESS_DOMAINS,AUTO_RESULT_TYPE,BENCHMARKS,CAL_STEPS,DIST_COMMON,DIST_STEPS,ENGINE1_DOMAINS,FORMATS,LEVEL_RUNGS,LIBRARY,LIVE_WINDOW_DAYS,PRESCRIPTION,PRESCRIPTION_FIELDS,REPMAX_MAX_REPS,REP_STEPS,RESULT_TYPES,ROOMS,RX_STATES,SIGMA_EST_1RM,SIGMA_REPEAT,STREAK_DEFAULTS,TIER_SIGMA,UNLOCK_MIN,WORKOUT_TEMPLATES,WORK_LIST_MAX,addCard,addCustomWorkout,addLog,addMeal,addMealPreset,addSleep,addWater,addWeight,allCards,allLogs,allWorkouts,applyRamp,assessment,axisValue,benchmarkFor,buildResult,byDomain,canEditLog,canEditWorkout,canonicalName,cardAddPart,cardDerivedDone,cardDone,cardForLog,cardFromLogs,cardIsManual,cardLoggedCount,cardPart,cardPartLabel,cardRemovePart,cardSetPartLog,cardSetRest,cardText,cardsForDate,currentBodyweight,defaultCardName,dietTargets,doneCards,duplicateCardParts,editLockReason,estBand,formatOf,ftStats,getCard,getWorkout,groupableDays,isLiveTs,isPR,kcal,lastNightSleep,latestWeight,levelFromCurve,levelLadder,libraryFor,liveCutoff,logsFor,macroTotals,mealPresets,mealsForDay,movesToText,parseResult,pickerFor,plannedCards,prFor,precisionOf,precisionOfResult,prescriptionOf,prescriptionShape,prescriptionText,prescriptionUnit,removeCard,removeCustomWorkout,removeLog,removeMeal,removeMealPreset,removeSleep,removeWater,removeWeight,repMaxesInLog,repWorkList,resultTypeFor,resultTypeOf,resultView,rxLabel,rxStatusOf,sessionText,setCardManual,setDietTargets,setStreakSettings,setWaterGoal,setWeightGoal,sigmaFromPrecision,sigmaOf,sigmaOfResult,sleepForDate,sleepList,staleLabel,streakSettings,trainingStreak,updateCard,updateCustomWorkout,updateLog,valueAtLevel,waterDays,waterEntriesForDay,waterForDay,waterGoal,weightGoal,weightGoalPace,weightedLevel,weights,withCustomValue,workoutsBetween};
 // Strive — the workout timer engine. Pure, no DOM, no clock of its own.
 //
 // ⚑ WHY THIS IS A SEPARATE MODULE, AND WHY IT TAKES `now` AS AN ARGUMENT.
@@ -8817,7 +9083,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260819-0435'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260819-0435';
+const BUILD_ID = '20260819-1305'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260819-1305';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -17308,66 +17574,33 @@ function workoutCopySheet(w) {
 // typed here counts as 24 push-ups in his volume and tonnage. What it CANNOT do is resolve a
 // movement outside the 66 in the registry — "12 Bicep Curls" reads as nothing at all — which is
 // precisely why batch 2 puts a picker in front of this field. Until then the screen says so.
-function workoutEditSheet(w) {
+// ⚑⚑ WHAT IS *LEFT* OF `workoutEditSheet` — chunk 6, and what was removed matters more than what
+// stayed. It was a text-only, EMOM-only quick editor: it never learned what a Strength piece is,
+// so it did not show Sets at all, and it sent `movements` TEXT — which makes
+// `updateCustomWorkout` take its second branch and DROP `w.moves` whenever the text differs.
+// Editing goes through `workoutBuilder({ edit: w })` now, which is format-aware for the only
+// reason worth being format-aware: it is the same screen that built the workout.
+//
+// ⚑ AND THE OLD EDITOR IS DELETED RATHER THAN LEFT BEHIND. A second door into the same job is
+// the `pwEditMode` defect — bound, styled and unreachable, unnoticed for months precisely
+// because a working duplicate sat next to it.
+//
+// ⚑ THE "COMING NEXT" SENTENCE IS GONE TOO. This sheet told him for weeks that copy-and-modify
+// was on its way while `workoutCopySheet` was already wired to the pill beside it.
+function workoutLockedSheet(w, reason) {
   openSheet('Edit workout', (body, close) => {
-    if (!FT.canEditWorkout(w.id)) {
-      body.append(h(`<div class="muted" style="font-size:13px;line-height:1.6">This is a published workout, so its prescription stays as it is. Copying it and changing the movements is coming next.</div>`));
-      return;
-    }
-    const seed = ftTimerCfgFor(w).cfg;
-    const isRamp = TM.isRamp(seed) && !TM.isDeathBy(seed);
-    const card = h(`<div>
-        <input data-a="name" value="${esc(w.name || '')}" placeholder="Workout name" style="width:100%;${FIN};margin-bottom:8px">
-        <textarea data-a="movements" placeholder="Movements and reps" style="width:100%;min-height:90px;${FIN};margin-bottom:6px">${esc(w.movements || '')}</textarea>
-        <div class="muted" style="font-size:11.5px;margin-bottom:10px">Write movements the way you would say them — “24 Push-ups”, “Run 400m”. They are matched to the app’s ${MV.allMovements().length} tracked movements as you write, so they count toward your volume and records.</div>
-        ${w.format === 'emom' ? `<div class="row" style="flex-wrap:wrap;margin-bottom:8px">
-          <input data-a="interval" value="${Number(w.interval) || 60}" placeholder="Interval (sec)" inputmode="numeric" style="width:120px;${FIN}">
-          <input data-a="rounds" value="${Number(w.rounds) || ''}" placeholder="Rounds" inputmode="numeric" style="width:90px;${FIN}">
-        </div>
-        <div class="row" style="flex-wrap:wrap;margin-bottom:6px">
-          <input data-a="start" value="${isRamp ? (Number(w.start) || 1) : ''}" placeholder="Start reps" inputmode="numeric" style="width:105px;${FIN}">
-          <input data-a="step" value="${isRamp ? (w.step != null ? w.step : 1) : ''}" placeholder="± per round" inputmode="numeric" style="width:115px;${FIN}">
-          <input data-a="loadStart" value="${Number(w.loadStart) || ''}" placeholder="Load (lb)" inputmode="numeric" style="width:105px;${FIN}">
-          <input data-a="loadStep" value="${Number(w.loadStep) || ''}" placeholder="± lb/round" inputmode="numeric" style="width:110px;${FIN}">
-        </div>
-        <div data-a="lad" class="muted" style="font-size:12px;margin-bottom:10px"></div>` : ''}
-        <button class="btn" data-a="save">Save changes</button>
-      </div>`).firstElementChild;
-    const g = k => { const el = card.querySelector(`[data-a=${k}]`); return el ? el.value.trim() : ''; };
-    const lad = card.querySelector('[data-a=lad]');
-    const drawLad = () => {
-      if (!lad) return;
-      const rounds = Number(g('rounds')) || 0;
-      if (!g('start') || !rounds) { lad.textContent = g('start') ? 'Set rounds to see the ladder.' : 'Leave “start reps” blank for a plain EMOM.'; return; }
-      const cfg = { kind: 'emom', ramp: true, rounds,
-        start: Number(g('start')) || 1, step: g('step') === '' ? 1 : Number(g('step')),
-        loadStart: Number(g('loadStart')) || 0, loadStep: Number(g('loadStep')) || 0, loadUnit: 'lb' };
-      const rows = TM.rampLadder(cfg), floors = TM.rampFloorsAt(cfg);
-      lad.textContent = rows.map(r => r.load != null ? `${r.reps}@${r.load}` : String(r.reps)).join(' · ')
-        + `  —  ${TM.rampVolume(cfg, rows.length)} reps total`
-        + (floors ? `  ⚠ flattens at 1 rep after round ${floors}` : '');
-    };
-    card.addEventListener('input', drawLad);
-    drawLad();
-    card.querySelector('[data-a=save]').onclick = () => {
-      const name = g('name');
-      if (!name) { toast('Give the workout a name'); return; }
-      const wantsRamp = w.format === 'emom' && g('start') !== '' && Number(g('rounds')) > 0;
-      FT.updateCustomWorkout(w.id, {
-        name, movements: card.querySelector('[data-a=movements]').value,
-        interval: w.format === 'emom' ? (Number(g('interval')) || 60) : w.interval,
-        rounds: w.format === 'emom' ? (Number(g('rounds')) || 0) : w.rounds,
-        resultType: wantsRamp ? 'reps' : w.resultType,
-        ramp: wantsRamp ? {
-          start: Number(g('start')) || 1, step: g('step') === '' ? 1 : Number(g('step')),
-          loadStart: Number(g('loadStart')) || 0, loadStep: Number(g('loadStep')) || 0, loadUnit: 'lb',
-        } : null,
-      });
-      toast('Workout updated');
-      close();
-      rerender();
-    };
-    body.append(card);
+    const n = FT.logsFor(w.id).length;
+    body.append(h(reason === 'logged'
+      ? `<div style="font-size:13px;line-height:1.65">You have logged this workout ${n} time${n === 1 ? '' : 's'}, so its prescription stays as it is.<br><br>Changing the movements, the sets or the reps now would change what those entries were results <b>of</b>. The numbers in them would not move; what they mean would.</div>`
+      : `<div style="font-size:13px;line-height:1.65">This is a published workout, so its prescription stays as it is.</div>`));
+    // ⚑ THE WAY FORWARD, AND IT IS THE ONE HE ALREADY INVENTED BY HAND. His own data carries
+    // `5 x 15: Back Squat` (unlogged) next to `3 x 15: Back Squat` (logged), and the same pair
+    // for Bench Press — he built a second workout because there was nothing else to do. Offering
+    // the copy here makes that deliberate instead of accidental.
+    const mine = h(`<button class="btn" data-a="mine" style="margin-top:16px">⎘ Make my version</button>`);
+    mine.firstChild.onclick = () => { close(); workoutCopySheet(w); };
+    body.append(mine);
+    body.append(h(`<div class="muted" style="font-size:11.5px;margin-top:8px;line-height:1.5">A copy is your own workout, and it stays editable until you log it. Nothing about this one changes.</div>`));
   });
 }
 
@@ -17519,6 +17752,24 @@ function newCardDraft(tpl) {
   };
 }
 
+// ⚑⚑ THE SAME BUILDER, WITH AN ID ON THE DRAFT — chunk 5, and the shape matters more than the
+// feature. `workoutBuilder` grew ONE parameter for chunk 2 rather than being forked, because a
+// second authoring screen is how two screens end up disagreeing about what a card is, and this
+// app has already paid that bill once. So editing is not a new screen: it is `newCardDraft`'s
+// twin, and everything downstream branches on one boolean.
+//
+// ⚑ THE PARTS ARE COPIED, NOT REFERENCED, AND THAT IS THE WHOLE OF THE SAFETY. The builder does
+// `draft.parts.splice(i, 1)` on the array it is handed. Given the live card's own array it would
+// delete out of the store the instant he tapped ✕ — before Save, with no cancel possible and
+// nothing on screen saying it had happened.
+//
+// ⚑ `slots` IS EMPTY ON AN EDIT. Slots are a template's suggestion for a card being filled in;
+// replaying them over a card that already has its parts would print phantom "to fill" rows for
+// components he built weeks ago.
+function editCardDraft(c) {
+  return { id: c.id, name: c.name, ts: c.ts, parts: c.parts.map(p => ({ ...p })), slots: [] };
+}
+
 function workoutTemplatePicker() {
   setHeader('Choose a template', { back: true });
   const wrap = document.createElement('div');
@@ -17622,46 +17873,91 @@ function workoutCardBuilder(draft) {
   // ⚑ NO FALLBACK TO A MODULE VARIABLE. A screen reached with no draft starts a blank one; there
   // is no shared slot for a previous session's half-built card to survive in.
   if (!draft) draft = newCardDraft(null);
-  setHeader('Build a workout', { back: true });
+  const editing = !!draft.id;
+  setHeader(editing ? 'Edit workout' : 'Build a workout', { back: true });
   const wrap = document.createElement('div');
   const redraw = () => render(() => workoutCardBuilder(draft), false);
+  // ⚑ ONE MOVE RULE FOR BOTH BUTTONS. The order of the parts IS the order of the session, and
+  // until this chunk a card built lift-after-metcon could only be reordered by deleting it —
+  // which is chunk 3's complaint, one level down.
+  // ⚑ NO CLAMP GUARD. `Array.prototype.splice` clamps in both directions already, so a bounds
+  // check around the splice pair would be a line that reads like a guard and catches nothing —
+  // the fortieth session watched two such "breaks" come back GUARDS NOTHING. The range test
+  // below is on the DESTINATION, before anything is lifted, and it is what stops the last part
+  // wrapping to the top.
+  const movePart = (i, d) => {
+    const j = i + d;
+    if (j < 0 || j >= draft.parts.length) return;
+    const [row] = draft.parts.splice(i, 1);
+    draft.parts.splice(j, 0, row);
+    redraw();
+  };
   const card = h(`<div class="card">
       <input data-a="name" placeholder="${esc(FT.defaultCardName(draft.ts))}" value="${esc(draft.name)}" style="width:100%;${FIN};margin-bottom:8px">
       <input data-a="date" type="date" value="${new Date(draft.ts - new Date(draft.ts).getTimezoneOffset() * 60000).toISOString().slice(0, 10)}" style="${FIN};margin-bottom:10px">
       <h3 style="margin-top:0">Components</h3>
       <div data-a="parts"></div>
       <button class="btn secondary" data-a="addpart" style="margin:6px 0 10px">＋ Add component</button>
-      <button class="btn" data-a="save">Save workout</button>
+      <button class="btn" data-a="save">${editing ? 'Save changes' : 'Save workout'}</button>
     </div>`).firstElementChild;
   const nameI = card.querySelector('[data-a=name]'); nameI.oninput = () => draft.name = nameI.value;
   const dateI = card.querySelector('[data-a=date]'); dateI.onchange = () => { draft.ts = dateI.value ? new Date(dateI.value + 'T12:00:00').getTime() : Date.now(); };
   const partsBox = card.querySelector('[data-a=parts]');
   const slots = draft.slots || [];
   if (!draft.parts.length && !slots.length) {
-    partsBox.append(h(`<div class="muted" style="font-size:13px;margin-bottom:6px">No components yet — add your Part A, Part B…</div>`));
+    partsBox.append(h(`<div class="muted" style="font-size:13px;margin-bottom:6px">${editing ? 'No components left — add one, or delete this workout from its own screen.' : 'No components yet — add your Part A, Part B…'}</div>`));
     // ⚑ THE TEMPLATE IS AN OPTION, NOT A TOLL GATE. It used to be the only way in: every card
     // began with a "Choose a template" screen, so a one-part workout cost a template pick, a
     // builder, a component picker and a save before he could log anything. It is a link now,
     // and only where it is any use — once a component exists, offering to reshape the card
     // would be an action that throws away work.
-    const tpl = h(`<button class="pill" style="margin-bottom:8px">Start from a template instead</button>`).firstChild;
-    tpl.onclick = () => render(workoutTemplatePicker);
-    partsBox.append(tpl);
+    // ⚑ AND NOT WHILE EDITING. `workoutTemplatePicker` starts a BRAND NEW draft, so offering it
+    // here would abandon the card he is part-way through editing with no warning and no way
+    // back — an exit dressed as an option.
+    if (!editing) {
+      const tpl = h(`<button class="pill" style="margin-bottom:8px">Start from a template instead</button>`).firstChild;
+      tpl.onclick = () => render(workoutTemplatePicker);
+      partsBox.append(tpl);
+    }
   }
   draft.parts.forEach((p, i) => {
     const w = FT.getWorkout(p.wid);
     // ⚑ The slot label rides on the PART now rather than being read out of a parallel array by
     // index. Removing Part A used to shift every remaining part onto the wrong label.
     const slot = p.slot ? ` <span class="muted" style="font-size:11px">(${esc(p.slot)})</span>` : '';
+    // ⚑ AN EDITED CARD SAYS WHICH PARTS ARE ALREADY LOGGED, because removing one of those is the
+    // only move on this screen with a consequence outside the card, and a row that looks
+    // identical to an empty slot gives him no way to know which he is about to touch.
+    const plog = p.logId ? FT.allLogs().find(l => l.id === p.logId) : null;
+    const logged = plog
+      ? `<div class="muted" style="font-size:11.5px;margin-top:3px">logged · ${esc(plog.result || '—')}</div>`
+      : '';
+    // ⚑ EDGES ARE DIMMED, NOT HIDDEN — chunk 3's ruling on the planner's move sheet, and it holds
+    // for the same reason: a control that vanishes at the boundary reads as a control that broke.
+    const dim = on => on ? '' : ';opacity:.28';
     const row = h(`<div class="list-item" style="cursor:default"><div class="grow">
         <div class="title" style="font-size:14px">${FT.cardPartLabel(i)}: ${esc(w ? w.name : '—')}${slot}</div>
+        ${logged}
         <div class="row" style="gap:6px;align-items:center;margin-top:5px">
           <span class="muted" style="font-size:11.5px">Rest after</span>
           <input data-x="rest" inputmode="numeric" placeholder="—" value="${esc(p.restAfter || '')}" style="width:52px;${FIN};padding:5px 7px;text-align:center;font-size:12px">
           <span class="muted" style="font-size:11.5px">min</span>
         </div></div>
+      <button data-x="up" aria-label="Move up" style="border:none;background:none;font-size:15px;cursor:pointer${dim(i > 0)}">↑</button>
+      <button data-x="dn" aria-label="Move down" style="border:none;background:none;font-size:15px;cursor:pointer${dim(i < draft.parts.length - 1)}">↓</button>
       <button data-x="rm" style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button></div>`).firstElementChild;
-    row.querySelector('[data-x=rm]').onclick = () => { draft.parts.splice(i, 1); redraw(); };
+    // ⚑ BOUND TO THREE NON-OVERLAPPING NODES, never delegated — `dom-shim.mjs` has no bubbling,
+    // so a delegated handler is one no suite can reach by clicking (invariant 1).
+    row.querySelector('[data-x=up]').onclick = () => movePart(i, -1);
+    row.querySelector('[data-x=dn]').onclick = () => movePart(i, 1);
+    row.querySelector('[data-x=rm]').onclick = () => {
+      draft.parts.splice(i, 1);
+      // ⚑ SAY WHAT IT DID. A card owns nothing — the entry underneath survives — and that is
+      // exactly the fact `workoutCardDetail`'s delete copy exists to state. Removing a logged
+      // part without saying so reads as deleting the workout he did.
+      if (plog) toast('Removed from this workout — the entry stays in your logbook');
+      redraw();
+    };
     // ⚑ Bound to its own node, not delegated — `dom-shim.mjs` has no bubbling, so a delegated
     // handler is one no suite can reach by clicking (invariant 1, the twenty-ninth session's
     // ruling that shaped the format-first builder).
@@ -17680,7 +17976,14 @@ function workoutCardBuilder(draft) {
     // ⚑ ONE PART SAVES WITHOUT CEREMONY — his ask, and it was already permitted (`!length` lets
     // one through). What made it ceremonious was the SCREEN COUNT, which is what chunk 2 cuts.
     if (!draft.parts.length) { toast('Add at least one component'); return; }
-    const c = FT.addCard({ name: draft.name, ts: draft.ts, parts: draft.parts });
+    // ⚑ ONE SAVE, TWO WRITERS, AND THE ID DECIDES. Not two builders, and not `removeCard` +
+    // `addCard` — recreating the card would mint a new id, and `planner.order[dk]` keys its rows
+    // on `wcard:<id>`, so a card he had dragged into position would silently jump to the bottom
+    // of the day every time he edited its name.
+    const c = draft.id
+      ? FT.updateCard(draft.id, { name: draft.name, ts: draft.ts, parts: draft.parts })
+      : FT.addCard({ name: draft.name, ts: draft.ts, parts: draft.parts });
+    if (draft.id) toast('Workout updated');
     render(() => workoutCardDetail(c));
   };
   wrap.append(card);
@@ -17754,18 +18057,68 @@ function workoutCardDetail(card) {
   setHeader(card.name, { back: true });
   const wrap = document.createElement('div');
   wrap.append(h(`<div class="muted" style="margin-bottom:8px">${new Date(card.ts).toLocaleDateString()}</div>`));
+  // ⚑ THE WAY IN, AND IT IS ON THE ROW THAT STATES THE DATE — chunk 5. The date and the name are
+  // printed two lines apart from a screen that could not change either of them, which is where
+  // "I had to just keep deleting it" came from.
+  const editBtn = h(`<button class="pill" data-a="editcard" style="margin-bottom:10px">Edit workout</button>`);
+  editBtn.firstChild.onclick = () => render(() => workoutCardBuilder(editCardDraft(card)));
+  wrap.append(editBtn);
   card.parts.forEach((p, i) => {
     const w = FT.getWorkout(p.wid);
     const log = p.logId ? FT.allLogs().find(l => l.id === p.logId) : null;
     // ⚑ THE SLOT IS PRINTED, WHICH IS THE POINT OF STORING IT. He picked "Lift + Metcon" and
     // until chunk 2 the card could not say which part was the lift.
     const slot = p.slot ? ` <span class="muted" style="font-weight:400;font-size:12px">· ${esc(p.slot)}</span>` : '';
+    // ⚑⚑ CHUNK 4 — THE PART ROW IS A DOOR NOW, AND WHICH DOOR IS A PROPERTY OF THE PART.
+    // It printed the workout's name and its result and led nowhere. To read the prescription he
+    // was about to train, or to look again at the session he had just logged, he had to leave
+    // the card, find the piece in the library and come back — on the one screen whose whole job
+    // is to BE the session. Both destinations have existed for months (`workoutDetail`,
+    // `sessionSheet`), so this is wiring, which is the third time this run that has been the
+    // answer.
+    //
+    // ⚑ AN UNLOGGED PART OPENS THE WORKOUT — *what am I about to do*. A LOGGED ONE OPENS THE
+    // SESSION — *what did I do*. One destination for both would be wrong in one direction or
+    // the other on every row, and the row already knows which it is.
+    //
+    // ⚑ NO DESTINATION, NO AFFORDANCE. `p.wid` is a bare id with no integrity — the same shape
+    // that orphaned nine pathway steps this week — so a part whose workout no longer exists
+    // renders no chev, no cursor and no handler rather than a tap that opens nothing. Absent is
+    // visible, wrong is not (chunk 2's `rowKey` rule, one screen over).
+    //
+    // ⚑⚑ AND THE SAME RULE HAD TO REACH THE `Log` BUTTON, WHICH WAS ALREADY CRASHING. Before
+    // this chunk that button rendered unconditionally, and on a part whose workout is gone
+    // tapping it threw `Cannot read properties of null (reading 'name')` out of `logForm` and
+    // killed the screen. Found by probing the row I was rewiring, not by a report. Guarding the
+    // new tap target and leaving the old one live would have been two correct-looking halves
+    // again — the row now says `deleted` in its place, which is the same answer `refStepBroken`
+    // gives one domain over: name the fault on the row rather than offer an action that cannot
+    // work. ⚑ Owed, deliberately NOT built here: a relink for card parts. Chunk C did it for
+    // pathway steps and the shape transfers, but it is a chunk, not a line.
+    //
+    // ⚑ BOUND TO NODES THAT DO NOT OVERLAP THE Log BUTTON, not to the card plus a
+    // stopPropagation. `dom-shim.mjs` has no bubbling, so a delegated handler is one no suite
+    // can reach by clicking (invariant 1) — and a Log button nested inside a clickable card
+    // would fire BOTH handlers in a browser and ONE in the shim, which is a disagreement
+    // between the app and its tests rather than a bug in either. Same two-node shape the
+    // planner's `wcard` row already uses.
+    //
+    // ⚑ A DANGLING `logId` CANNOT REACH `sessionSheet`. `log` is looked up, not assumed, so a
+    // part pointing at an entry that has since been deleted falls to the unlogged branch and
+    // offers Log again — `sessionSheet(null)` is unreachable from this screen by construction.
+    const dest = log ? () => sessionSheet(log)
+      : w ? () => render(() => workoutDetail(w))
+      : null;
     const c = h(`<div class="card" style="padding:12px 14px">
-        <div class="row"><div class="grow"><div style="font-weight:700">${FT.cardPartLabel(i)}: ${esc(w ? w.name : '—')}${slot}</div>
+        <div class="row"><div class="grow" data-a="part"${dest ? ' style="cursor:pointer"' : ''}><div style="font-weight:700">${FT.cardPartLabel(i)}: ${esc(w ? w.name : '—')}${slot}</div>
         <div class="muted" style="font-size:12px">${log ? esc(log.result) + (log.rx ? ' · ' + esc(log.rx) : '') : 'Not logged yet'}</div></div>
-        ${log ? '' : '<button class="pill on" data-a="log" style="padding:9px 15px">Log</button>'}</div></div>`);
+        ${log ? '' : w ? '<button class="pill on" data-a="log" style="padding:9px 15px">Log</button>' : '<span class="muted" style="font-size:11.5px;color:var(--danger)">deleted</span>'}${dest ? '<span class="chev" data-a="partchev" style="cursor:pointer;margin-left:6px">›</span>' : ''}</div></div>`);
     const lb = c.querySelector('[data-a=log]');
     if (lb) lb.onclick = () => render(() => logForm(w, '', { cardId: card.id, partIdx: i }));
+    if (dest) {
+      c.querySelector('[data-a=part]').onclick = dest;
+      c.querySelector('[data-a=partchev]').onclick = dest;
+    }
     wrap.append(c);
     // ⚑ REST BETWEEN PARTS, PRINTED AND NOT COUNTED DOWN. His ruling from the twenty-ninth
     // session was that parts stay separate workouts with per-part timers — he explicitly ruled
@@ -17782,6 +18135,22 @@ function workoutCardDetail(card) {
   // and the part editing he already knows — a second date sheet here is how two screens end up
   // disagreeing about what a card's date is, which is the twenty-ninth session's two-builders
   // defect aimed at a calendar.
+  // ⚑⚑ SHARE THE WHOLE SESSION — chunk 4b, and the half that did not exist. `sessionSheet` has
+  // offered Share for one piece since §5.6; a CARD is what he actually trained on a Thursday and
+  // there was no way to hand anybody the shape of it. `FT.cardText` renders every part in order
+  // with its prescription and its result, from the same `prescriptionShape` the screen above is
+  // drawn from — so what he shares and what he is looking at cannot disagree, which is exactly
+  // what they were doing for single sessions until this chunk.
+  const share = h(`<button class="btn secondary" data-a="sharecard" style="margin-top:10px">Share this workout</button>`);
+  share.firstChild.onclick = async () => {
+    const text = FT.cardText(FT.getCard(card.id) || card);
+    try {
+      if (navigator.share) { await navigator.share({ title: card.name, text }); return; }
+      await navigator.clipboard.writeText(text);
+      toast('Workout copied');
+    } catch (e) { /* user dismissed the share sheet — not an error */ }
+  };
+  wrap.append(share);
   const dup = h(`<button class="btn secondary" style="margin-top:10px">⧉ Plan this again on another date</button>`);
   dup.firstChild.onclick = () => render(() => workoutCardBuilder({
     name: card.name, ts: card.ts + 7 * 86400000, parts: FT.duplicateCardParts(card), slots: [],
@@ -17857,11 +18226,52 @@ function ftResultZone(fmt, w, prefill) {
       <input data-r="rounds" inputmode="numeric" placeholder="Full rounds" style="flex:1;${FIN};text-align:center">
     </div>${partBlock('Reps into partial round')}`;
   if (fmt === 'emom') return `<input data-r="rounds" inputmode="numeric" placeholder="Rounds / minutes" style="width:100%;${FIN};text-align:center;margin-bottom:6px">${partBlock('Reps in the last round')}`;
-  if (fmt === 'fortime' || fmt === 'chipper') return `<div class="row" style="gap:6px;align-items:center">
-      <input data-r="time" placeholder="mm:ss" value="${esc(prefill)}" style="flex:1;${FIN};text-align:center">
-      <label class="muted" style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" data-r="capped"> capped</label>
-      <input data-r="reps" inputmode="numeric" placeholder="reps" style="width:64px;${FIN};text-align:center">
-    </div>`;
+  // ⚑⚑ CHUNK 7 — THE 24.1 PROBLEM. A capped for-time piece scores two different ways and the
+  // record says so in prose: "Score: reps completed, or your finishing time if you finished."
+  // The screen asked both questions at once — a time box, a `capped` tickbox and a bare reps box
+  // in one row — so the FORM never committed to which had happened, and the reps box expected
+  // him to expand `21-15-9` across four movements in his head, having just been beaten by a
+  // clock. `FT.repWorkList` does that expansion; this renders it.
+  if (fmt === 'fortime' || fmt === 'chipper') {
+    const wl = FT.repWorkList(w);
+    // ⚑ THE CHECKBOX SURVIVES AS A HIDDEN STATE CARRIER, and that is deliberate. `ftReadResult`
+    // reads `[data-r=capped].checked` and the TIMER writes it through `ftApplyPrefill` — it is
+    // the one thing that knows whether the clock ran out. Keeping the node means neither of
+    // those paths changes; what changes is that a person now sets it with a pill instead.
+    //
+    // ⚑⚑ AND IT IS A PILL PAIR RATHER THAN A TICKBOX FOR A TESTABILITY REASON AS WELL AS A
+    // LEGIBILITY ONE. `dom-shim.mjs`'s `click()` dispatches the event but does NOT toggle
+    // `.checked` — so a suite clicking that tickbox would run the handler with the old value and
+    // the app and its tests would disagree, which is the disagreement the planner's `wcard` row
+    // warns about. Growing the shim to emulate checkbox activation would widen a predicate all
+    // 76 suites share. Two buttons state the two outcomes and click cleanly in both worlds.
+    const rows = wl ? wl.items.map((it, i) =>
+      `<button class="pill" data-wl="${i}" style="display:flex;width:100%;gap:8px;text-align:left;padding:7px 10px;margin-bottom:4px;align-items:center">
+         <span class="muted" style="font-size:10.5px;min-width:74px">${esc(it.roundLabel)}</span>
+         <b style="min-width:26px;text-align:right">${it.reps}</b>
+         <span class="grow" style="font-size:12.5px">${esc(it.movement)}${it.load ? ` <span class="muted">@ ${esc(it.load)}</span>` : ''}</span>
+         <span class="muted" style="font-size:11px">${it.cumulative}</span>
+       </button>`).join('') : '';
+    return `<div class="pillrow" style="margin-bottom:8px">
+        <button class="pill on" data-cap="no">Finished</button>
+        <button class="pill" data-cap="yes">Capped</button>
+      </div>
+      <input type="checkbox" data-r="capped" style="display:none">
+      <div data-a="capfinished">
+        <input data-r="time" placeholder="mm:ss" value="${esc(prefill)}" style="width:100%;${FIN};text-align:center">
+      </div>
+      <div data-a="capcapped" style="display:none">
+        <input data-r="reps" inputmode="numeric" placeholder="Reps completed" style="width:100%;${FIN};text-align:center;margin-bottom:8px">
+        ${wl ? `<div class="muted" style="font-size:11.5px;margin-bottom:6px">Tap the last line you finished — ${wl.items.length} lines, ${wl.total} reps in all.</div>${rows}
+        <div class="row" style="gap:6px;align-items:center;margin-top:4px">
+          <span class="muted" style="font-size:11.5px">plus</span>
+          <input data-a="wlpartial" inputmode="numeric" placeholder="0" style="width:64px;${FIN};text-align:center">
+          <span class="muted" style="font-size:11.5px">reps into the next line</span>
+        </div>
+        <div data-a="wlnote" class="muted" style="font-size:11.5px;margin-top:6px;line-height:1.5"></div>`
+        : `<div class="muted" style="font-size:11.5px">This record does not state its reps in a way that can be counted, so the total is yours to write.</div>`}
+      </div>`;
+  }
   // ⚑ OPEN THE SETS HE PRESCRIBED, WITH THE REPS ALREADY IN — twenty-ninth session. "All I have
   // to put in is the weight that I used for each set, because the workout was 7 sets of 3 reps
   // of front squat." The grid and the ＋ Add set button were already here; what was missing is
@@ -17914,6 +18324,22 @@ function ftReadResult(form, fmt, w) {
 // ⚑ Timer prefill. The runner hands over the fields it already knows (elapsed, rounds
 // tapped, splits) and they are written straight into the result inputs, so the log arrives
 // filled in. Anything the timer cannot know is left blank for you.
+// ⚑ ONE FUNCTION, TWO CALLERS, BECAUSE TWO THINGS SET THE MODE. The pills set it when he taps
+// them; the TIMER sets it through `ftApplyPrefill`, which writes `.checked` straight onto the
+// hidden carrier and knows nothing about pills. A screen that only redrew on the tap would show
+// **Finished** lit over a capped result the runner had already recorded — the `drawScoredBy`
+// defect, which was found by clicking and could not have been found any other way.
+function ftSyncCapMode(form) {
+  const box = form.querySelector('[data-r=capped]');
+  if (!box) return;
+  const capped = !!box.checked;
+  form.querySelectorAll('[data-cap]').forEach(b => b.classList.toggle('on', (b.dataset.cap === 'yes') === capped));
+  const fin = form.querySelector('[data-a=capfinished]');
+  const cap = form.querySelector('[data-a=capcapped]');
+  if (fin) fin.style.display = capped ? 'none' : '';
+  if (cap) cap.style.display = capped ? '' : 'none';
+}
+
 function ftApplyPrefill(form, f) {
   if (!f) return;
   Object.entries(f).forEach(([k, v]) => {
@@ -17940,7 +18366,7 @@ function logForm(w, prefillResult = '', ctx = null, prefillFields = null, prompt
     </div>`));
   wrap.append(h(`
     <div class="card">
-      ${w.movements ? `<div style="font-size:14px;line-height:1.6;white-space:pre-line">${esc(w.movements)}</div>` : '<div class="muted">No description</div>'}
+      ${ftPrescriptionBlock(w)}
       ${pr ? `<div class="muted" style="margin-top:8px;font-size:12px">★ PR: ${esc(pr.result)} (${new Date(pr.ts).toLocaleDateString()})</div>` : ''}
     </div>`));
   const fmt = FT.formatOf(w);
@@ -17981,6 +18407,47 @@ function logForm(w, prefillResult = '', ctx = null, prefillFields = null, prompt
     const rows = detailBox.querySelectorAll('.detail-line');
     rows[rows.length - 1].querySelector('[data-d=exercise]').focus();
   };
+  // ⚑⚑ CHUNK 7 — "WHERE DID I GET TO" INSTEAD OF "HOW MANY REPS". Tapping the last line he
+  // finished fills the reps box from the work list's running total; the partial box adds what he
+  // got into the next one. He never counts, which is the whole ask — the counting is arithmetic
+  // the record already contains and he was being made to do it having just been beaten by a clock.
+  const capBox = form.querySelector('[data-r=capped]');
+  if (capBox) {
+    form.querySelectorAll('[data-cap]').forEach(b => b.onclick = () => {
+      capBox.checked = b.dataset.cap === 'yes';
+      ftSyncCapMode(form);
+    });
+    const wl = FT.repWorkList(w);
+    const repsI = form.querySelector('[data-r=reps]');
+    const partI = form.querySelector('[data-a=wlpartial]');
+    const noteI = form.querySelector('[data-a=wlnote]');
+    let picked = -1;
+    const applyWl = () => {
+      if (picked < 0 || !wl || !repsI) return;
+      // ⚑ ON THE LAST LINE THERE IS NO NEXT LINE, so the partial contributes nothing. Without
+      // this, tapping the bottom of 24.1 with 7 in the box scored **187 of 180** — a number that
+      // cannot happen, saved without complaint.
+      const last = picked >= wl.items.length - 1;
+      const extra = last ? 0 : Math.max(0, Number(partI && partI.value) || 0);
+      const total = wl.items[picked].cumulative + extra;
+      repsI.value = String(total);
+      // ⚑ AND IT SAYS SO WHEN THE ANSWER IS "ALL OF IT". Reaching the last line means he did the
+      // whole workout, which is not a capped score at all — it is a TIME, and a log that records
+      // 180 reps for a finished 24.1 is a result that cannot be compared with anyone else's.
+      if (noteI) noteI.textContent = total >= wl.total
+        ? 'That is the whole workout — if you got through it inside the cap, tap Finished and give the time instead.'
+        : '';
+    };
+    form.querySelectorAll('[data-wl]').forEach(btn => btn.onclick = () => {
+      picked = Number(btn.dataset.wl);
+      // ⚑ EVERY LINE UP TO AND INCLUDING THE ONE HE TAPPED LIGHTS UP, because the question is
+      // "how far did you get", not "which single line".
+      form.querySelectorAll('[data-wl]').forEach(x => x.classList.toggle('on', Number(x.dataset.wl) <= picked));
+      applyWl();
+    });
+    if (partI) partI.oninput = applyWl;
+    ftSyncCapMode(form);
+  }
   const addSetBtn = form.querySelector('[data-r=addset]');
   if (addSetBtn) addSetBtn.onclick = () => {
     const box = form.querySelector('[data-r=sets]');
@@ -18018,6 +18485,8 @@ function logForm(w, prefillResult = '', ctx = null, prefillFields = null, prompt
   };
   wrap.append(form);
   ftApplyPrefill(form, prefillFields);
+  // ⚑ THE TIMER MAY HAVE SET `capped` — the pills and the two zones have to follow it.
+  ftSyncCapMode(form);
 
   const timerBtn = h(`<button class="btn secondary">⏱ Start a timer for this workout</button>`);
   timerBtn.firstChild.onclick = () => render(() => ftTimersScreen(w));
@@ -18686,75 +19155,46 @@ function ftWorkouts(body) {
 // rungs. ⚑ `w.movements` stays as the fallback for the 461 legacy workouts — it is the only
 // thing they have, and dropping to "No description" would be a regression dressed as a feature.
 function ftPrescriptionBlock(w) {
-  const fmtLabel = (FT.FORMATS.find(f => f[0] === ((w.format && w.format !== 'other') ? w.format : ((w.pres && w.pres.format) || FT.formatOf(w)))) || ['', ''])[1];
-  const sc = MV.schemeOf(w);
-  // ⚑ AUTHORED FIRST, DERIVED SECOND, AND NEVER MERGED. `w.moves` is what he typed into the
-  // builder; `w.pres.moves` is what the generator read out of the stored prose. If he has
-  // authored a movement list it is the answer, whole — interleaving the two would produce a
-  // prescription neither source ever stated.
-  const pres = w.pres || {};
-  const authored = Array.isArray(w.moves) ? w.moves.filter(m => m && String(m.movement || '').trim()) : [];
-  const derived = Array.isArray(pres.moves) ? pres.moves.filter(m => m && String(m.movement || '').trim()) : [];
-  const moves = authored.length ? authored : derived;
-  // Nothing structured to say → the legacy string, exactly as before.
-  if (!moves.length) {
-    // ⚑ THE LEGACY BRANCH IS NOT DEAD AND MUST NOT PRETEND TO BE FINE. Before this chunk it was
-    // the ONLY branch — `w.moves` was empty for all 476 corpus workouts, so every one of them
-    // rendered here as the raw string, which is the sentence-form Baruch reported. It still
-    // catches anything the generator could not read at all, and those are exactly the records
-    // least entitled to look complete.
-    const warn = (w.pres && w.pres.complete === false)
-      ? `<div class="muted" style="font-size:11.5px;margin-top:7px;color:var(--danger)">Details not stored — this is the whole of what is saved for this workout.</div>`
-      : '';
-    return w.movements
-      ? `<div style="font-size:14px;line-height:1.6;white-space:pre-line">${esc(w.movements)}</div>` + warn
-      : '<div class="muted">No description</div>';
-  }
-  const bits = [];
-  // ⚑ THE SCHEME LINE ONLY APPEARS WHEN THERE IS ONE, and it says which door it came through in
-  // plain words rather than printing `source`. "7 sets × 3 reps" is the thing he could not see.
-  if (sc) bits.push(sc.sets > 1 ? `${sc.sets} sets × ${sc.reps} reps` : `${sc.reps}-rep max`);
-  const n = x => Number(x) || 0;
-  // the record's own value wins; the derived one fills a gap. Display only — see fitness.js.
-  const v = k => (Number(w[k]) ? w[k] : pres[k]);
-  const fmtKey = (w.format && w.format !== 'other') ? w.format : (pres.format || FT.formatOf(w));
-  if (n(v('rounds')) && fmtKey !== 'emom') bits.push(`${n(v('rounds'))} rounds`);
-  if (n(v('interval'))) bits.push(`every ${n(v('interval'))}s`);
-  if (n(v('rounds')) && fmtKey === 'emom') bits.push(`${n(v('rounds'))} rounds`);
-  if (n(v('work'))) bits.push(`${n(v('work'))}s work`);
-  if (n(v('rest'))) bits.push(`${n(v('rest'))}s rest`);
-  if (n(v('cap'))) bits.push(`${Math.round(n(v('cap')) / 60)} min cap`);
-  const rows = moves.map(m => {
-    const reps = String(m.reps == null ? '' : m.reps).trim();
-    const load = String(m.load == null ? '' : m.load).trim();
-    return `<div style="font-size:14px;line-height:1.75">${reps ? `<b>${esc(reps)}</b> ` : ''}${esc(String(m.movement).trim())}`
-      + `${load ? ` <span class="muted">@ ${esc(load)}</span>` : ''}</div>`;
-  }).join('');
-  // ⚑⚑ THE REP SCHEME IS A PROPERTY OF THE ROUNDS, NOT OF A MOVEMENT, AND THAT IS WHY IT NEEDED
-  // ITS OWN LINE. Fran is "21-15-9" of Thrusters AND Pull-ups — one scheme governing two rows.
-  // Repeating it on each row (the alternative Baruch was offered) reads wrong the moment a
-  // scheme applies to only some of the movements, and it is a second place for one fact to live.
-  // It renders above the movements, the way it is written on a whiteboard.
-  const schemeLine = (w.scheme || pres.scheme)
-    ? `<div style="font-size:15px;font-weight:700;letter-spacing:.02em;margin-bottom:6px">${esc(w.scheme || pres.scheme)}</div>`
-    : '';
-  // ⚑⚑ AND THE HONEST STATE FOR A RECORD THAT DOES NOT CONTAIN THE WORKOUT. 125 of 476 corpus
-  // records name their movements and store no reps and no time domain — Open 20.2's entire
-  // record is "DB thruster 50 / TTB / DU". Rendering those as a finished card is worse than the
-  // prose he has now: a blank sends him to look it up, which is the annoyance he asked me to
-  // remove, but a card that LOOKS complete and is missing the reps does not send him anywhere.
-  // So the card says so, in the one place he cannot miss it.
-  const incomplete = pres.complete === false
-    ? `<div style="margin-top:9px;padding:8px 10px;border:1px solid var(--line);border-radius:8px">
+  // ⚑⚑ THE SHAPE IS NOT COMPUTED HERE ANY MORE — chunk 4b. This function used to decide what a
+  // workout IS (authored vs derived movements, which params matter, whether the record is
+  // complete) *and* draw it, and it was the only place that knew — so `FT.sessionText`, the
+  // thing he hands to another person, printed the raw prose instead and the two disagreed for
+  // all 406 records with a complete prescription. `FT.prescriptionShape` is now the one answer
+  // and this is one of three renderers of it. See the note above it in `fitness.js`.
+  const s = FT.prescriptionShape(w);
+  if (!s) return '<div class="muted">No description</div>';
+  const warn = `<div style="margin-top:9px;padding:8px 10px;border:1px solid var(--line);border-radius:8px">
          <div style="font-size:12px;font-weight:700;color:var(--danger)">Details not stored</div>
          <div class="muted" style="font-size:11.5px;line-height:1.5;margin-top:2px">This record names the movements but not the reps or the time domain. Everything above is what is actually saved — check the source before you train it.</div>
-       </div>`
+       </div>`;
+  // ⚑ THE LEGACY BRANCH IS NOT DEAD. It catches everything the generator could not read at all,
+  // and those are the records least entitled to look complete.
+  if (s.legacy != null) {
+    return s.legacy
+      ? `<div style="font-size:14px;line-height:1.6;white-space:pre-line">${esc(s.legacy)}</div>`
+        + (s.incomplete ? `<div class="muted" style="font-size:11.5px;margin-top:7px;color:var(--danger)">Details not stored — this is the whole of what is saved for this workout.</div>` : '')
+      : '<div class="muted">No description</div>';
+  }
+  const rows = s.moves.map(m =>
+    `<div style="font-size:14px;line-height:1.75">${m.reps ? `<b>${esc(m.reps)}</b> ` : ''}${esc(m.movement)}`
+    + `${m.load ? ` <span class="muted">@ ${esc(m.load)}</span>` : ''}</div>`).join('');
+  // It renders above the movements, the way it is written on a whiteboard.
+  const schemeLine = s.scheme
+    ? `<div style="font-size:15px;font-weight:700;letter-spacing:.02em;margin-bottom:6px">${esc(s.scheme)}</div>`
     : '';
-  return `<div style="font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--accent);margin-bottom:4px">${esc(fmtLabel)}</div>`
-    + (bits.length ? `<div class="muted" style="font-size:12.5px;margin-bottom:7px">${esc(bits.join(' · '))}</div>` : '')
+  // ⚑⚑ AND THE CAP RENDERS **BELOW** THE MOVEMENTS — his ask, and the position it is written in
+  // on every whiteboard: you read a cap when you are running out of time, not before you start.
+  // A WINDOW is not a cap and stays on the params line above, because an AMRAP's clock IS the
+  // workout. `prescriptionShape` decides which of the two the number is.
+  const capLine = s.capLabel
+    ? `<div class="muted" style="font-size:12.5px;margin-top:8px">${esc(s.capLabel)}</div>`
+    : '';
+  return `<div style="font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--accent);margin-bottom:4px">${esc(s.formatLabel)}</div>`
+    + (s.params.length ? `<div class="muted" style="font-size:12.5px;margin-bottom:7px">${esc(s.params.join(' · '))}</div>` : '')
     + schemeLine
     + rows
-    + incomplete;
+    + capLine
+    + (s.incomplete ? warn : '');
 }
 
 function workoutDetail(w) {
@@ -18837,8 +19277,16 @@ function workoutDetail(w) {
   // exactly the ones he wants to modify, because they are the ones he cannot remember the
   // details of. Copying never touches the original.
   pills.querySelector('[data-s=copy]').onclick = () => workoutCopySheet(w);
+  // ⚑⚑ HIS RULING, Aug 19: editable only in the space between making it and logging it.
+  // The pill STAYS VISIBLE when it is locked and opens a sheet that says why — a control that
+  // disappears the moment he logs reads as a control that broke, and he would have no way to
+  // learn the rule from the screen.
   const editPill = pills.querySelector('[data-s=edit]');
-  if (editPill) editPill.onclick = () => workoutEditSheet(w);
+  if (editPill) editPill.onclick = () => {
+    const reason = FT.editLockReason(w.id);
+    if (reason === null) render(() => workoutBuilder({ edit: w }));
+    else workoutLockedSheet(w, reason);
+  };
   const delPill = pills.querySelector('[data-s=delete]');
   if (delPill) delPill.onclick = () => workoutRemoveSheet(w);
   wrap.append(pills);
@@ -19193,23 +19641,72 @@ function ftMoveRow2(shape, m = {}) {
 // ⚑ THE MIRROR OF `ftResultZone`, ONE SCREEN EARLIER. The shape is data (`FT.PRESCRIPTION`)
 // rather than a branch per format, so "what does an EMOM ask for" is assertable in a suite
 // instead of being discovered by building four of them on a phone.
-function ftPrescriptionZone(format) {
+// ⚑⚑ THE EXACT INVERSE OF THE SAVE PATH, AND IT HAS TO BE, OR AN EDIT MOVES SOMETHING HE DID
+// NOT TOUCH. The builder stores `cap: (format === 'amrap' ? spec.window : spec.cap) * 60` and
+// `rounds = floor(window * 60 / interval)` for an EMOM — so reading a workout back means undoing
+// both conversions, in both places, or opening a 10-minute EMOM and pressing Save turns it into
+// something else. `test-presedit.mjs` round-trips every format rather than trusting this.
+//
+// ⚑ WHICH SIDE `cap` IS ON COMES FROM `prescriptionOf(fmt).fields`, the same table chunk 4b used
+// to tell a time cap from a duration. One rule, read from one place, on the way in and out.
+function ftSeedFromWorkout(w) {
+  const fmt = (w.format && w.format !== 'other') ? w.format : FT.formatOf(w);
+  const shape = FT.prescriptionOf(fmt);
+  const secs = Number(w.cap) || 0;
+  const iv = Number(w.interval) || 0;
+  const rounds = Number(w.rounds) || 0;
+  const moves = (Array.isArray(w.moves) ? w.moves : [])
+    .filter(m => m && String(m.movement || '').trim())
+    .map(m => ({ movement: m.movement, reps: m.reps == null ? '' : String(m.reps), load: m.load == null ? '' : String(m.load) }));
+  return {
+    moves,
+    sets: Number(w.sets) || '',
+    // ⚑ A 'shared' format keeps its rep count on the MOVEMENT, not in a field of its own — that
+    // is how `ftReadPrescription` writes it — so it is read back off the first movement.
+    reps: shape.reps === 'shared' && moves[0] ? moves[0].reps : '',
+    rounds: fmt === 'emom' ? '' : rounds,
+    interval: iv,
+    window: fmt === 'amrap' ? (secs ? Math.round(secs / 60) : '')
+      : fmt === 'emom' ? ((rounds && iv) ? Math.round((rounds * iv) / 60) : '')
+      : '',
+    cap: shape.fields.includes('window') ? '' : (secs ? Math.round(secs / 60) : ''),
+    work: Number(w.work) || '',
+    rest: Number(w.rest) || '',
+    dist: '',
+  };
+}
+
+// ⚑⚑ ONE PARAMETER AGAIN — chunk 6. `ftPrescriptionZone` drew a BLANK zone, because until now
+// the only thing that needed a prescription zone was a workout that did not exist yet. Editing
+// needs the same zone with his own values already in it, and the answer is the `onCreate`
+// answer: grow the one function by a parameter whose default is the status quo. A second
+// format-aware zone is how two screens end up disagreeing about what an EMOM is, which is the
+// defect the twenty-ninth session's whole format-first rebuild exists to have killed once.
+function ftPrescriptionZone(format, seed = null) {
   const shape = FT.prescriptionOf(format);
   const one = shape.moves === 'single';
-  let html = `<div data-a="moves">${ftMoveRow2(shape)}</div>`;
+  // seeded value, or blank. Zero is not a value here — `0 rounds` and "no rounds" are the same
+  // answer and only one of them should occupy a field.
+  const sv = k => (seed && seed[k] != null && seed[k] !== 0 && seed[k] !== '') ? seed[k] : '';
+  const seeded = seed && Array.isArray(seed.moves) && seed.moves.length ? seed.moves : null;
+  const rows = seeded ? (one ? [seeded[0]] : seeded) : [{}];
+  let html = `<div data-a="moves">${rows.map(m => ftMoveRow2(shape, m)).join('')}</div>`;
   if (!one) html += `<button class="btn secondary" data-a="addmove" style="margin-bottom:10px">＋ Add movement</button>`;
   // Strength: one movement, N sets, one rep count. The three fields he actually had in mind
   // when he wrote seven rows.
   if (shape.sets) {
     html += `<div class="row" style="gap:6px;margin-bottom:8px">
-        <input data-x="sets" inputmode="numeric" placeholder="Sets" style="flex:1;${FIN};text-align:center">
-        <input data-x="reps" inputmode="numeric" placeholder="Reps per set" style="flex:1;${FIN};text-align:center">
+        <input data-x="sets" inputmode="numeric" placeholder="Sets" value="${esc(sv('sets'))}" style="flex:1;${FIN};text-align:center">
+        <input data-x="reps" inputmode="numeric" placeholder="Reps per set" value="${esc(sv('reps'))}" style="flex:1;${FIN};text-align:center">
       </div>`;
   }
-  if (shape.rounds) html += `<input data-x="rounds" inputmode="numeric" placeholder="Rounds (leave blank for a single round)" style="width:100%;${FIN};margin-bottom:8px">`;
+  if (shape.rounds) html += `<input data-x="rounds" inputmode="numeric" placeholder="Rounds (leave blank for a single round)" value="${esc(sv('rounds'))}" style="width:100%;${FIN};margin-bottom:8px">`;
   const extra = (shape.fields || []).map(k => {
     const f = FT.PRESCRIPTION_FIELDS[k];
-    return `<input data-x="${k}" ${f.numeric ? 'inputmode="numeric"' : ''} placeholder="${esc(f.label)}" value="${f.dflt != null ? f.dflt : ''}" style="flex:1;min-width:112px;${FIN}">`;
+    // ⚑ HIS VALUE WINS OVER THE DEFAULT. Seeding an EMOM whose interval is 90s with the field's
+    // own `dflt: 60` would silently retime the workout on the next save.
+    const val = sv(k) !== '' ? sv(k) : (f.dflt != null ? f.dflt : '');
+    return `<input data-x="${k}" ${f.numeric ? 'inputmode="numeric"' : ''} placeholder="${esc(f.label)}" value="${esc(val)}" style="flex:1;min-width:112px;${FIN}">`;
   }).join('');
   if (extra) html += `<div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px">${extra}</div>`;
   return html;
@@ -19255,7 +19752,12 @@ function ftReadPrescription(form, format) {
 // forking the screen would have been the expensive one, and this app has already paid that bill
 // once — two builders that disagreed about what an EMOM is.
 function workoutBuilder(opts = {}) {
-  setHeader(opts.title || 'New workout', { back: true });
+  // ⚑⚑ SECOND PARAMETER, SAME ARGUMENT AS THE FIRST — chunk 6. `opts.edit` is a workout to change
+  // rather than one to create. Not a second screen: `workoutCardBuilder` took exactly this shape
+  // one chunk ago, and the reason is written above `onCreate` — this app has already paid once
+  // for two builders that disagreed about what an EMOM is.
+  const ed = opts.edit || null;
+  setHeader(opts.title || (ed ? 'Edit workout' : 'New workout'), { back: true });
   const wrap = document.createElement('div');
   const form = h(`
     <div class="card">
@@ -19271,10 +19773,21 @@ function workoutBuilder(opts = {}) {
       <div data-a="namenote" class="muted" style="font-size:11.5px;margin-bottom:12px"></div>
       <h3>Domain</h3>
       <div class="pillrow" data-a="domains">${FT.ASSESS_DOMAINS.map(([v, l]) => `<button class="pill ${v === 'light' ? 'on' : ''}" data-dm="${v}">${l}</button>`).join('')}</div>
-      <button class="btn" data-a="save">Create workout</button>
+      <button class="btn" data-a="save">${ed ? 'Save changes' : 'Create workout'}</button>
     </div>`).firstElementChild;
 
-  let format = 'fortime', wdomain = 'light', rampOn = false, nameTouched = false;
+  // ⚑ SEEDED FROM THE RECORD, AND `nameTouched` STARTS **TRUE** ON AN EDIT. The generator exists
+  // to name a workout he has not named yet; a stored name is one he has already accepted, and
+  // regenerating over it the moment he touches a field would be the same disrespect the
+  // `nameTouched` contract was written to prevent, running the other way.
+  let format = ed ? ((ed.format && ed.format !== 'other') ? ed.format : FT.formatOf(ed)) : 'fortime';
+  let wdomain = ed ? (ed.domain || 'light') : 'light';
+  let rampOn = !!(ed && ed.ramp);
+  let nameTouched = !!ed;
+  // ⚑ CONSUMED ON THE FIRST DRAW ONLY. Changing the format already clears the zone for a new
+  // workout — a for-time's cap is not a strength piece's sets — and re-seeding on every redraw
+  // would put the old record's numbers back into fields he had just deliberately emptied.
+  let zoneSeed = ed ? ftSeedFromWorkout(ed) : null;
   const zone = form.querySelector('[data-a=zone]');
   const extras = form.querySelector('[data-a=extras]');
   const ladderBox = form.querySelector('[data-a=ladder]');
@@ -19372,7 +19885,8 @@ function workoutBuilder(opts = {}) {
 
   function drawZone() {
     const shape = FT.prescriptionOf(format);
-    zone.innerHTML = ftPrescriptionZone(format);
+    zone.innerHTML = ftPrescriptionZone(format, zoneSeed);
+    zoneSeed = null;
     form.querySelector('[data-a=prescriptionhead]').textContent = shape.moves === 'single' ? 'Movement' : 'Movements';
     const movesBox = zone.querySelector('[data-a=moves]');
     movesBox.querySelectorAll('.ft-move').forEach(r => bindRow(r, movesBox));
@@ -19401,6 +19915,15 @@ function workoutBuilder(opts = {}) {
     wdomain = b.dataset.dm;
     form.querySelectorAll('[data-dm]').forEach(x => x.classList.toggle('on', x.dataset.dm === wdomain));
   });
+  // ⚑ THE PILLS ARE STATE AND HAVE TO BE SEEDED TOO. `format` and `wdomain` are the locals every
+  // branch reads; the `on` class is what he SEES. Setting one and not the other is how a screen
+  // ends up saying For Time over a strength piece — the `drawScoredBy` defect one line up, which
+  // was found by clicking and could not have been found any other way.
+  if (ed) {
+    form.querySelectorAll('[data-f]').forEach(x => x.classList.toggle('on', x.dataset.f === format));
+    form.querySelectorAll('[data-dm]').forEach(x => x.classList.toggle('on', x.dataset.dm === wdomain));
+    nameI.value = ed.name || '';
+  }
   drawZone();
 
   form.querySelector('[data-a=save]').onclick = () => {
@@ -19416,8 +19939,36 @@ function workoutBuilder(opts = {}) {
     const iv = spec.interval || (format === 'emom' ? 60 : 0);
     const rounds = format === 'emom' && spec.window && iv
       ? Math.floor((spec.window * 60) / iv) : spec.rounds;
-    const w = FT.addCustomWorkout({
-      name, moves: spec.moves.map(m => ({ movement: m.movement, load: m.load, reps: m.reps })),
+    // ⚑ ONE PATCH OBJECT, BUILT ONCE, HANDED TO WHICHEVER WRITER APPLIES. Building it twice —
+    // once per branch — is how a field ends up saved on create and silently dropped on edit,
+    // which is precisely what `sets` has been doing (see `updateCustomWorkout`).
+    // ⚑⚑ AN EDITOR MAY ONLY WRITE THE FIELDS IT SHOWED HIM — found by round-tripping, not by
+    // reading. `PRESCRIPTION.strength` has `load: false`, so the zone draws no load box for a
+    // lift; `ftReadPrescription` then reports `load: ''` for a field that was never on screen,
+    // and the save writes that blank over whatever the record held. Opening a workout and
+    // pressing Save without touching anything DELETED its stored load. Silent, and it looked
+    // exactly like a successful save.
+    // ⚑ THE CARRY-ACROSS IS BY INDEX AND THAT IS SAFE BY CONSTRUCTION, not by luck: the only
+    // formats that hide a field (`load: false`, `reps: 'none'`) are `strength` and `cardio`, and
+    // both are `moves: 'single'` — so there is exactly one row to align. Read off the table
+    // rather than assumed.
+    const shapeNow = FT.prescriptionOf(format);
+    const origMoves = ed && Array.isArray(ed.moves) ? ed.moves : [];
+    const keptMoves = spec.moves.map((m, i) => {
+      const out = { movement: m.movement, load: m.load, reps: m.reps };
+      const o = origMoves[i];
+      if (o && !shapeNow.load && o.load) out.load = o.load;
+      if (o && shapeNow.reps === 'none' && o.reps) out.reps = o.reps;
+      // ⚑ ABSENT, NOT EMPTY — the `cardPart` rule ("nulls, never zeros") applied one level over.
+      // An empty `load` on every movement is a key that means "no load" spelled a second way; it
+      // travels in the synced blob and it made a round-trip of an untouched workout come back
+      // DIFFERENT, which is what the check below would have had to be weakened to tolerate.
+      if (!String(out.load || '').trim()) delete out.load;
+      if (!String(out.reps || '').trim()) delete out.reps;
+      return out;
+    });
+    const patch = {
+      name, moves: keptMoves,
       resultType: FT.resultTypeFor(format, { ramp: isRamp }),
       format, domain: wdomain,
       sets: spec.sets,
@@ -19430,9 +19981,16 @@ function workoutBuilder(opts = {}) {
         loadStep: Number(form.querySelector('[data-x=loadStep]') ? form.querySelector('[data-x=loadStep]').value : 0) || 0,
         loadUnit: 'lb',
       } : null,
-    });
-    toast('Workout created');
-    if (opts.onCreate) opts.onCreate(w); else render(() => workoutDetail(w));
+    };
+    // ⚑⚑ ONE SAVE, TWO WRITERS, AND THE PRESENCE OF `ed` DECIDES — the chunk-5 shape exactly.
+    // `updateCustomWorkout` takes `moves`, so the STRUCTURED rows go through the first branch of
+    // its patch handling and `w.moves` survives. Sending `movements` text instead would take the
+    // second branch, which drops `w.moves` whenever the text differs — deliberate since the
+    // twenty-ninth session, and exactly wrong for an editor that has the structure in its hands.
+    const saved = ed ? FT.updateCustomWorkout(ed.id, patch) : FT.addCustomWorkout(patch);
+    if (!saved) { toast('That workout can no longer be edited'); return; }
+    toast(ed ? 'Workout updated' : 'Workout created');
+    if (!ed && opts.onCreate) opts.onCreate(saved); else render(() => workoutDetail(FT.getWorkout(saved.id) || saved));
   };
   wrap.append(form);
   main().append(wrap);
