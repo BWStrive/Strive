@@ -1186,6 +1186,36 @@ function ensureShapes() {
       l.id = seen[base] > 1 ? base + '-' + seen[base] : base;
     });
   }
+  // ⚑⚑ PRACTICE IS GONE — ONE CYCLE, MIGRATED IN PLACE (Aug 19 2026). Baruch: "Practice and review
+  // are both showing up still. Get rid of practice. All is review. Everything counts. There is no
+  // isolated practice that does not effect decay or memory status."
+  //
+  // ⚑ THE THIRTIETH SESSION MERGED THE TWO *BEHAVIOURS* AND LEFT THE TWO *KEYS*. `u.review` and
+  // `u.practice` have always been two keys on one object (see review.js), and the merge added a
+  // third, `u.train`, while continuing to READ the other two. So his store still holds practice
+  // cadences that surface as their own rows, and the cadence sheets still offer to create more.
+  // This folds all three into `train`, once, and the readers below keep their legacy fallbacks so a
+  // blob synced from an older build (D-B) still resolves.
+  //
+  // ⚑ TRAIN WINS WHERE BOTH EXIST. It is the newer, and it is the one every write since the merge
+  // has produced; taking practice's period instead would silently reschedule a cadence he set later.
+  // ⚑ AND IT IS IDEMPOTENT — running it twice is a no-op, which matters because ensureShapes runs on
+  // every load and on every sync pull.
+  const foldCadence = (o) => {
+    if (!o || typeof o !== 'object') return 0;
+    let n = 0;
+    if (!o.train && (o.review || o.practice)) { o.train = o.review || o.practice; n++; }
+    if (o.review) { delete o.review; n++; }
+    if (o.practice) { delete o.practice; n++; }
+    return n;
+  };
+  if (state.review && state.review.assign) Object.values(state.review.assign).forEach(foldCadence);
+  Object.values(state.modules || {}).forEach(list => (list || []).forEach(foldCadence));
+  // Pathway steps carry the intent on the ref. 'read' and 'memorize' are different axes and stay.
+  (state.pathways || []).forEach(p => (p.milestones || []).forEach(m => (m.steps || []).forEach(s => {
+    if (s && s.ref && (s.ref.intent === 'practice' || s.ref.intent === 'review')) s.ref.intent = 'train';
+  })));
+
   if (!Array.isArray(state.sermons)) state.sermons = [];
   if (!state.planner) state.planner = def.planner;
   if (!Array.isArray(state.planner.targets)) state.planner.targets = [];   // Phase 9.5 (additive)
@@ -1730,7 +1760,10 @@ function ensureModules() { MB(); SCHB(); }
 // used to rebuild the object from four fields only — silently destroying the unit's cadence and
 // cycleStart on every edit (found Aug 3 2026 while locking D-V). Losing cycleStart is not cosmetic:
 // it is the watermark the entire cadence engine reads.
-const MOD_CARRIED_FIELDS = ['review', 'practice', 'memBy', 'schemeId'];
+// ⚑ `train` ADDED Aug 19 2026 — it is the field a cadence actually lives in now, and omitting it
+// here is the exact defect this list exists to prevent: editing or renaming a unit silently
+// stripping its cadence.
+const MOD_CARRIED_FIELDS = ['train', 'review', 'practice', 'memBy', 'schemeId'];
 
 // ---- store ops ----
 function modulesFor(bookName) { const m = MB(); return Array.isArray(m[bookName]) ? m[bookName] : []; }
@@ -1924,11 +1957,12 @@ function auditModuleAssignments(bookName, coverageTsOf) {
       const ts = coverageTsOf(k) || 0;
       if (ts > 0) { covered++; if (ts > last) last = ts; }
     }
-    const hasReview = !!(mod.review && mod.review.cadence);
+    const _ma = mod.train || mod.review || mod.practice;
+    const hasReview = !!(_ma && _ma.cadence);
     return {
       id: mod.id, name: mod.name, schemeId: moduleSchemeId(mod),
       verses: keys.length, covered, lastCoveredTs: last,
-      hasReview, hasPractice: !!(mod.practice && mod.practice.cadence), hasMemBy: !!mod.memBy,
+      hasReview, hasPractice: false, hasMemBy: !!mod.memBy,
       // the whole point of the audit: reviewed, but nothing is scheduling it any more
       suspect: !hasReview && covered > 0
     };
@@ -2333,6 +2367,18 @@ function unitMemBy(key) { const u = ASG()[key]; return (u && u.memBy) || null; }
 // The store shipped with D-AF and the decay resolver read it, but nothing enumerated it — so every
 // chapter/verse review cadence, every practice cadence, and every memorize-by date was create-only:
 // saved correctly, never surfaced in Today/Week/Month. These three accessors close that.
+// ⚑⚑ ONE ACCESSOR FOR "WHAT CADENCE GOVERNS THIS THING", AND IT EXISTS BECAUSE I MISSED FIVE
+// READERS (Aug 19 2026). Folding `practice` and `review` into `train` in `ensureShapes` was the easy
+// half; the hard half is that SEVEN separate places read `.review` off an assignment object by hand
+// — the module collector, the module list's cadence label, the assign pill, the creed interval
+// resolver, `governingReviewInterval` twice, and the module audit. Deleting the key they read left
+// each of them silently answering "no cadence", and the decay fill is one of them.
+//
+// ⚑ THE LEGACY FALLBACKS STAY FOREVER, not just until the migration runs. State arrives from sync as
+// a whole blob written by a possibly-older build (D-B), so `ensureShapes` folding what it has seen is
+// not the same as the old keys never existing again.
+function cadenceOf(o) { return (o && (o[TRAIN] || o.review || o.practice)) || null; }
+
 function unitsWithCadence(intent) {
   const out = [], a = ASG();
   for (const k in a) if (a[k] && a[k][intent]) out.push({ key: k, a: a[k][intent] });
@@ -2389,10 +2435,10 @@ function syncPracticeCycle(a, complete, now = Date.now()) {
 // actual fix) and it is also the honest answer: if any live assignment on this verse says every 10
 // days, the fill must not read fresh on day 11 while that assignment is overdue.
 function governingReviewInterval(bookName, ci, v, moduleReviews = []) {
-  const uv = ASG()[verseScopeKey(bookName, ci, v)];
-  if (uv && uv.review) return cadenceIntervalMs(uv.review.cadence);
-  const uc = ASG()[chapterScopeKey(bookName, ci)];
-  if (uc && uc.review) return cadenceIntervalMs(uc.review.cadence);
+  const uv = cadenceOf(ASG()[verseScopeKey(bookName, ci, v)]);
+  if (uv) return cadenceIntervalMs(uv.cadence);
+  const uc = cadenceOf(ASG()[chapterScopeKey(bookName, ci)]);
+  if (uc) return cadenceIntervalMs(uc.cadence);
   let shortest = null;
   for (const a of moduleReviews) {
     if (!a || !a.cadence) continue;
@@ -2441,7 +2487,7 @@ function shuffled(arr, rnd = Math.random) {
   return a;
 }
 
-const RV = {FLASH_ORDERS,TRAIN,allMemBy,assignmentStatus,bookAssignment,bookScopeKey,cadenceIntervalMs,cadenceLabel,calendarNextDue,chapterScopeKey,clearBookCadence,clearCovered,clearUnitCadence,coverageKey,coverageTs,coveredCount,cycleAnchor,cycleComplete,cycleCoveredCount,dowName,dowShort,ensureReview,getUnit,governingReviewInterval,isCovered,isPlainPass,markCovered,missInsertIndex,moduleKeys,newAssignment,nextDueMs,normCadence,orderQueue,ordinal,practiceNextDueMs,practiceStatus,resetTrainSchedules,setBookCadence,setUnitCadence,setUnitMemBy,shuffled,splitKey,syncCycle,syncPracticeCycle,uncoveredDeck,uncoveredKeys,unitDecay,unitMastery,unitMemBy,unitsWithCadence,verseFreshness,verseScopeKey};
+const RV = {FLASH_ORDERS,TRAIN,allMemBy,assignmentStatus,bookAssignment,bookScopeKey,cadenceIntervalMs,cadenceLabel,cadenceOf,calendarNextDue,chapterScopeKey,clearBookCadence,clearCovered,clearUnitCadence,coverageKey,coverageTs,coveredCount,cycleAnchor,cycleComplete,cycleCoveredCount,dowName,dowShort,ensureReview,getUnit,governingReviewInterval,isCovered,isPlainPass,markCovered,missInsertIndex,moduleKeys,newAssignment,nextDueMs,normCadence,orderQueue,ordinal,practiceNextDueMs,practiceStatus,resetTrainSchedules,setBookCadence,setUnitCadence,setUnitMemBy,shuffled,splitKey,syncCycle,syncPracticeCycle,uncoveredDeck,uncoveredKeys,unitDecay,unitMastery,unitMemBy,unitsWithCadence,verseFreshness,verseScopeKey};
 // Strive — Session log + Stats (Phase 11, D-AB "Stats page above Trends").
 //
 // WHY THIS MODULE EXISTS. The practice store in creeds.js (`CR.logPractice`) records one entry PER
@@ -8771,7 +8817,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260819-0336'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260819-0336';
+const BUILD_ID = '20260819-0435'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260819-0435';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -9754,8 +9800,26 @@ function persistDayOrder(list, dk) {
 // list would be invariant 8 — widening a shared predicate to fit one branch. This is the same
 // twenty lines with the group logic removed, which is cheaper to read and impossible to break by
 // changing the other one.
+// ⚑ SET BY A DROP, READ BY THE HANDLE'S CLICK. On a touchscreen a pointerup after a drag still
+// produces a click, and without this the move sheet opened on top of every completed drag — the
+// reorder worked and then a dialog appeared over it.
+let dayDragJustEnded = false;
+
+// ⚑ A FLAT SIBLING OF `initPwDnD`, NOT A GENERALISATION OF IT. The pathway drag carries two kinds
+// (a step, and a whole milestone group that steps travel inside); widening it to serve a flat list
+// would be invariant 8. Same shape, group logic removed.
+//
+// ⚑⚑ TWO WAYS IN, ONE PICK-UP — and the first cut had only one, which is why it was clunky. It put
+// the drag on a 15px ≡ you had to hit exactly, on a row you could otherwise touch anywhere.
+// Baruch, within the hour: "I need to be able to click and drag to reorder, the way you've set it
+// up is clunky." So: the ≡ grabs IMMEDIATELY, because reaching for a handle is already the
+// statement of intent; anywhere else on the row grabs after a 320 ms HOLD, because a plain tap
+// there already means something — launch this, open that — and stealing it would be worse than a
+// fiddly handle. Ten pixels of travel before the hold resolves cancels it, so a scroll never turns
+// into a drag, which is the difference between a list you can flick and one that fights you.
 function initDayDnD(list, dk) {
   let drag = null;
+
   const afterEl = y => {
     const els = [...list.querySelectorAll('[data-rowkey]')].filter(el => el !== drag.row && el !== drag.ph);
     let best = null, bestOff = -Infinity;
@@ -9766,6 +9830,7 @@ function initDayDnD(list, dk) {
     }
     return best;
   };
+
   const onMove = e => {
     if (!drag) return;
     e.preventDefault();
@@ -9778,6 +9843,7 @@ function initDayDnD(list, dk) {
     if (y < edge) sc.scrollTop -= (edge - y) / 5;
     else if (y > window.innerHeight - edge) sc.scrollTop += (y - (window.innerHeight - edge)) / 5;
   };
+
   const end = () => {
     if (!drag) return;
     const { row, ph } = drag;
@@ -9789,32 +9855,59 @@ function initDayDnD(list, dk) {
     window.removeEventListener('pointerup', end);
     window.removeEventListener('pointercancel', end);
     drag = null;
+    dayDragJustEnded = true;
+    setTimeout(() => { dayDragJustEnded = false; }, 450);
     persistDayOrder(list, dk);
     rerender();
   };
+
+  const begin = (row, pt) => {
+    if (drag) return;
+    const rect = row.getBoundingClientRect();
+    const ph = document.createElement('div');
+    ph.className = 'pw-ph';
+    ph.style.height = rect.height + 'px';
+    row.parentNode.insertBefore(ph, row);
+    drag = { row, ph, grabY: pt.clientY - rect.top, left: rect.left };
+    row.classList.add('pw-dragging');
+    row.style.width = rect.width + 'px';
+    row.style.position = 'fixed';
+    row.style.left = rect.left + 'px';
+    row.style.top = rect.top + 'px';
+    row.style.zIndex = '999';
+    row.style.pointerEvents = 'none';
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+  };
+
   list.querySelectorAll('.day-handle').forEach(handle => {
     handle.addEventListener('pointerdown', e => {
       if (e.button != null && e.button > 0) return;
       const row = handle.closest ? handle.closest('[data-rowkey]') : null;
       if (!row) return;
       e.preventDefault();
-      const rect = row.getBoundingClientRect();
-      const ph = document.createElement('div');
-      ph.className = 'pw-ph';
-      ph.style.height = rect.height + 'px';
-      row.parentNode.insertBefore(ph, row);
-      drag = { row, ph, grabY: e.clientY - rect.top, left: rect.left };
-      row.classList.add('pw-dragging');
-      row.style.width = rect.width + 'px';
-      row.style.position = 'fixed';
-      row.style.left = rect.left + 'px';
-      row.style.top = rect.top + 'px';
-      row.style.zIndex = '999';
-      row.style.pointerEvents = 'none';
-      window.addEventListener('pointermove', onMove, { passive: false });
-      window.addEventListener('pointerup', end);
-      window.addEventListener('pointercancel', end);
+      begin(row, e);
     });
+  });
+
+  list.querySelectorAll('[data-rowkey]').forEach(row => {
+    let timer = null, sx = 0, sy = 0;
+    const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    row.addEventListener('pointerdown', e => {
+      if (e.button != null && e.button > 0) return;
+      // A control is a control, not a grab. Skip / ✓ / ▾ / the handle all keep their own gesture.
+      if (e.target && e.target.closest && e.target.closest('button, .day-handle')) return;
+      sx = e.clientX; sy = e.clientY;
+      cancel();
+      timer = setTimeout(() => { timer = null; begin(row, { clientX: sx, clientY: sy }); }, 320);
+    });
+    row.addEventListener('pointermove', e => {
+      if (!timer) return;
+      if (Math.abs(e.clientX - sx) > 10 || Math.abs(e.clientY - sy) > 10) cancel();
+    });
+    row.addEventListener('pointerup', cancel);
+    row.addEventListener('pointercancel', cancel);
   });
 }
 
@@ -9870,8 +9963,12 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
     // are in, and the same answer: the gesture is untestable, the RESULT is pure. So the handle
     // also opens a four-way move sheet on tap, which every check below drives by clicking. It is
     // also the better affordance on a phone: dragging one row past twenty is miserable.
-    const hnd = h(`<span class="day-handle" title="Drag to reorder · tap to move" style="cursor:grab;color:var(--text-2);font-size:15px;padding:0 6px 0 0;align-self:center;flex-shrink:0;touch-action:none;user-select:none;-webkit-user-select:none">≡</span>`).firstChild;
-    hnd.onclick = e => { if (e && e.stopPropagation) e.stopPropagation(); dayMoveSheet(dk, orderedKeys, rk); };
+    const hnd = h(`<span class="day-handle" title="Hold to drag · tap to move" style="cursor:grab;color:var(--text-2);font-size:17px;line-height:1;padding:10px 9px 10px 2px;margin:-10px 0;align-self:center;flex-shrink:0;touch-action:none;user-select:none;-webkit-user-select:none">≡</span>`).firstChild;
+    hnd.onclick = e => {
+      if (e && e.stopPropagation) e.stopPropagation();
+      if (dayDragJustEnded) return;   // a drop ends in a click; that click is not a request for a sheet
+      dayMoveSheet(dk, orderedKeys, rk);
+    };
     li.insertBefore(hnd, li.firstChild);
     rowsOut.push({ key: rk, el });
     return el;
@@ -9894,7 +9991,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
           <div class="check" style="color:var(--accent);border-color:var(--accent)">◎</div>
           <div class="grow">
             <div class="title">${esc(r.title)}</div>
-            <div class="sub">${r.scheduled ? '◎ training due' : (r.late ? '⚠ overdue · ' : '') + r.st.covered + '/' + r.st.total + ' reviewed this cycle · ' + RV.cadenceLabel(r.a.cadence)}</div>
+            <div class="sub">${r.scheduled ? '◎ review due' : (r.late ? '⚠ overdue · ' : '') + r.st.covered + '/' + r.st.total + ' reviewed this cycle · ' + RV.cadenceLabel(r.a.cadence)}</div>
           </div>
         </div>`);
       // due (not a future scheduled marker) → tap launches your remembered review mode; ▾ picks a different one
@@ -9909,33 +10006,10 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
     });
   }
 
-  // ⚑ LEGACY practice cadences, folded UNDER the same heading rather than given their own.
-  // They stop existing the moment the reset runs; until then they are still his.
-  const prRows = practiceRowsForDate(dk).filter(r => !hidden('prac', r.id, r.title, r.creed ? 'creeds' : 'memorize'));
-  if (prRows.length) {
-    prRows.forEach(r => {
-      const el = h(`
-        <div class="list-item" style="${r.scheduled ? '' : 'cursor:pointer'}${r.late ? ';border-color:var(--danger)' : ''}">
-          <div class="check" style="color:var(--gold);border-color:var(--gold)">◈</div>
-          <div class="grow">
-            <div class="title">${esc(r.title)}</div>
-            <div class="sub">${r.scheduled ? '◈ training due' : (r.late ? '⚠ overdue · ' : '') + 'rehearse · ' + RV.cadenceLabel(r.a.cadence)}</div>
-          </div>
-        </div>`);
-      if (!r.scheduled) {
-        const t = r.creed ? creedLaunchTarget(r.sc, r.key, RV.TRAIN, r.title) : scopeLaunchTarget(r.sc, r.key, RV.TRAIN, r.title);
-        const li = el.querySelector('.list-item');
-        if (t) {
-          li.onclick = () => launchScoped(t, RV.TRAIN);
-          const dd = h(`<button class="pill" title="Choose mode" style="padding:5px 8px;font-size:12px;align-self:center;flex-shrink:0">▾</button>`).firstChild;
-          dd.onclick = e => { e.stopPropagation(); scopeModeSheet(t, RV.TRAIN); };
-          li.append(dd);
-        }
-      }
-      push(el, 'prac', r.id, r.creed ? 'creeds' : 'memorize');
-    });
-  }
-
+  // ⚑ THE LEGACY PRACTICE ROWS ARE GONE (Aug 19 2026). `ensureShapes` folds every practice cadence
+  // into the one Review cadence on load, so there is nothing left for a second block to render —
+  // and while it existed it was the thing making Baruch say "Practice and review are both showing
+  // up still". A section that can only ever be empty is a section that lies about the model.
   // memorize-by targets (D-AF) — a marker, not a pace amount; tapping opens the scope to work on it
   const mbRows = memByRowsForDate(dk).filter(r => !hidden('memby', r.id, r.title, r.creed ? 'creeds' : 'memorize'));
   if (mbRows.length) {
@@ -10254,17 +10328,15 @@ function planWeek(body) {
     }).join('');
     const revRows = reviewRowsForDate(dk);
     const revLines = revRows.map(r => `<div class="sub" style="color:${r.late ? 'var(--danger)' : 'var(--accent)'}">◎ ${esc(r.title)} · ${r.scheduled ? 'review due' : r.st.covered + '/' + r.st.total + ' this cycle'}</div>`).join('');
-    const prRows = practiceRowsForDate(dk);
-    const prLines = prRows.map(r => `<div class="sub" style="color:${r.late ? 'var(--danger)' : 'var(--gold)'}">◈ ${esc(r.title)} · ${r.scheduled ? 'practice due' : 'rehearse'}</div>`).join('');
     const mbRows = memByRowsForDate(dk);
     const mbLines = mbRows.map(r => `<div class="sub" style="color:${r.late ? 'var(--danger)' : 'var(--forest)'}">◆ ${esc(r.title)} · memorize by · ${r.done}/${r.total}</div>`).join('');
-    const anyExtra = nudges.length || dayTgts.length || revRows.length || prRows.length || mbRows.length;
+    const anyExtra = nudges.length || dayTgts.length || revRows.length || mbRows.length;
     const el = h(`
       <div class="list-item" style="${isToday ? 'border-color:var(--accent)' : ''}">
         <div class="grow">
           <div class="title">${PL.fmtDate(dk)}${isToday ? ' · today' : ''}</div>
           <div class="sub">${st.total ? st.done + '/' + st.total + ' done' : (anyExtra ? 'targets below' : st.skipped ? '' : 'nothing planned')}${st.skipped ? ((st.total || anyExtra) ? ' · ' : '') + st.skipped + ' skipped' : ''}</div>
-          ${paceLines}${tgtLines}${revLines}${prLines}${mbLines}
+          ${paceLines}${tgtLines}${revLines}${mbLines}
           ${st.total ? `<div class="progressbar" style="margin-top:6px"><div style="width:${st.done / st.total * 100}%"></div></div>` : ''}
         </div>
         <span class="chev">›</span>
@@ -10326,8 +10398,7 @@ function planMonth(body) {
     // "a section that vanishes when empty makes nothing-here look like no-such-thing" lesson.
     if (st.skipped) dots.push(`<span title="skipped" style="width:5px;height:5px;border-radius:50%;border:1.5px dashed var(--text-2);background:transparent"></span>`);
     if (hasTarget) dots.push(`<span title="reading/pace target" style="width:5px;height:5px;border-radius:50%;border:1.5px solid var(--accent);background:transparent"></span>`);
-    if (reviewRowsForDate(dk).length) dots.push(`<span title="training due" style="width:5px;height:5px;border-radius:50%;background:var(--text)"></span>`);
-    if (practiceRowsForDate(dk).length) dots.push(`<span title="training due (legacy)" style="width:5px;height:5px;border-radius:50%;background:var(--gold)"></span>`);
+    if (reviewRowsForDate(dk).length) dots.push(`<span title="review due" style="width:5px;height:5px;border-radius:50%;background:var(--text)"></span>`);
     if (memByRowsForDate(dk).length) dots.push(`<span title="memorize by" style="width:5px;height:5px;border-radius:50%;background:var(--forest)"></span>`);
     // one dot per DAILY target applying this day: filled (forest) if met, hollow (gold) if not (9.5)
     PL.targets().filter(t => t.period === 'day' && TG.targetAppliesOn(t, dk)).slice(0, 4).forEach(t => {
@@ -10700,6 +10771,8 @@ function buildPathwayBody(wrap, p) {
       // agree about whether the engine owns this step, or the screen contradicts itself.
       const engineSays = refStepEngineSays(p, s);
       const handOnly = !!s.ref && engineSays === null;
+      // ⚑ A BROKEN LINK IS NOT "no opinion", it is a fault, and it has to look like one.
+      const brokenRef = refStepBroken(s);
       const offset = [0, 26, 46, 26][i % 4];
       const stone = h(`
         <div class="row" style="margin-bottom:10px;margin-left:${offset}px;position:relative">
@@ -10713,7 +10786,9 @@ function buildPathwayBody(wrap, p) {
                 ${!pwEditMode && PW.stepWeight(s) > 1 ? ` <span style="font-size:11px;font-weight:700;color:var(--gold)">×${PW.stepWeight(s)}</span>` : ''}</div>
               ${s.ref && !s.done && !pwEditMode ? (isReadStep(s)
                 ? `<button class="pill" data-a="refgo" style="padding:5px 12px;font-size:12px">▸ Open</button><button class="pill" data-a="refman" title="Mark by hand" style="padding:5px 9px;font-size:12px">✓</button>`
-                : `<button class="pill" data-a="refgo" style="padding:5px 12px;font-size:12px">${refPillLabel(s.ref.intent)}</button>${s.ref.intent !== 'memorize' ? `<button class="pill" data-a="refmodes" title="Choose mode" style="padding:5px 8px;font-size:12px">▾</button>` : ''}${handOnly ? `<button class="pill" data-a="refman" title="Mark by hand" style="padding:5px 9px;font-size:12px">✓</button>` : ''}`)
+                : brokenRef
+                  ? `<button class="pill" data-a="relink" style="padding:5px 12px;font-size:12px;border-color:var(--danger);color:var(--danger)">⚠ Relink</button>`
+                  : `<button class="pill" data-a="refgo" style="padding:5px 12px;font-size:12px">${refPillLabel(s.ref.intent)}</button>${s.ref.intent !== 'memorize' ? `<button class="pill" data-a="refmodes" title="Choose mode" style="padding:5px 8px;font-size:12px">▾</button>` : ''}${handOnly ? `<button class="pill" data-a="refman" title="Mark by hand" style="padding:5px 9px;font-size:12px">✓</button>` : ''}`)
                 : isNext && !pwEditMode && !locked ? `<button class="pill on" data-a="go" style="padding:5px 12px;font-size:12px">Done</button>` +
                 (PW.isTimed(p) ? `<button class="pill" data-a="time" style="padding:5px 9px;font-size:13px">⏱</button>` : '') : ''}
               ${!s.done && !pwEditMode ? `<button class="pill pw-datechip ${s.date ? 'on' : ''}" data-a="date" style="padding:5px 9px;font-size:12px">${s.date ? '📅 ' + shortDate(s.date) : '📅'}</button>` : ''}
@@ -10726,7 +10801,8 @@ function buildPathwayBody(wrap, p) {
             </div>
             ${s.done && s.doneTs ? `<div class="sub" style="margin-top:2px">done ${new Date(s.doneTs).toLocaleDateString()}${s.secs != null ? ' · ' + SC.fmtSecs(s.secs) : ''}</div>` : ''}
             ${isReadStep(s) ? (() => { const sub = readStepSub(s); return sub ? `<div class="sub" style="margin-top:2px">${esc(sub)}${s.manualDone !== undefined ? ' · set by hand' : ''}</div>` : (s.manualDone !== undefined ? `<div class="sub" style="margin-top:2px">set by hand</div>` : ''); })() : ''}
-            ${(!isReadStep(s) && s.ref) ? (() => {
+            ${brokenRef ? `<div class="sub" style="margin-top:2px;color:var(--danger)">⚠ ${esc(brokenRef.why)}</div>` : ''}
+            ${(!isReadStep(s) && s.ref && !brokenRef) ? (() => {
                 const bits = [];
                 const why = refStepManualReason(p, s);
                 if (why) bits.push(why);
@@ -10739,6 +10815,8 @@ function buildPathwayBody(wrap, p) {
         </div>`);
       const go = stone.querySelector('[data-a=go]');
       if (go) go.onclick = () => { completePathwayStep(p); drawPathway(p); };
+      const relink = stone.querySelector('[data-a=relink]');
+      if (relink) relink.onclick = () => relinkSheet(p, s);
       const refgo = stone.querySelector('[data-a=refgo]');
       if (refgo) refgo.onclick = () => launchRefStep(s, refgo);   // one-tap remembered mode (memorize → open the scope)
       const refmodes = stone.querySelector('[data-a=refmodes]');
@@ -10857,10 +10935,17 @@ function buildPathwayEdit(wrap, p) {
       group.append(row);
       // ⚑ WHEN A FIELD IS LOAD-BEARING, THE SCREEN HAS TO SAY SO. A step the engine declines to
       // score looks exactly like one it owns, right up until it never ticks itself.
-      const why = refStepManualReason(p, s);
-      const byHand = s.ref && s.manualDone !== undefined ? 'set by hand' : '';
-      const note = [why, byHand].filter(Boolean).join(' · ');
-      if (note) group.append(h(`<div class="pw-empty muted" style="margin:-4px 0 6px 34px;font-size:11.5px">${esc(note)}</div>`).firstElementChild);
+      const bref = refStepBroken(s);
+      if (bref) {
+        const warn = h(`<div class="pw-empty" style="margin:-4px 0 6px 34px;font-size:11.5px;color:var(--danger)">⚠ ${esc(bref.why)} · <button class="pill" data-a="relink" style="padding:2px 8px;font-size:11px">Relink</button></div>`).firstElementChild;
+        warn.querySelector('[data-a=relink]').onclick = () => relinkSheet(p, s);
+        group.append(warn);
+      } else {
+        const why = refStepManualReason(p, s);
+        const byHand = s.ref && s.manualDone !== undefined ? 'set by hand' : '';
+        const note = [why, byHand].filter(Boolean).join(' · ');
+        if (note) group.append(h(`<div class="pw-empty muted" style="margin:-4px 0 6px 34px;font-size:11.5px">${esc(note)}</div>`).firstElementChild);
+      }
     });
     if (!m.steps.length) group.append(h(`<div class="pw-empty muted">Empty — add a step below or drag one here.</div>`).firstElementChild);
     list.append(group);
@@ -11108,20 +11193,25 @@ function stepTimer(p, stepId = null) {
 // solid = complete, red ring = review needed. Tap any tile to open the book.
 let scMode = 'memorize';
 
+// ⚑⚑ THE BOOKSHELF WAS THE ODD ONE OUT — a square, a percentage fill, no decay, no ring. It predates
+// `scriptureCircle` and was never brought across, so the Scripture home showed a different picture of
+// the same fact from every other Scripture screen. It is the component now.
+//
+// ⚑ AND IT GAINS THE THING HE ASKED FOR IN THE SAME MOVE: the fill IS the decay, so a book that needs
+// reviewing is visibly darker than one that does not, on the screen where he is choosing what to do.
+// The percentage it used to show is on the caption underneath, where it was always more legible.
 function shelfTile(b) {
-  const st = SC.bookStats(b);
-  const stale = SC.isStale(b);
-  const color = b.t === 'ot' ? 'var(--ot)' : 'var(--nt)';
-  const done = st.pct === 100;
-  const el = h(`
-    <div style="aspect-ratio:1;border-radius:3px;position:relative;overflow:hidden;cursor:pointer;
-      border:${stale ? '2px solid var(--danger)' : done ? '1.5px solid ' + color : '1px solid var(--line)'};
-      background:var(--card);display:flex;align-items:center;justify-content:center" title="${esc(b.name)} · ${st.pct}%">
-      ${st.pct ? `<div style="position:absolute;left:0;right:0;bottom:0;height:${st.pct}%;background:${color};opacity:${done ? '1' : '.30'}"></div>` : ''}
-      <span style="position:relative;font-size:10px;font-weight:700;color:${done ? '#fff' : 'var(--text)'}">${SC.abbr(b.name)}</span>
-    </div>`).firstElementChild;
-  el.onclick = () => render(() => bookScreen(b));
-  return el;
+  const v = bookReviewView(b);
+  return scriptureCircle({
+    label: SC.abbr(b.name),
+    size: 40,
+    memorized: v.memorized,
+    decay: v.decay,
+    mastery: v.mastery,
+    count: v.st.pct ? v.st.pct + '%' : null,
+    title: b.name + ' · ' + v.st.pct + '%' + (bookDecayNote(v) ? ' · ' + bookDecayNote(v) : ''),
+    onClick: () => render(() => bookScreen(b)),
+  });
 }
 
 function scriptureHome() {
@@ -11137,7 +11227,8 @@ function scriptureHome() {
   if (cur) {
     const st = SC.bookStats(cur);
     const next = SC.nextChapter(cur);
-    const stale = SC.isStale(cur);
+    const heroV = bookReviewView(cur);
+    const stale = heroV.due;
     const hero = h(`
       <div class="card" style="border-color:var(--accent);cursor:pointer">
         <h3>Continue memorizing</h3>
@@ -11145,7 +11236,7 @@ function scriptureHome() {
           <span class="badge ${cur.t}">${cur.t.toUpperCase()}</span>
           <div class="grow">
             <div style="font-size:18px;font-weight:700;">${esc(cur.name)}</div>
-            <div class="muted" style="font-size:12px">${next ? 'chapter ' + (next.ci + 1) + ' · ' + next.done + '/' + next.total + ' verses' : 'complete! 🎉'}${stale ? ' · <span style="color:var(--danger)">⚠ review needed</span>' : ''}</div>
+            <div class="muted" style="font-size:12px">${next ? 'chapter ' + (next.ci + 1) + ' · ' + next.done + '/' + next.total + ' verses' : 'complete! 🎉'}${bookDecayNote(heroV) && heroV.decay != null ? ` · <span style="color:${heroV.due ? 'var(--danger)' : heroV.soon ? 'var(--gold)' : 'var(--text-2)'}">${esc(bookDecayNote(heroV))}</span>` : ''}</div>
           </div>
           <div class="big" style="color:var(--accent)">${st.pct}%</div>
         </div>
@@ -11159,33 +11250,25 @@ function scriptureHome() {
   const inProgress = SC.allBooks.filter(b => { const s = SC.bookStats(b); return s.done > 0 && b.name !== (cur && cur.name); });
   if (inProgress.length) {
     body.append(sectionTitle('In progress'));
-    inProgress.forEach(b => {
-      const st = SC.bookStats(b);
-      const stale = SC.isStale(b);
-      const el = h(`
-        <div class="list-item">
-          <span class="badge ${b.t}">${b.t.toUpperCase()}</span>
-          <div class="grow">
-            <div class="title">${esc(b.name)}${stale ? ' <span style="color:var(--danger);font-size:12px;font-weight:700">⚠</span>' : ''}</div>
-            <div class="sub">${st.done}/${st.total} verses · ${st.pct}%</div>
-            <div class="progressbar" style="margin-top:6px"><div style="width:${st.pct}%;${stale ? 'background:var(--danger);opacity:.5' : ''}"></div></div>
-          </div>
-          <span class="chev">›</span>
-        </div>`);
-      el.querySelector('.list-item').onclick = () => render(() => bookScreen(b));
-      body.append(el);
-    });
+    // ⚑ THE ROW ANSWERS "WHAT NEEDS REVIEWING" WITHOUT BEING OPENED. It used to carry `SC.isStale`,
+    // which is a whole-book boolean off the book-tier interval only — it cannot see a chapter or a
+    // unit cadence, and it has no notion of "soon". `bookReviewView` reads the same resolver the
+    // chapter circles do, so the home and the book screen cannot disagree about the same book.
+    inProgress.forEach(b => body.append(bookRow(b)));
   }
 
   // the bookshelf — every book, at a glance
   [['ot', 'Old Testament'], ['nt', 'New Testament']].forEach(([t, label]) => {
     body.append(sectionTitle(label));
     const grid = document.createElement('div');
-    grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(46px,1fr));gap:6px';
+    grid.className = 'sc-shelf';
+    grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(46px,1fr));gap:8px 4px;justify-items:center';
     SC.allBooks.filter(b => b.t === t).forEach(b => grid.append(shelfTile(b)));
     body.append(grid);
   });
-  body.append(h(`<div class="muted" style="font-size:11px;margin-top:10px;padding:0 4px">Tile fill = % memorized · solid = complete · red ring = review needed. Tap any book.</div>`));
+  // ⚑ THE LEGEND HAD TO CHANGE WITH THE TILE, and a legend describing the old drawing would have been
+  // worse than none — "tile fill = % memorized" is exactly what the fill no longer means.
+  body.append(h(`<div class="muted" style="font-size:11px;margin-top:10px;padding:0 4px;line-height:1.6">Circle fill = how far through its review window a book has drifted — pale is fresh, dark is due. Gold ring = proficiency. Caption = % memorized. Tap any book.</div>`));
 
   // SM3 — corpus resets, deliberately buried at the bottom
   const rst = h(`<div class="card" style="margin-top:18px"><h3>Reset</h3>
@@ -11207,7 +11290,11 @@ function scriptureHome() {
 // 7B.2 — dashboard hub: a browsable list of a corpus's books (t = 'ot' | 'nt' | null for whole Bible)
 function corpusBooks(t) {
   const title = t === 'ot' ? 'Old Testament' : t === 'nt' ? 'New Testament' : 'Whole Bible';
-  setHeader(title, { back: t ? () => corpusBooks(null) : scriptureHome });
+  // ⚑ AND THE SAME ARGUMENT ONE LEVEL UP. Old Testament used to go back to Whole Bible, which goes
+  // back to the Scripture home — so reaching a testament from the dashboard cost three taps to leave.
+  // Whole Bible is as much a subset of the home as a testament is; the chain was ordering screens by
+  // how they were built rather than by where he wants to be. Both go home.
+  setHeader(title, { back: scriptureHome });
   const wrap = document.createElement('div');
   const books = SC.allBooks.filter(b => t == null || b.t === t);
   let done = 0, total = 0;
@@ -11217,18 +11304,7 @@ function corpusBooks(t) {
     <div class="grow"><div class="big">${pct > 0 && pct < 10 ? pct.toFixed(1) : Math.round(pct)}%</div>
     <div class="muted">${done.toLocaleString()}/${total.toLocaleString()} verses memorized · ${books.length} books</div></div>
   </div></div>`));
-  books.forEach(b => {
-    const st = SC.bookStats(b);
-    const stale = SC.isStale(b);
-    const el = h(`<div class="list-item" style="cursor:pointer">
-      <span class="badge ${b.t}">${b.t.toUpperCase()}</span>
-      <div class="grow"><div class="title">${esc(b.name)}${stale ? ' <span style="color:var(--danger);font-size:12px;font-weight:700">⚠</span>' : ''}</div>
-        <div class="sub">${st.done}/${st.total} verses · ${st.pct}%</div>
-        <div class="progressbar" style="margin-top:5px"><div style="width:${st.pct}%;${stale ? 'background:var(--danger);opacity:.5' : ''}"></div></div></div>
-      <span class="chev">›</span></div>`).firstElementChild;
-    el.onclick = () => render(() => bookScreen(b));
-    wrap.append(el);
-  });
+  books.forEach(b => wrap.append(bookRow(b)));
   main().append(wrap);
 }
 
@@ -11238,15 +11314,9 @@ function booksCompleteScreen() {
   const wrap = document.createElement('div');
   const done = SC.allBooks.filter(b => { const s = SC.bookStats(b); return s.total > 0 && s.done === s.total; });
   if (!done.length) wrap.append(h(`<div class="muted" style="padding:8px 4px">No books fully memorized yet. Finish every verse in a book and it lands here.</div>`));
-  done.forEach(b => {
-    const st = SC.bookStats(b);
-    const el = h(`<div class="list-item" style="cursor:pointer">
-      <span class="badge ${b.t}">${b.t.toUpperCase()}</span>
-      <div class="grow"><div class="title">${esc(b.name)}</div><div class="sub">${st.total} verses · 100%</div></div>
-      <span class="chev">›</span></div>`).firstElementChild;
-    el.onclick = () => render(() => bookScreen(b));
-    wrap.append(el);
-  });
+  // ⚑ A FINISHED BOOK STILL DECAYS, and this was the one list that said nothing about it at all —
+  // the screen you open precisely to ask "what have I got, and is it still there".
+  done.forEach(b => wrap.append(bookRow(b, { pctOnly: true })));
   main().append(wrap);
 }
 
@@ -11282,7 +11352,17 @@ function practiceCreedsLauncher() {
 const INTERVALS = [[0, 'None'], [7, 'Weekly'], [14, '2 weeks'], [30, 'Monthly'], [90, '3 months']];
 
 function bookScreen(b) {
-  setHeader(b.name, { back: () => corpusBooks(b.t) });
+  // ⚑⚑ BACK GOES TO THE SCRIPTURE HOME, NOT UP THE CORPUS CHAIN (Aug 19 2026). Baruch: "when I click
+  // into one of the books, if I click back it should just bring me back to the Scripture domain home
+  // page, not to the testament then the whole Bible then the home page for that domain. The
+  // individual testaments are unnecessary pages at this point."
+  //
+  // ⚑ AND HE IS RIGHT FOR A REASON THE CODE CAN STATE: the Scripture home already lists books in
+  // progress, books complete, and every OT and NT book with its progress. Climbing back through two
+  // screens that are strict subsets of the one below them is navigation charging rent for nothing.
+  // 7B.1's logical-parent rule says a screen declares its true container — the container really is
+  // the home now, and the testament pages stay reachable as their own deep-links from the dashboard.
+  setHeader(b.name, { back: scriptureHome });
   const wrap = document.createElement('div');
   const st = SC.bookStats(b);
   const stale = SC.isStale(b);
@@ -11320,12 +11400,14 @@ function bookScreen(b) {
   wrap.append(sectionTitle('Chapters'));
   const grid = document.createElement('div');
   grid.className = 'scgrid';
-  const bModReviews = MOD.modulesFor(b.name).filter(m => m.review);
+  // ⚑ `RV.cadenceOf`, not `m.review`. This is the DECAY FILL — the reader whose silence costs the
+  // most, because a wrong interval does not look like an error, it looks like a book that is fine.
+  const bModReviews = MOD.modulesFor(b.name).filter(m => RV.cadenceOf(m));
   b.verses.forEach((_, ci) => {
     const c = SC.chapterStats(b, ci);
     const keys = [];
     for (let v = 1; v <= c.total; v++) if (SC.verseDone(b, ci, v)) keys.push('bible:' + b.name + ':' + (ci + 1) + '#' + v);
-    const chMods = bModReviews.filter(m => MOD.moduleChapters(m).includes(ci)).map(m => m.review);
+    const chMods = bModReviews.filter(m => MOD.moduleChapters(m).includes(ci)).map(m => RV.cadenceOf(m));
     const chIv = RV.governingReviewInterval(b.name, ci, -1, chMods);   // chapter cadence → covering module → whole book (most-specific wins)
     grid.append(scriptureCircle({
       num: ci + 1,
@@ -11519,8 +11601,6 @@ function assignScope(kind, ref) {
       key: pk,
       reviewAssign: () => RV.bookAssignment(b.name),
       setReview: c => { if (c) { RV.setBookCadence(b.name, c); SC.setReviewInterval(b.name, RV.normCadence(c).days); } else { RV.clearBookCadence(b.name); SC.setReviewInterval(b.name, 0); } },
-      practiceAssign: () => { const u = RV.getUnit(pk); return u && u.practice ? u.practice : null; },
-      setPractice: c => c ? RV.setUnitCadence(pk, 'practice', c) : RV.clearUnitCadence(pk, 'practice'),
       memBy: () => RV.unitMemBy(pk),
       setMemBy: d => RV.setUnitMemBy(pk, d)
     };
@@ -11530,10 +11610,8 @@ function assignScope(kind, ref) {
     return {
       title: mod.name || MOD.moduleAutoName(mod, b),
       key: pk,
-      reviewAssign: () => mod.review || null,
-      setReview: c => { if (c) mod.review = RV.newAssignment(c); else delete mod.review; save(); },
-      practiceAssign: () => { const u = RV.getUnit(pk); return u && u.practice ? u.practice : null; },
-      setPractice: c => c ? RV.setUnitCadence(pk, 'practice', c) : RV.clearUnitCadence(pk, 'practice'),
+      reviewAssign: () => RV.cadenceOf(mod),
+      setReview: c => { if (c) mod[RV.TRAIN] = RV.newAssignment(c); else { delete mod[RV.TRAIN]; delete mod.review; delete mod.practice; } save(); },
       memBy: () => RV.unitMemBy(pk),
       setMemBy: d => RV.setUnitMemBy(pk, d)
     };
@@ -11542,24 +11620,26 @@ function assignScope(kind, ref) {
   return {
     title: b.name + ' ' + (ref.ci + 1) + (kind === 'verse' ? ':' + ref.v : ''),
     key,
-    reviewAssign: () => { const u = RV.getUnit(key); return u && u.review ? u.review : null; },
-    setReview: c => c ? RV.setUnitCadence(key, 'review', c) : RV.clearUnitCadence(key, 'review'),
-    practiceAssign: () => { const u = RV.getUnit(key); return u && u.practice ? u.practice : null; },
-    setPractice: c => c ? RV.setUnitCadence(key, 'practice', c) : RV.clearUnitCadence(key, 'practice'),
+    reviewAssign: () => RV.cadenceOf(RV.getUnit(key)),
+    setReview: c => { if (c) RV.setUnitCadence(key, RV.TRAIN, c); else { RV.clearUnitCadence(key, RV.TRAIN); RV.clearUnitCadence(key, 'review'); RV.clearUnitCadence(key, 'practice'); } },
     memBy: () => RV.unitMemBy(key),
     setMemBy: d => RV.setUnitMemBy(key, d)
   };
 }
 function assignSheet(scope) {
   openSheet('Assign · ' + scope.title, (body, close) => {
-    const rvA = scope.reviewAssign(), prA = scope.practiceAssign();
+// ⚑⚑ ONE CADENCE PER SCOPE (Aug 19 2026). The thirtieth session merged the two BEHAVIOURS and left
+// the two KEYS — `u.review` and `u.practice` stayed writable from these sheets, so the app went on
+// offering to create the very thing it had stopped distinguishing. Baruch: "Get rid of practice. All
+// is review. Everything counts. There is no isolated practice that does not effect decay or memory
+// status." Writes go to `train`; reads keep the legacy fallbacks, because a blob synced from an
+// older build (D-B) still carries the old keys and `ensureShapes` only folds what it has seen.
+    const rvA = scope.reviewAssign();
     const rowBtn = (label, sub) => h(`<button class="pill" style="display:block;width:100%;text-align:left;margin-bottom:8px">${label} · <span style="color:var(--gold)">${esc(sub)}</span></button>`).firstChild;
     const rv = rowBtn('Review cadence', RV.cadenceLabel(rvA && rvA.cadence));
     rv.onclick = () => { close(); reviewCadenceSheet(scope.title, rvA, c => scope.setReview(c)); };
-    const pr = rowBtn('Practice cadence', RV.cadenceLabel(prA && prA.cadence));
-    pr.onclick = () => { close(); reviewCadenceSheet(scope.title, prA, c => scope.setPractice(c)); };
-    body.append(rv, pr);
-    body.append(h(`<div class="muted" style="font-size:12px;margin:6px 4px 4px">Review comes due on a cadence; practice is a rehearsal reminder; memorize-by sets a target date.</div>`));
+    body.append(rv);
+    body.append(h(`<div class="muted" style="font-size:12px;margin:6px 4px 4px">Review comes due on a cadence and everything you clear counts toward it; memorize-by sets a target date.</div>`));
     body.append(dueControl({ label: 'Memorize by', value: scope.memBy(), onSet: d => { scope.setMemBy(d); rerender(); } }));
     const addPw = h(`<button class="pill" style="display:block;width:100%;text-align:left;margin-top:12px">Add to a pathway ›</button>`).firstChild;
     addPw.onclick = () => { close(); pathwayAddSheet(scope.key, scope.title); };
@@ -11631,7 +11711,7 @@ function trainCycleStart(key) {
   const u = RV.getUnit(key);
   if (!u) return 0;
   // Legacy keys are read but never written — the reset clears them and nothing recreates them.
-  const a = u[RV.TRAIN] || u.review || u.practice;
+  const a = RV.cadenceOf(u);
   return a ? a.cycleStart : 0;
 }
 // Compact summary of EVERYTHING assigned to a scope: train cadence ◎ · memorize-by ◆.
@@ -11643,7 +11723,7 @@ function trainCycleStart(key) {
 // original one: a label that shows a subset of what is assigned makes the rest look unsaved.
 function assignPillLabel(key, trainA) {
   const u = RV.getUnit(key), bits = [];
-  const a = trainA || (u && (u[RV.TRAIN] || u.review || u.practice));
+  const a = trainA || RV.cadenceOf(u);
   if (a) bits.push('◎ ' + RV.cadenceLabel(a.cadence));
   if (u && u.memBy) bits.push('◆ ' + shortDate(u.memBy));
   return 'Assign' + (bits.length ? ' · ' + bits.join(' · ') : '');
@@ -11658,7 +11738,7 @@ function assignPillLabel(key, trainA) {
 // mirroring governingReviewInterval's verse > chapter > module > book. Drives the decay FILL only;
 // practice cadences never touch the fill (D-AC).
 function creedGoverningInterval(docId, n, ld) {
-  const at = key => { const u = RV.getUnit(key); return u && u.review ? RV.cadenceIntervalMs(u.review.cadence) : null; };
+  const at = key => { const a = RV.cadenceOf(RV.getUnit(key)); return a ? RV.cadenceIntervalMs(a.cadence) : null; };
   const s = at(CR.creedScopeKey(docId, 'section', n)); if (s !== null) return s;
   if (ld != null) { const g = at(CR.creedScopeKey(docId, 'group', ld)); if (g !== null) return g; }
   return at(CR.creedScopeKey(docId, 'doc'));
@@ -11671,10 +11751,8 @@ function creedAssignScope(docId, kind, n) {
   return {
     title: CR.creedScopeTitle(sc),
     key,
-    reviewAssign: () => { const u = RV.getUnit(key); return u && u.review ? u.review : null; },
-    setReview: c => c ? RV.setUnitCadence(key, 'review', c) : RV.clearUnitCadence(key, 'review'),
-    practiceAssign: () => { const u = RV.getUnit(key); return u && u.practice ? u.practice : null; },
-    setPractice: c => c ? RV.setUnitCadence(key, 'practice', c) : RV.clearUnitCadence(key, 'practice'),
+    reviewAssign: () => RV.cadenceOf(RV.getUnit(key)),
+    setReview: c => { if (c) RV.setUnitCadence(key, RV.TRAIN, c); else { RV.clearUnitCadence(key, RV.TRAIN); RV.clearUnitCadence(key, 'review'); RV.clearUnitCadence(key, 'practice'); } },
     memBy: () => RV.unitMemBy(key),
     setMemBy: d => RV.setUnitMemBy(key, d)
   };
@@ -11704,9 +11782,9 @@ function creedLaunchTarget(sc, key, intent, title) {
 // `state.review.books`) and are read here through the same one function, so the merge did not
 // have to find three places later. Legacy keys are read; only `TRAIN` is written.
 function scopeTrainAssign(sc, key) {
-  if (sc.kind === 'module') { const r = scopeModule(sc); return r ? (r[1][RV.TRAIN] || r[1].review || r[1].practice || null) : null; }
+  if (sc.kind === 'module') { const r = scopeModule(sc); return r ? RV.cadenceOf(r[1]) : null; }
   if (sc.kind === 'book') return RV.bookAssignment(sc.book);
-  const u = RV.getUnit(key); return (u && (u[RV.TRAIN] || u.review || u.practice)) || null;
+  return RV.cadenceOf(RV.getUnit(key));
 }
 // Derived completion of an assignment-step (single source of truth — D-AG).
 // Returns true/false, or NULL meaning "the engine has no opinion" — an unrecognized key namespace,
@@ -11966,14 +12044,21 @@ function refStepLaunch(step) {
 }
 // ⚑ `memorize` is a DIFFERENT AXIS and survives the merge — it is a pathway step meaning "get
 // this memorized by then", not a session mode. Practice and Review both became Train.
-const intentVerb = i => i === 'memorize' ? 'Memorize' : 'Train';
+// ⚑ ONE WORD, AND IT IS "REVIEW" (Aug 19 2026). The thirtieth session named the merged concept
+// "Train"; half the app still said Review and the two words meant the same thing in different
+// places. Baruch's ruling: "Let's actually keep it review. And make that the consistent term
+// everywhere." The STORAGE key stays `train` — renaming it would break a blob synced from an older
+// build for no visible gain, which is the D-B rule.
+const intentVerb = i => i === 'memorize' ? 'Memorize' : 'Review';
 // pick a pathway (or create one) to add this scope as an assignment-step, with an intent
 function pathwayAddSheet(scopeKey, title) {
   openSheet('Add to pathway · ' + title, (body, close) => {
-    let intent = 'review';
+    // ⚑ THE INTENT IS THE STORAGE KEY, NOT THE LABEL. `RV.TRAIN` is what every reader looks for;
+    // shipping a pill that wrote the literal string 'review' is how his existing steps ended up
+    // pointing at a preference slot nothing reads.
+    let intent = RV.TRAIN;
     const irow = h(`<div class="pillrow" style="margin-bottom:12px">
-      <button class="pill on" data-i="review">Review</button>
-      <button class="pill" data-i="practice">Practice</button>
+      <button class="pill on" data-i="${RV.TRAIN}">Review</button>
       <button class="pill" data-i="memorize">Memorize</button></div>`).firstElementChild;
     irow.querySelectorAll('[data-i]').forEach(btn => btn.onclick = () => { intent = btn.dataset.i; irow.querySelectorAll('.pill').forEach(x => x.classList.toggle('on', x === btn)); });
     body.append(h(`<div class="muted" style="font-size:12px;margin-bottom:4px">Add “${esc(title)}” as an assignment step. It auto-completes when you do the work.</div>`), irow);
@@ -11996,7 +12081,19 @@ function reviewShade(f) {
 // optional count caption BELOW (always shown on aggregate units so complete/incomplete look identical).
 // memorized=false → empty dashed circle (still tappable). decay/mastery null → that channel is omitted
 // (neutral paper fill / no ring). Returns a <button> (if onClick) or <div>.
-function scriptureCircle({ num, memorized = true, decay = null, mastery = null, count = null, title = '', onClick = null, onLong = null }) {
+// ⚑⚑ ONE COMPONENT FOR EVERY SCRIPTURE SURFACE (Aug 19 2026). Baruch: "The Scripture pages are not
+// following the format we've established everywhere. Some are squares some are circles. Some have
+// the rings around the circles some only have the fade. All should be circles. All should show
+// decay. All should show proficiency rings."
+//
+// ⚑ HE IS DESCRIBING A COMPONENT THAT EXISTED AND WAS NOT USED EVERYWHERE. `scriptureCircle` has
+// drawn the decay fill and the mastery ring since D-AE — the chapter grid and the verse grid both
+// use it. The bookshelf on the Scripture home drew its OWN square with a percentage fill and no
+// decay and no ring, because it predates the component. Two pictures of one fact.
+//
+// ⚑ `label` and `size` are the only things it lacked: a book tile says "Rom", not a number, and a
+// shelf of 39 needs to be smaller than a grid of 5.
+function scriptureCircle({ num, label = null, size = 46, memorized = true, decay = null, mastery = null, count = null, title = '', onClick = null, onLong = null }) {
   const RR = 24, C = 2 * Math.PI * RR;
   let fillBg = 'none', numCol = 'var(--text-2)', fillStroke = 'stroke:var(--line);stroke-width:1;stroke-dasharray:3 3';
   if (memorized) {
@@ -12010,10 +12107,15 @@ function scriptureCircle({ num, memorized = true, decay = null, mastery = null, 
   const el = document.createElement(onClick ? 'button' : 'div');
   el.className = 'scircle';
   if (title) el.title = title;
-  el.innerHTML = `<svg viewBox="0 0 58 58" width="46" height="46" aria-hidden="true">
+  // ⚑ THE TEXT SHRINKS WITH ITS LENGTH, not with a guess. "3" and "1 Th" cannot share a font size,
+  // and a book abbreviation that overflows its circle is the kind of detail that makes a unified
+  // component look worse than the thing it replaced.
+  const face = label != null ? String(label) : String(num);
+  const fs = face.length >= 4 ? 10 : face.length === 3 ? 12 : 15;
+  el.innerHTML = `<svg viewBox="0 0 58 58" width="${size}" height="${size}" aria-hidden="true">
     <circle cx="29" cy="29" r="19" fill="${fillBg}" style="${fillStroke}"/>
     ${ring}
-    <text x="29" y="29" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="600" style="fill:${numCol}">${num}</text>
+    <text x="29" y="29" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-weight="600" style="fill:${numCol}">${esc(face)}</text>
   </svg>${count != null ? `<span class="scircle-cap">${esc(count)}</span>` : ''}`;
   if (onLong) {   // long-press = a secondary action (e.g. open the Assign sheet on a verse); pointer-based so it works in the installed PWA
     let lt = null, longed = false;
@@ -12028,6 +12130,81 @@ function scriptureCircle({ num, memorized = true, decay = null, mastery = null, 
 }
 // masteryOf(coverageKey) → ringMastery for that verse (used by the unit rollups; D-AE ring source)
 const verseRingMastery = k => { const s = RV.splitKey(k); return CR.ringMastery(s.docId, s.n); };
+// ⚑⚑ HOW A BOOK STANDS, COMPUTED ONCE. Baruch: "the books that are memorized or partially memorized
+// should also be indicating the review decay. So when I look at the books on that home screen of
+// Scripture, I should be able to tell what needs to be reviewed or what soon needs to be reviewed."
+//
+// ⚑ THE BOOK'S DECAY IS ITS WORST CHAPTER, NOT AN AVERAGE. A book with nine fresh chapters and one
+// that is three weeks overdue does not need "a bit" of review — it needs that chapter, and a mean
+// would hide exactly the thing the screen is for. That is also what `unitDecay` already does at the
+// tier below: it takes the worst verse, not the average verse. One rule, two tiers.
+//
+// ⚑ AND `null` MEANS "NO CADENCE GOVERNS THIS", not "fresh". A book he has memorized and never put on
+// a rhythm must not render as though it were up to date — it renders neutral, which is the honest
+// answer and is what `scriptureCircle` already draws for `decay: null`.
+function bookReviewView(b) {
+  const st = SC.bookStats(b);
+  const mods = MOD.modulesFor(b.name).filter(m => RV.cadenceOf(m));
+  let worst = null;
+  const allKeys = [];
+  b.verses.forEach((_, ci) => {
+    const keys = [];
+    for (let v = 1; v <= b.verses[ci]; v++) if (SC.verseDone(b, ci, v)) keys.push('bible:' + b.name + ':' + (ci + 1) + '#' + v);
+    if (!keys.length) return;
+    allKeys.push(...keys);
+    const chMods = mods.filter(m => MOD.moduleChapters(m).includes(ci)).map(m => RV.cadenceOf(m));
+    const iv = RV.governingReviewInterval(b.name, ci, -1, chMods);
+    if (iv == null) return;
+    const d = RV.unitDecay(keys, iv);
+    if (d != null && (worst === null || d > worst)) worst = d;
+  });
+  return {
+    st,
+    memorized: st.done > 0,
+    decay: worst,
+    mastery: allKeys.length ? RV.unitMastery(allKeys, verseRingMastery) : null,
+    // ⚑ Two thresholds, because he asked for two answers: "what needs to be reviewed OR what soon
+    // needs to be reviewed". `verseFreshness` runs 0 → 1 across the cadence window, so 1 is the day
+    // it comes due and 0.7 is roughly the last third of the window.
+    due: worst != null && worst >= 1,
+    soon: worst != null && worst >= 0.7 && worst < 1,
+  };
+}
+// ⚑⚑ ONE ROW FOR A BOOK, USED BY ALL THREE LISTS. The Scripture home, the corpus lists and Books
+// complete each drew their own — badge, title, a progress bar, and (on two of the three) a bare red ⚠
+// off `SC.isStale`. Three drawings of one fact, disagreeing about which facts were worth drawing.
+// One builder means the decay circle, the proficiency ring and the "due / soon" wording cannot drift
+// apart across the screens he moves between while deciding what to work on.
+function bookRow(b, { pctOnly = false } = {}) {
+  const v = bookReviewView(b);
+  const note = bookDecayNote(v);
+  const col = v.due ? 'var(--danger)' : v.soon ? 'var(--gold)' : 'var(--text-2)';
+  const sub = pctOnly ? `${v.st.total} verses · 100%`
+                      : `${v.st.done}/${v.st.total} verses · ${v.st.pct}%`;
+  const el = h(`
+    <div class="list-item" style="cursor:pointer">
+      <span class="badge ${b.t}">${b.t.toUpperCase()}</span>
+      <div class="grow">
+        <div class="title">${esc(b.name)}</div>
+        <div class="sub">${sub}${note ? ` · <span style="color:${col};font-weight:600">${esc(note)}</span>` : ''}</div>
+        ${pctOnly ? '' : `<div class="progressbar" style="margin-top:6px"><div style="width:${v.st.pct}%"></div></div>`}
+      </div>
+      <span class="chev">›</span>
+    </div>`).firstElementChild;
+  el.insertBefore(scriptureCircle({
+    label: SC.abbr(b.name), size: 38, memorized: v.memorized, decay: v.decay, mastery: v.mastery,
+    title: b.name + (note ? ' · ' + note : ''),
+  }), el.querySelector('.grow'));
+  el.onclick = () => render(() => bookScreen(b));
+  return el;
+}
+function bookDecayNote(v) {
+  if (v.decay == null) return v.memorized ? 'no review rhythm set' : '';
+  if (v.due) return '⚠ review due';
+  if (v.soon) return '◎ review soon';
+  return 'reviewed';
+}
+
 // per-verse coverage keys for a book's MEMORIZED verses (whole-book review = what you've memorized)
 function bookMemorizedKeys(b) {
   const prog = (state.scripture.progress || {})[b.name] || {}, out = [];
@@ -12040,9 +12217,13 @@ function collectReviewAssignments() {
   for (const bookName in (state.modules || {})) {
     const b = allBooks.find(x => x.name === bookName); if (!b) continue;
     MOD.modulesFor(bookName).forEach(mod => {
-      if (!mod.review) return;
+      // ⚑ THE FOLDED KEY. This read `mod.review` and nothing else, so the moment `ensureShapes`
+      // folded module cadences into `mod.train` every module cadence stopped reaching Today —
+      // silently, with the assignment still sitting right there in the store.
+      const ma = RV.cadenceOf(mod);
+      if (!ma) return;
       const keys = RV.moduleKeys(bookName, mod); if (!keys.length) return;
-      out.push({ id: 'mod-' + bookName + '-' + mod.id, kind: 'module', book: b, mod, a: mod.review, keys, title: (mod.name || MOD.moduleAutoName(mod, b)) });
+      out.push({ id: 'mod-' + bookName + '-' + mod.id, kind: 'module', book: b, mod, a: ma, keys, title: (mod.name || MOD.moduleAutoName(mod, b)) });
     });
   }
   for (const bookName in (state.review.books || {})) {
@@ -12081,36 +12262,10 @@ function collectReviewAssignments() {
 // ⚑ THE FUNCTION SURVIVES AND RETURNS THE LEGACY ROWS ONLY. Anything still carrying an old
 // `practice` cadence keeps surfacing until the reset clears it, so nothing he had assigned
 // vanishes silently the moment he upgrades — it merges into the one list instead.
-function collectPracticeAssignments() {
-  const out = [];
-  RV.unitsWithCadence('practice').forEach(({ key, a }) => {
-    if (isCreedKey(key)) {
-      const csc = CR.crParseScopeKey(key); if (!csc) return;
-      if (!CR.creedScopeSections(csc, true).length) return;   // nothing learned yet → nothing to rehearse
-      out.push({ id: 'pr-' + key, kind: 'creed', creed: true, doc: CR.getDoc(csc.docId), key, sc: csc, a, keys: CR.creedCoverageKeys(csc), title: CR.creedScopeTitle(csc) });
-      return;
-    }
-    const sc = parseScopeKey(key); if (!sc) return;
-    const b = scopeBook(sc); if (!b) return;
-    if (!scopeVerses(sc, true).length) return;   // nothing memorized in scope yet → nothing to rehearse
-    out.push({ id: 'pr-' + key, kind: sc.kind, book: b, key, sc, a, keys: scopeCoverageKeys(sc), title: scopeTitle(sc, b) });
-  });
-  return out;
-}
-// roll any cycles that have come due (interval: after completion; calendar: on the date). Save once.
-function syncReviewCycles() {
-  let changed = false;
-  collectReviewAssignments().forEach(A => { if (RV.syncCycle(A.a, A.keys)) changed = true; });
-  // practice cycles roll on their own rule — completion comes from the practice log, so it's computed
-  // here and handed to the pure roller rather than derived from coverage inside it.
-  collectPracticeAssignments().forEach(P => {
-    const pDone = P.creed ? creedTrainScopeDone(P.sc, P.a.cycleStart) : trainScopeDone(P.sc, P.a.cycleStart);
-    if (RV.syncPracticeCycle(P.a, pDone)) changed = true;
-  });
-  if (changed) save();
-}
-// review rows to surface on day dk: due (incomplete) rows land on today only; a complete assignment
-// shows a scheduled marker on its next-due day.
+// ⚑ RESTORED FROM THE BACKUP, VERBATIM. Deleting the two practice functions by slicing between
+// them took `reviewRowsForDate` and `syncReviewCycles` with them — they sat in between, and the
+// range was cut by name rather than by scope. The app threw on the first render, which is the
+// cheap version of that mistake; the expensive version is the one that parses.
 function reviewRowsForDate(dk, today = todayKey()) {
   const rows = [];
   collectReviewAssignments().forEach(A => {
@@ -12122,16 +12277,17 @@ function reviewRowsForDate(dk, today = todayKey()) {
 }
 // practice rows, same shape and same rules as reviewRowsForDate so Today/Week/Month render them
 // identically — due rows pin to today, a satisfied cycle shows a marker on its next-due day.
-function practiceRowsForDate(dk, today = todayKey()) {
-  const rows = [];
-  collectPracticeAssignments().forEach(P => {
-    const done = P.creed ? creedTrainScopeDone(P.sc, P.a.cycleStart) : trainScopeDone(P.sc, P.a.cycleStart);
-    const st = RV.practiceStatus(P.a, done);
-    if (!st.complete) { if (dk === today) rows.push({ ...P, st, late: st.late, scheduled: false }); }
-    else { const ndKey = todayKey(new Date(st.nextDueMs)); if (dk === ndKey) rows.push({ ...P, st, scheduled: true }); }
-  });
-  return rows;
+function syncReviewCycles() {
+  let changed = false;
+  collectReviewAssignments().forEach(A => { if (RV.syncCycle(A.a, A.keys)) changed = true; });
+  if (changed) save();
 }
+
+// ⚑⚑ `collectPracticeAssignments` AND `practiceRowsForDate` ARE DELETED (Aug 19 2026). They
+// enumerated `RV.unitsWithCadence('practice')`, a key `ensureShapes` now folds into the one Review
+// cadence on load — so they could only ever return an empty list, and an empty list rendered as its
+// own row kind is the "section that lies about the model" shape. Everything they surfaced is
+// surfaced by `collectReviewAssignments`, which reads the folded key.
 // Memorize-by markers (D-AF). Baruch's pick: a marker on the target day, pinned into Today once it's
 // within MEMBY_PIN_DAYS or overdue — deliberately NOT a pace computation, so targets.js is untouched.
 // An already-fully-memorized scope drops out (the goal is met; nothing to nudge).
@@ -12289,7 +12445,7 @@ function scopeModeControls(t, intent) {
   return wrap;
 }
 function scopeModeSheet(t, intent) {
-  openSheet('Train · ' + t.title, (body) => {
+  openSheet('Review · ' + t.title, (body) => {
     body.append(h(`<div class="muted" style="font-size:12px;margin:0 2px 8px">Pick a mode — whatever you clear counts toward this cycle.</div>`));
     body.append(scopeModeControls(t, intent));
   });
@@ -12315,6 +12471,90 @@ function scopeLaunchTarget(sc, key, intent, title) {
   if (!book) return null;
   return { kind: sc.kind, book, mod, a, keys, title, intent };
 }
+// ⚑⚑ A STEP'S LINK TO A UNIT IS A BARE ID WITH NO INTEGRITY, AND THAT IS THE WHOLE BUG.
+// Baruch, Aug 19 2026: "When I click on a step that is associated with Scripture to review it says
+// 'Could not resolve this step's scope.'" Diagnosed against `strive-backup-2026-08-18.json`: NINE
+// steps point at modules that no longer exist — eight at `mod:ms0z5kt6hzutn`, one at
+// `mod:mszi90zrsypc9` — while the only module on file is `ms9li9ymoxnfy`. He deleted and rebuilt the
+// Hebrews 1–7 unit and every step aimed at the old id was orphaned, silently, with no signal until
+// he tapped one.
+//
+// ⚑ SO THE ANSWER IS NOT A BETTER TOAST. A toast fires when you touch it; the row has to SAY it
+// (invariant 10), the app has to offer the repair, and deleting a unit has to stop being silent.
+// This function is the one place that decides a ref is broken, so all three read the same answer.
+function refStepBroken(s) {
+  if (!s || !s.ref || typeof s.ref.key !== 'string') return null;
+  const key = s.ref.key;
+  if (key.startsWith(RD.READ_PREFIX)) {
+    const pk = RD.parseReadKey(key);
+    return (pk && RD.get(pk.bookId)) ? null : { why: 'that book is no longer in your library', kind: 'read' };
+  }
+  if (isCreedKey(key)) {
+    const csc = CR.crParseScopeKey(key);
+    return (csc && CR.getDoc(csc.docId)) ? null : { why: 'that document is no longer in your creeds', kind: 'creed' };
+  }
+  const sc = parseScopeKey(key);
+  if (!sc) return { why: 'this link was written in a format the app no longer understands', kind: 'unknown' };
+  if (sc.kind === 'module' && !scopeModule(sc)) return { why: 'this unit no longer exists — it was deleted or rebuilt', kind: 'module', modId: sc.modId };
+  if (sc.kind !== 'module' && !allBooks.find(x => x.name === sc.book)) return { why: 'no book by that name', kind: 'book' };
+  return null;
+}
+// Every step in every pathway pointing at one dead key — because his nine share two ids, and fixing
+// them one at a time is nine trips through a picker for one decision.
+function stepsWithKey(key) {
+  const out = [];
+  PW.all().forEach(p => PW.flatSteps(p).forEach(st => { if (st.ref && st.ref.key === key) out.push({ p, s: st }); }));
+  return out;
+}
+// ⚑ THE SUGGESTION IS BY NAME, AND IT IS OFFERED RATHER THAN APPLIED. His dead `Hebrews 1-7` has a
+// live `Hebrews 1–7` sitting next to it — one hyphen apart — so the app can see the obvious answer.
+// It cannot KNOW it, though: a unit with the same name is not necessarily the same verses. Naming
+// the candidate and letting him confirm is the difference between a repair and a guess.
+function relinkCandidates(label) {
+  const want = String(label || '').replace(/[\u2010-\u2015]/g, '-').replace(/\s+/g, ' ').trim().toLowerCase();
+  const out = [];
+  for (const bn in (state.modules || {})) MOD.modulesFor(bn).forEach(m => {
+    const nm = m.name || MOD.moduleAutoName(m, allBooks.find(x => x.name === bn));
+    const norm = String(nm).replace(/[\u2010-\u2015]/g, '-').replace(/\s+/g, ' ').trim().toLowerCase();
+    out.push({ key: 'mod:' + m.id, label: nm, book: bn, exact: norm === want });
+  });
+  out.sort((a, b) => (b.exact ? 1 : 0) - (a.exact ? 1 : 0));
+  return out;
+}
+function relinkSheet(p, step) {
+  const broken = refStepBroken(step);
+  const deadKey = step.ref.key;
+  const all = stepsWithKey(deadKey);
+  openSheet('Relink “' + (step.label || 'step') + '”', (body, close) => {
+    body.append(h(`<div class="muted" style="font-size:12.5px;line-height:1.6;margin-bottom:10px">${esc(broken ? broken.why : 'This step is linked.')}<br><span style="color:var(--text-2)">${esc(deadKey)}</span></div>`));
+    if (all.length > 1) body.append(h(`<div style="font-size:12.5px;font-weight:700;margin:0 2px 8px;color:var(--accent)">${all.length} steps point at it — relinking fixes them all.</div>`));
+    const apply = pick => {
+      all.forEach(({ s: st }) => { st.ref = { key: pick.key, intent: st.ref.intent }; });
+      save();
+      toast(all.length > 1 ? `Relinked ${all.length} steps to ${pick.label}` : 'Relinked to ' + pick.label);
+      close();
+      drawPathway(p);
+    };
+    const cands = relinkCandidates(step.label);
+    if (cands.length) {
+      body.append(h(`<div class="muted" style="font-size:11.5px;margin:0 2px 6px">Pick the unit it should point at:</div>`));
+      cands.slice(0, 8).forEach(c => {
+        const b = h(`<button class="pill${c.exact ? ' on' : ''}" style="display:block;width:100%;text-align:left;margin-bottom:6px">${esc(c.label)} <span class="muted" style="font-size:11px">· ${esc(c.book)}${c.exact ? ' · same name' : ''}</span></button>`).firstChild;
+        b.onclick = () => apply(c);
+        body.append(b);
+      });
+    } else {
+      body.append(h(`<div class="muted" style="font-size:12px;margin:0 2px 8px">You have no saved units to point it at.</div>`));
+    }
+    const other = h(`<button class="btn secondary" style="margin-top:8px">Choose a different passage…</button>`).firstChild;
+    other.onclick = () => { close(); scopeAssignPicker(({ key, intent, label }) => { all.forEach(({ s: st }) => { st.ref = { key, intent: intent || st.ref.intent }; st.label = st.label || label; }); save(); toast('Relinked'); drawPathway(p); }); };
+    body.append(other);
+    const unlink = h(`<button class="btn secondary" style="margin-top:8px;color:var(--danger)">Unlink — make ${all.length > 1 ? 'them' : 'it'} a plain step</button>`).firstChild;
+    unlink.onclick = () => { all.forEach(({ s: st }) => { delete st.ref; delete st.manualDone; }); save(); toast('Unlinked'); close(); drawPathway(p); };
+    body.append(unlink);
+  });
+}
+
 function stepScopeTarget(s) {
   if (isCreedKey(s.ref.key)) return creedLaunchTarget(CR.crParseScopeKey(s.ref.key), s.ref.key, s.ref.intent, s.label);
   const sc = parseScopeKey(s.ref.key);
@@ -12322,7 +12562,12 @@ function stepScopeTarget(s) {
 }
 // One-tap launch: mode labels + the remembered preference per intent (D-AG one-tap scoped launch).
 const MODE_LABEL = { flash: 'Cards 1–5', typer: 'Typing', timer: 'Timer', fade: 'Fade', binary: 'Cards ✓ (retired)' };
-const scopePref = intent => (state.settings.scopeLaunch && state.settings.scopeLaunch[intent]) || {};
+// ⚑⚑ ONE REMEMBERED MODE, WHATEVER INTENT THE CALLER NAMES. This used to key off the intent, so a
+// pathway step carrying the legacy `review` or `practice` looked up `scopeLaunch.review` — a slot
+// `ensureShapes` folds into `.train` and then leaves empty. The mode sheet therefore opened on EVERY
+// tap of those steps and his pick was written back to a key nothing reads. There is one cycle now,
+// so there is one preference; `memorize` never reaches here (it launches the scope directly).
+const scopePref = () => (state.settings.scopeLaunch && state.settings.scopeLaunch[RV.TRAIN]) || {};
 // The ▸ pill's label — shows the remembered mode so one tap is transparent (e.g. "▸ Review · Typing").
 function refPillLabel(intent) {
   const v = intentVerb(intent);
@@ -12353,7 +12598,13 @@ function launchRefStep(s, btn) {
   if (isReadStep(s)) return refStepLaunch(s);   // reading → open the book; there is no "mode" to pick
   if (s.ref.intent === 'memorize') return refStepLaunch(s);
   const t = stepScopeTarget(s);
-  if (!t) { toast('Could not resolve this step’s scope'); return; }
+  if (!t) {
+    // ⚑ NAME IT. "Could not resolve this step's scope" is true of nine different situations and
+    // actionable in none of them.
+    const b = refStepBroken(s);
+    toast(b ? b.why : 'Could not resolve this step’s scope');
+    return;
+  }
   launchScoped(t, t.intent, btn);
 }
 // A ▸ launch control for a ref-step (used across Today's pathway surfaces). Review/practice get a one-tap
@@ -12466,7 +12717,11 @@ function scopeAssignPicker(onDone) {
       }
       if (st.stage === 'intent') {
         backBtn('scope'); hint('“' + esc(st.label) + '” — what for?');
-        [['review', 'Review — recurring, counts as coverage'], ['practice', 'Practice — rehearse, marks nothing'], ['memorize', 'Memorize — a finish-by target']].forEach(([i, d]) => opt(esc(d), () => { close(); onDone({ key: st.key, intent: i, label: st.label }); }));
+        // ⚑⚑ TWO INTENTS, NOT THREE — and the third is where a lot of his broken steps came from.
+        // Every Scripture step he ever added carried `intent: 'review'` or `'practice'`, neither of
+        // which is `RV.TRAIN`, so the remembered mode was stored under a key nothing else read and
+        // the pill asked him to pick a mode every single time.
+        [[RV.TRAIN, 'Review — recurring, counts as coverage'], ['memorize', 'Memorize — a finish-by target']].forEach(([i, d]) => opt(esc(d), () => { close(); onDone({ key: st.key, intent: i, label: st.label }); }));
         return;
       }
     };
@@ -12568,7 +12823,7 @@ function modulesScreen(b) {
   } else {
     list.forEach(mod => {
       const flagged = suspectIds.has(mod.id);
-      const cad = mod.review && mod.review.cadence ? RV.cadenceLabel(mod.review.cadence) : null;
+      const cad = RV.cadenceOf(mod) ? RV.cadenceLabel(RV.cadenceOf(mod).cadence) : null;
       const row = h(`<div class="list-item" style="cursor:pointer">
         <div class="grow">
           <div class="title">${flagged ? '<span style="color:var(--accent)">⚑ </span>' : ''}${esc(mod.name || MOD.moduleAutoName(mod, b))}</div>
@@ -12581,7 +12836,14 @@ function modulesScreen(b) {
         render(() => moduleScreen(b, mod));
       };
       row.querySelector('.del').onclick = () => {
-        if (!confirm('Delete unit "' + (mod.name || MOD.moduleAutoName(mod, b)) + '"? This does not affect your memorization progress.')) return;
+        // ⚑⚑ SAY WHAT ELSE IS POINTING AT IT. Deleting a unit used to orphan every pathway step
+        // aimed at it with no signal at all — nine of his, in one go, discovered a day later as a
+        // toast. The delete is still allowed; it just stops being silent.
+        const dependents = stepsWithKey('mod:' + mod.id);
+        const extra = dependents.length
+          ? `\n\n⚠ ${dependents.length} pathway step${dependents.length === 1 ? '' : 's'} point${dependents.length === 1 ? 's' : ''} at this unit and will need relinking.`
+          : '';
+        if (!confirm('Delete unit "' + (mod.name || MOD.moduleAutoName(mod, b)) + '"? This does not affect your memorization progress.' + extra)) return;
         MOD.deleteModule(b.name, mod.id);
         toast('Unit deleted');
         rerender();
@@ -12833,11 +13095,14 @@ function moduleScreen(b, mod) {
   </div>`));
 
   // Review cadence control + white→black freshness fade (layer 3)
-  const cadBtn = h(`<button class="pill" style="margin:2px 0 4px">${esc(assignPillLabel('mod:' + mod.id, mod.review || null))}</button>`).firstChild;
+  const cadBtn = h(`<button class="pill" style="margin:2px 0 4px">${esc(assignPillLabel('mod:' + mod.id, RV.cadenceOf(mod)))}</button>`).firstChild;
   cadBtn.onclick = () => assignSheet(assignScope('module', { mod, b }));
   wrap.append(cadBtn);
-  if (mod.review) {
-    const a = mod.review, mkeys = RV.moduleKeys(b.name, mod);
+  // ⚑ THE EIGHTH READER, found by a check that counts rather than by eye. Everything below —
+  // the "Reviewed this cycle / Due now" line and the whole decay fade — hung off `mod.review`, so a
+  // folded module rendered as though it had no cadence at all.
+  if (RV.cadenceOf(mod)) {
+    const a = RV.cadenceOf(mod), mkeys = RV.moduleKeys(b.name, mod);
     if (RV.syncCycle(a, mkeys)) save();
     const stA = RV.assignmentStatus(a, mkeys), iv = RV.cadenceIntervalMs(a.cadence), now = Date.now();
     wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 8px;${!stA.complete ? 'color:var(--accent);font-weight:600' : ''}">${stA.complete ? '✓ Reviewed this cycle · next due ' + shortDate(stA.dueKey) : '◎ Due now · ' + stA.covered + ' / ' + stA.total + ' reviewed this cycle'}</div>`));
@@ -12884,7 +13149,9 @@ function moduleScreen(b, mod) {
   wrap.append(edit);
   const del = h(`<button class="btn secondary" style="margin-top:8px;color:var(--danger)">Delete module</button>`);
   del.firstChild.onclick = () => {
-    if (!confirm('Delete module "' + title + '"? This does not affect your memorization progress.')) return;
+    const deps = stepsWithKey('mod:' + mod.id);
+    const dextra = deps.length ? `\n\n⚠ ${deps.length} pathway step${deps.length === 1 ? '' : 's'} point${deps.length === 1 ? 's' : ''} at this unit and will need relinking.` : '';
+    if (!confirm('Delete module "' + title + '"? This does not affect your memorization progress.' + dextra)) return;
     MOD.deleteModule(b.name, mod.id);
     toast('Module deleted');
     goBack();
@@ -12950,7 +13217,7 @@ async function fetchChaptersProgress(b, cis, btn) {
 // intent 'practice' | 'review' — same scope→mode flow for both (D-AB unification);
 // Review currently differs only in label. Marking a module reviewed (coverage) is the Phase 11 engine.
 function practiceScope(b, intent = 'practice') {
-  setHeader('Train · ' + b.name, { back: () => bookScreen(b) });
+  setHeader('Review · ' + b.name, { back: () => bookScreen(b) });
   if (prScope.book !== b.name) prScope = { book: b.name, mode: b.chapters <= WHOLE_BOOK_CAP ? 'book' : 'chapters', chapters: {}, vch: null, verses: {} };
   const s = prScope;
   const wrap = document.createElement('div');
@@ -13131,12 +13398,12 @@ function chapterScreen(b, ci) {
   const grid = document.createElement('div');
   grid.className = 'scgrid';
   const vDoc = 'bible:' + b.name + ':' + (ci + 1);
-  const vModReviews = MOD.modulesFor(b.name).filter(m => m.review);
+  const vModReviews = MOD.modulesFor(b.name).filter(m => RV.cadenceOf(m));
   for (let v = 1; v <= b.verses[ci]; v++) {
     const vn = v;
     const mk = () => {
       const done = SC.verseDone(b, ci, vn), key = vDoc + '#' + vn;
-      const iv = RV.governingReviewInterval(b.name, ci, vn, vModReviews.filter(m => MOD.moduleHasVerse(m, ci, vn)).map(m => m.review));   // verse → chapter → module → book
+      const iv = RV.governingReviewInterval(b.name, ci, vn, vModReviews.filter(m => MOD.moduleHasVerse(m, ci, vn)).map(m => RV.cadenceOf(m)));   // verse → chapter → module → book
       return scriptureCircle({
         num: vn,
         memorized: done,
@@ -14945,7 +15212,7 @@ function reviewScopeFromDoc(d) {
 }
 
 function practiceSetup(d, intent = 'practice') {
-  setHeader('Train', { back: true });
+  setHeader('Review', { back: true });
   const wrap = document.createElement('div');
   const s = prSetup;
   // Review is Scripture-only; the shared setup is reused for creeds, so fall back.
@@ -15871,7 +16138,7 @@ function practiceSummary(d, mode, lines, count, stats = null) {
     lines.forEach(l => card.append(h(`<div style="font-size:13px;padding:4px 0;border-bottom:1px solid var(--line)">${esc(l)}</div>`)));
     wrap.append(card);
   }
-  const again = h(`<button class="btn">Train again</button>`);
+  const again = h(`<button class="btn">Review again</button>`);
   again.firstChild.onclick = () => { stack.pop(); rerender(); };
   wrap.append(again);
   const done = h(`<button class="btn secondary">Done</button>`);
@@ -20093,14 +20360,14 @@ function youProfile() {
   // ⚑ A DESTRUCTIVE ACTION THAT LISTS WHAT IT SPARES rather than what it clears is the same rule
   // the card's delete follows ("all entries stay in your logbook"): the fear is not that it does
   // too little, it is that it does more than it says.
-  const rst = h(`<div class="card"><h3>Training schedules</h3>
-    <div class="muted" style="font-size:12px;line-height:1.6;margin-bottom:10px">Clears every review/practice cadence so you can set them fresh under Train.
+  const rst = h(`<div class="card"><h3>Review schedules</h3>
+    <div class="muted" style="font-size:12px;line-height:1.6;margin-bottom:10px">Clears every review cadence so you can set them fresh.
     <b>Nothing you have memorized is touched</b> — books, creeds, modules, your typing history and your session log all stay exactly as they are.</div>
-    <button class="btn secondary" id="s-reset-train">Reset training schedules</button>
+    <button class="btn secondary" id="s-reset-train">Reset review schedules</button>
   </div>`);
   rst.querySelector('#s-reset-train').onclick = () => {
-    openSheet('Reset training schedules?', (body, close) => {
-      body.append(h(`<div class="muted" style="font-size:13px;line-height:1.6;margin-bottom:12px">This clears the cadences only. Your memorized verses, creed progress, modules, practice history and stats are not affected.</div>`));
+    openSheet('Reset review schedules?', (body, close) => {
+      body.append(h(`<div class="muted" style="font-size:13px;line-height:1.6;margin-bottom:12px">This clears the cadences only. Your memorized verses, creed progress, modules, session history and stats are not affected.</div>`));
       const go = h(`<button class="btn danger">Reset schedules</button>`).firstChild;
       go.onclick = () => {
         const r = RV.resetTrainSchedules(state.scripture);
@@ -20301,7 +20568,10 @@ const PLUS_ITEMS = [
   { key: 'weight',    label: 'Weight',   tier: 1, def: 'click' },
   { key: 'macros',    label: 'Macros',   tier: 1, def: 'click' },
   { key: 'review',    label: 'Review timer', tier: 2, def: 'click' },
-  { key: 'practice',  label: 'Practice & Review', tier: 3, def: 'long' },
+  // ⚑ THE KEY STAYS `practice`, THE LABEL DOES NOT. This id is stored in `settings.plusOrder` and in
+  // his saved fan configuration; renaming it would drop the item out of his own arrangement, which is
+  // the migration 7B.9 had to write once already. The label is what he reads, and it says Review.
+  { key: 'practice',  label: 'Review', tier: 3, def: 'long' },
   { key: 'creed',     label: 'Creed §',  tier: 2, def: 'off' },
   { key: 'bibleplan', label: 'Bible',    tier: 2, def: 'off' },
 ];
@@ -20706,9 +20976,9 @@ function plusBiblePlan(fan, plan, dk = todayKey()) {
 // ⚑⚑ THE FIRST SCREEN OF THE FAN USED TO ASK "PRACTICE OR REVIEW" — a question he had to answer
 // before he could reach any material, and the answer to which the app can work out for itself.
 // It is gone. `plusPractice` now IS the domain picker, one tap shallower than it was.
-const plusIntentTitle = () => 'Train';
+const plusIntentTitle = () => 'Review';
 function plusPractice(fan) {
-  plusChoose(fan, 'Train', [
+  plusChoose(fan, 'Review', [
     { label: 'Scripture', sub: 'Any book', on: () => plusPracticeScripture(fan, RV.TRAIN) },
     { label: 'Creeds, Catechisms & Confessions', on: () => plusPracticeCreeds(fan, RV.TRAIN) },
   ]);
