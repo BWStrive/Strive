@@ -8638,7 +8638,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260817-0732'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260817-0732';
+const BUILD_ID = '20260819-0257'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260819-0257';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -8756,6 +8756,9 @@ function switchTab(tab) {
   activeTab = tab;
   setImmersive(false);
   stack.length = 0;
+  // 7B.1 always-home: entering the Plan tab lands on TODAY in Day view, whatever date the last
+  // visit wandered to. See `planReset` for why this cannot live inside `plan()`.
+  if (tab === 'plan') planReset();
   document.querySelectorAll('nav.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   render(TABS[tab]);
 }
@@ -9469,10 +9472,17 @@ function trendsScreen() {
   main().append(wrap);
 }
 // ---------- Today ----------
-function today() {
-  setHeader('Today · ' + PL.fmtDate(todayKey()), { action: { label: 'Planner', fn: () => render(plan) } });
-  renderDayChecklist(main(), todayKey(), { showPathways: true });
-}
+// ⚑⚑ `today()` IS GONE, AND WHAT REPLACED IT WAS ALREADY ON DISK. It rendered
+// `renderDayChecklist` for todayKey() with no way to reach yesterday or tomorrow, and offered a
+// "Planner" header action that pushed `plan()` — the screen that has had ‹ ›, a Today button and
+// Day/Week/Month/Year pills since Phase 9.3. So the tab opened the version you cannot navigate
+// and hid the one you can behind an extra tap. Baruch, Aug 18 2026: "It's an extra step to have a
+// page that you can't navigate from as the home screen instead of one that shows today that you
+// can navigate from."
+//
+// ⚑ NOTHING IS LOST IN THE SWAP, and that is checkable rather than hopeful: `planDay()` calls
+// the SAME `renderDayChecklist`, and passes `showPathways: planCursor === todayKey()`, which on
+// the day you land is the `true` this passed unconditionally. One screen, one checklist.
 
 // open the screen behind a due-date pace nudge (9.4) or a standing target row (9.5)
 function navPace(g) {
@@ -9785,8 +9795,27 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
 let planMode = 'day';
 let planCursor = todayKey();   // date key anchoring all views
 
+// ⚑⚑ THE RESET LIVES IN `switchTab`, NOT IN THE SCREEN, AND THAT PLACEMENT IS THE WHOLE
+// CHUNK. `planMode` and `planCursor` are module-level view variables — invariant 9, "a persistent
+// view variable is a navigation bug waiting to happen", which is the exact defect 7B.1 fixed for
+// `ftMode`. The always-home rule says tapping the TAB lands on today; but `rerender()` replays the
+// top of the stack, and every arrow press is `planCursor = …; rerender()`. A reset inside `plan()`
+// would therefore undo each press the instant it was made, and the arrows would appear broken
+// rather than absent. `switchTab` fires once, on entry. That is the event the rule is about.
+function planReset() { planMode = 'day'; planCursor = todayKey(); }
+
+// ⚑ THE TITLE SAYS WHEN YOU HAVE LEFT TODAY. The old screen was always "Today · <date>" because
+// it could never be anything else; now the date can move, so the word "Today" has to stop being
+// printed when it stops being true — otherwise the header is a label that means nothing.
+function planTitle() {
+  if (planMode !== 'day') return 'Planner';
+  return planCursor === todayKey() ? 'Today · ' + PL.fmtDate(planCursor) : PL.fmtDate(planCursor);
+}
+
 function plan() {
-  setHeader('Planner', { back: () => switchTab('plan') });
+  // ⚑ NO BACK TARGET — this is a tab root now, not a page pushed from one. It used to carry
+  // `back: () => switchTab('plan')`, which pointed at the screen this replaces.
+  setHeader(planTitle(), { back: false });
   syncReviewCycles();   // roll any due review cycles so Week/Month markers are current
   const wrap = document.createElement('div');
   // time-window views on one line; Targets & Rules are a different kind of thing,
@@ -20450,9 +20479,10 @@ function enablePlusReorder(list) {
 }
 
 // ---------- boot ----------
-// 3-item shell (D-S): Home · ＋ · Plan. Plan lands on Today; the Planner page is pushed from there.
+// 3-item shell (D-S): Home · ＋ · Plan. ⚑ Plan lands on the NAVIGABLE day (Aug 18 2026) — it used
+// to land on a fixed Today screen with the navigable one pushed behind a header action.
 // Areas + Settings tabs removed — the dashboard is the hub, Settings lives in You/Profile (avatar).
-const TABS = { home: dashboard, plan: today };
+const TABS = { home: dashboard, plan: plan };
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('h-back').onclick = headerBack;
   const av = document.getElementById('h-avatar');
