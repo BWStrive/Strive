@@ -84,6 +84,17 @@ body.immersive main { padding: calc(env(safe-area-inset-top) + 16px) 14px calc(e
 /* what he has SEEN but not yet rated — the gap between the two fills is what he still owes */
 .imm-progress > div.imm-seen { opacity: .32; z-index: 0; }
 .imm-pos-sub { font-size: 10.5px; opacity: .7; margin-top: 1px; }
+
+/* the deck's clock — strip's left end, the ✕ keeps the screen's top-right corner */
+.imm-clock { display: flex; align-items: center; gap: 6px; }
+.imm-clock-t { border: none; background: none; color: var(--text); font-variant-numeric: tabular-nums;
+  font-size: 14px; font-weight: 700; padding: 2px 4px; cursor: pointer; min-width: 44px; text-align: left; }
+.imm-clock-t.off { color: var(--text-2); }
+.imm-clock-b { border: 1px solid var(--line); background: var(--card); color: var(--text-2);
+  border-radius: 999px; font-size: 11px; line-height: 1; padding: 5px 9px; cursor: pointer; }
+.imm-clock-b:active { background: var(--bg); }
+/* ⚑ a paused clock must LOOK paused. A frozen number reads as a broken clock, not a stopped one. */
+.imm-clock.paused .imm-clock-t { opacity: .45; }
 /* ===== THE CARD IS THE SCREEN (chunk 3) =====
    ⚑⚑ THE RULE THAT USED TO LIVE HERE — `body.immersive .imm-card { min-height: calc(100vh - …) }` —
    WAS CORRECT AND HAD NEVER ONCE APPLIED. `immersiveCard()` set `min-height:220px` as an INLINE
@@ -999,6 +1010,10 @@ function defaultState() {
                            // optional schemeId picks one; absent = the implicit default scheme, which is what every
                            // pre-D-V module is, so nothing migrates. There is NO "active" scheme: several run at once.
     review: { covered: {}, books: {} },  // (D-AB) covered['docId#n']=ts sticky dots · books[name]=whole-book cadence assignment (layer 3)
+    // Phase 11 chunk 6 — an UNFINISHED flashcard deck, keyed by docId. Numbers and counts only,
+    // never verse text: this whole object syncs as one blob, so a paused Hebrews sitting must not
+    // put three hundred verses of ESV into every push. See flashSnapshot in app.js.
+    flashInFlight: {},
     // scopeLaunch (one-tap Train launch): the remembered mode + the cycle/whole choice.
     // null mode = no default yet → the ▸ pill opens the mode sheet the first time, then remembers your pick.
     settings: { migratedOldApp: false, esvKey: '', visionKey: '', scopeLaunch: { train: { mode: null, scope: 'cycle' } } }
@@ -1204,6 +1219,10 @@ function ensureShapes() {
   if (!state.streaks) state.streaks = def.streaks;
   ['sm', 'rd', 'cr'].forEach(d => { if (!state.streaks[d]) state.streaks[d] = { count: 0, lastDay: null }; });
   if (!state.activity || typeof state.activity !== 'object') state.activity = {};
+  // ⚑ IN ensureShapes, NOT migrateState — migrateState returns early for anyone already stamped at
+  // the current schema, which is every existing install, so a new container placed there would
+  // never exist for the one person who has data. Same reasoning as the reading-categories note.
+  if (!state.flashInFlight || typeof state.flashInFlight !== 'object') state.flashInFlight = {};
   if (!Array.isArray(state.scripture.currentItems)) state.scripture.currentItems = [];
   if (!Array.isArray(state.reading.categories)) state.reading.categories = [];
   if (!Array.isArray(state.reading.tags)) state.reading.tags = [];
@@ -3922,6 +3941,32 @@ function logPractice(docId, n, mode, score, meta = null) {
   save();
 }
 
+// ⚑⚑ ONE ENTRY PER CARD PER SITTING, ALWAYS AT HIS LATEST ANSWER (Phase 11 chunk 7).
+// `logPractice` appends, which is right for a mode that visits each card once. The flashcard deck
+// is not that mode any more: chunk 1's "‹ Back to the deck" lets him leave the summary, rate more,
+// and come back — so `flashEnd` runs twice and every card he had already rated got a SECOND mastery
+// entry. Mastery is the mean of the last ten attempts, so one sitting could fill it with duplicates
+// of itself. That is a defect the deck rebuild introduced, not one it found.
+//
+// Keyed on the sitting id (`sid`), which `statsStamp` already mints and which already survives the
+// whole session. Re-logging the same card in the same sitting REPLACES its entry — the ts of the
+// original is kept, so its place in the history does not jump — while a different sitting appends
+// as normal. That is the storage-level statement of the "latest wins, one answer per card" ruling.
+function logPracticeSession(docId, n, mode, score, sid) {
+  if (!sid) return logPractice(docId, n, mode, score);
+  if (!PRC()[docId]) PRC()[docId] = {};
+  if (!PRC()[docId][n]) PRC()[docId][n] = [];
+  const arr = PRC()[docId][n];
+  const i = arr.findIndex(e => e.sid === sid);
+  if (i >= 0) { arr[i] = { ...arr[i], mode, score: Math.round(score) }; }
+  else {
+    arr.push({ ts: Date.now(), mode, score: Math.round(score), sid });
+    if (arr.length > 20) arr.splice(0, arr.length - 20);
+  }
+  recordStreakDay('cr');
+  save();
+}
+
 function practiceHistory(docId, n) { return (PRC()[docId] && PRC()[docId][n]) || []; }
 
 // Practice attempts between two instants (Phase 5 · Trends). The practice store is shared:
@@ -4057,7 +4102,7 @@ function ringMastery(docId, n) {
   return Math.round(last.reduce((a, x) => a + x.score, 0) / last.length);
 }
 
-const CR = {CREED_PREFIX,GROUPS,crParseScopeKey,creedCoverageKeys,creedGroupSections,creedGroupsOf,creedScopeKey,creedScopeSections,creedScopeTitle,currentDoc,currentDocs,docDueOf,docStats,docs,dueBaseOf,getDoc,isCurrentDoc,isDone,lastPracticeTs,lifetimeSectionsMarked,logPractice,mastery,practiceCountBetween,practiceHistory,ringMastery,sectionLabel,sectionsLeft,sectionsMarked,sectionsMarkedToday,setCurrentDoc,setDocDue,setTrack,toggleCurrentDoc,toggleSection,trackOf};
+const CR = {CREED_PREFIX,GROUPS,crParseScopeKey,creedCoverageKeys,creedGroupSections,creedGroupsOf,creedScopeKey,creedScopeSections,creedScopeTitle,currentDoc,currentDocs,docDueOf,docStats,docs,dueBaseOf,getDoc,isCurrentDoc,isDone,lastPracticeTs,lifetimeSectionsMarked,logPractice,logPracticeSession,mastery,practiceCountBetween,practiceHistory,ringMastery,sectionLabel,sectionsLeft,sectionsMarked,sectionsMarkedToday,setCurrentDoc,setDocDue,setTrack,toggleCurrentDoc,toggleSection,trackOf};
 // Strive — Fitness domain: workout database (seeded from btwb export), logbook,
 // custom workout builder, weight log. Assessment scoring arrives in a later phase.
 
@@ -9302,7 +9347,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260824-1505'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260824-1505';
+const BUILD_ID = '20260825-1316'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260825-1316';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -9374,7 +9419,12 @@ function practiceCloseX(onClose) {
 // while drawing. Since every practice screen re-renders itself card by card, each draw re-asserts it —
 // and any navigation away (scorecard, ‹ Back, Home, a tab) drops it automatically. That one rule is
 // what stops the app getting stranded with no header and no nav.
-function setImmersive(on) { document.body.classList.toggle('immersive', !!on); }
+function setImmersive(on) {
+  // ⚑ leaving the shell stops the deck's clock ticker — see flashClockUnmount for why this is the
+  // one place it can live without a second cleanup path drifting out of sync with this one.
+  if (!on) flashClockUnmount();
+  document.body.classList.toggle('immersive', !!on);
+}
 // hairline progress line pinned to the very top of an immersive session (0..1)
 // ⚑⚑ TWO READINGS, NOT ONE (chunk 4). A deck he can swipe past without rating has two different
 // answers to "how far am I": how much of it he has BEEN THROUGH, and how much he has actually
@@ -16434,6 +16484,290 @@ function scrambleScreen(d, queue, qi, results) {
   main().append(wrap);
 }
 
+// ===== The deck's clock and laps (Phase 11 chunk 5) =====
+// ⚑ HIS REQUEST: "I need to be able to have a timer on while I am doing the flashcards... part of my
+// timing of the books or chapters... I want to know did it take me 10 min to do chapter one or 20
+// min or 5 min." The Review ⏱ timer already existed but shows the WHOLE TEXT; this one runs behind
+// the cards, so the deck is the prompt while he recites.
+//
+// ⚑⚑ THE CLOCK LIVES ON THE SESSION, NOT ON THE SCREEN, AND THAT IS THE WHOLE DESIGN CONSTRAINT.
+// Every card calls `render()`, which destroys the DOM — so a stopwatch holding its start time in a
+// screen closure would restart from zero on every single rating. It is a plain object hanging off
+// `session`, the screen only paints it, and (chunk 6) it is the same object that gets written to
+// storage so a book can be resumed across sittings.
+//
+// ⚑ EVERY FUNCTION TAKES `now`. None of them reads the wall clock itself, which is what makes the
+// whole of this testable: the suite drives them with a clock it controls rather than sleeping.
+
+// A single unbroken gap longer than this is NOT counted, and is reported rather than swallowed.
+// ⚑ THIS RAIL RECONCILES TWO ANSWERS OF HIS THAT AGREE EVERYWHERE EXCEPT ONE CASE. He asked for the
+// clock to keep counting while the app is backgrounded, exactly like Review ⏱ (he recites with the
+// screen off), AND for a resumed session to count no time away. Those agree for locking the iPad to
+// think, or taking a call. They disagree for a session left open overnight in a tab Safari does not
+// kill — which would report eight hours and destroy the very chapter times this exists to produce.
+const FLASH_GAP_MAX_MS = 90 * 60 * 1000;
+
+function flashClockNew(now) {
+  return { startedAt: now, accrued: 0, runningSince: now, lastTick: now, laps: [], lapBase: 0, gaps: [], hidden: false };
+}
+// Fold a wall-clock reading in. A gap past the rail is pushed onto `gaps` and SHIFTED OUT of the
+// running segment, so it can never be counted — and can still be reported at the end.
+function flashClockSync(clock, now, maxGap = FLASH_GAP_MAX_MS) {
+  const since = now - clock.lastTick;
+  if (clock.runningSince && since > maxGap) {
+    clock.gaps.push(since);
+    clock.runningSince += since;
+  }
+  clock.lastTick = now;
+  return clock;
+}
+function flashElapsed(clock, now) {
+  const live = clock.runningSince ? Math.max(0, now - clock.runningSince) : 0;
+  return Math.max(0, Math.floor(clock.accrued + live / 1000));
+}
+function flashPause(clock, now) {
+  if (!clock.runningSince) return clock;
+  clock.accrued += (now - clock.runningSince) / 1000;
+  clock.runningSince = null;
+  clock.lastTick = now;
+  return clock;
+}
+function flashResume(clock, now) {
+  if (clock.runningSince) return clock;
+  clock.runningSince = now;
+  clock.lastTick = now;
+  return clock;
+}
+const flashPaused = clock => !clock.runningSince;
+
+// A lap closes at the elapsed time it is taken, so the laps always sum to the running total and
+// there is no drift between "the parts" and "the whole".
+// `ch` is the 1-based chapter an AUTO-lap closed. Manual laps have none — they are a boundary he
+// drew inside a chapter, and filing one as a chapter's review time would claim work he did not do.
+function flashLap(session, label, now, ch = null) {
+  const el = flashElapsed(session.clock, now);
+  const lap = { label, secs: el - session.clock.lapBase };
+  if (ch != null) lap.ch = ch;
+  session.clock.laps.push(lap);
+  session.clock.lapBase = el;
+  return lap;
+}
+// the still-open lap — what he is in the middle of, which no completed lap covers
+const flashOpenLap = (clock, now) => flashElapsed(clock, now) - clock.lapBase;
+
+// Which chapter a card belongs to. A combined multi-chapter doc carries `ci` per section; a
+// single-chapter doc carries one on the doc. Creeds have no chapters at all.
+function flashChapterOf(d, item) {
+  if (!d || !d.bible) return null;
+  if (item && item.ci != null) return item.ci;
+  return d.bible.ci != null ? d.bible.ci : null;
+}
+// ⚑⚑ AUTO-LAP FIRES ONLY AT THE FRONTIER — when a genuinely NEW card is drawn — and never while he
+// is walking back and forth through history. A lap marks progress through the book, not movement of
+// the cursor: swiping back into Hebrews 1 to redo a verse and forward again must not stamp two more
+// chapter times onto a chapter he already finished.
+// ⚑ AND A SINGLE-CHAPTER DECK NEVER AUTO-LAPS, because every card returns the same ci — there is no
+// boundary to cross. That is his ruling, and it falls out of the rule rather than needing a branch.
+function flashMaybeLap(d, session, item, now) {
+  const ci = flashChapterOf(d, item);
+  if (ci == null) return null;
+  if (session.lastCi == null) { session.lastCi = ci; return null; }
+  if (ci === session.lastCi) return null;
+  const lap = flashLap(session, d.bible.book + ' ' + (session.lastCi + 1), now, session.lastCi + 1);
+  session.lastCi = ci;
+  return lap;
+}
+
+// ⚑ THE TICKER'S LIFETIME IS THE IMMERSIVE SHELL'S LIFETIME. `setImmersive(false)` unmounts it, and
+// since render/rerender/switchTab all call that on the way in, an interval cannot outlive the screen
+// that started it however he leaves — ✕, ‹ Back, a tab, or a finished deck. That is the same one
+// rule the shell already uses to avoid getting stranded with no header; the clock rides on it rather
+// than inventing a second cleanup path to keep in sync.
+let flashTicker = null;
+function flashClockUnmount() {
+  if (!flashTicker) return;
+  clearInterval(flashTicker.iv);
+  document.removeEventListener('visibilitychange', flashTicker.onVis);
+  flashTicker = null;
+}
+function flashClockMount(d, session, paint) {
+  flashClockUnmount();
+  const iv = setInterval(paint, 500);
+  // coming back from the background is the moment a gap becomes visible, so check it there too
+  // rather than waiting for whichever tick the browser decides to deliver first.
+  // ⚑ AND GOING TO the background is the last moment we are certain of before the OS may discard
+  // the tab — so the snapshot is written there as well as on every card.
+  const onVis = () => {
+    if (document.hidden) { flashSave(d, session); return; }
+    flashClockSync(session.clock, Date.now());
+    paint();
+  };
+  document.addEventListener('visibilitychange', onVis);
+  flashTicker = { iv, onVis };
+  paint();
+}
+
+// ===== Resuming a deck across sittings (Phase 11 chunk 6) =====
+// ⚑ HIS QUESTION, WHICH IS WHAT MADE THIS A CHUNK: "what we'll do with longer books that happen in
+// multiple sessions... will it remember where we left off, or just restart the timer?" Before this,
+// NOTHING about a session survived closing the app — the coverage dots auto-saved per verse and
+// everything else was lost. Hebrews is thirteen chapters; it was never going to be one sitting.
+const FLASH_STALE_MS = 14 * 24 * 60 * 60 * 1000;
+
+// ⚑⚑ NUMBERS AND COUNTS ONLY — NEVER THE VERSE TEXT. The entire state object syncs to his other
+// devices as ONE blob (sync.js, last-write-wins), so an unfinished Hebrews deck carrying its own
+// copy of three hundred verses would put a sitting's worth of scripture into every push. The queue
+// is rebuilt from the doc on resume: the ESV text is already cached, and the card NUMBERS are what
+// identify the deck.
+function flashClockSnapshot(clock, now) {
+  const live = clock.runningSince ? Math.max(0, now - clock.runningSince) : 0;
+  // ⚑ BANKED, NOT COPIED RUNNING. A snapshot that kept `runningSince` would count every hour
+  // between sittings the moment it was read back — the exact thing he ruled out.
+  return {
+    ...clock, accrued: clock.accrued + live / 1000, runningSince: null, lastTick: now,
+    laps: clock.laps.map(l => ({ ...l })), gaps: clock.gaps.slice()
+  };
+}
+function flashSnapshot(d, session, now) {
+  return {
+    docId: d.id, docName: d.name || '', order: session.order, intent: session.intent,
+    budget: session.budget, deckSize: session.deckSize,
+    ns: Object.keys(session.byN).map(Number),
+    history: session.history.slice(), cursor: session.cursor,
+    ratings: { ...session.ratings }, exit: { ...session.exit },
+    reps: session.reps, capOffered: !!session.capOffered,
+    activeNs: session.active.map(c => c.n), poolNs: session.pool.map(c => c.n),
+    lastCi: session.lastCi, lapN: session.lapN,
+    clock: flashClockSnapshot(session.clock, now),
+    savedAt: now
+  };
+}
+function flashStore() {
+  if (!state.flashInFlight || typeof state.flashInFlight !== 'object') state.flashInFlight = {};
+  return state.flashInFlight;
+}
+const flashSaved = d => (d && flashStore()[d.id]) || null;
+
+// ⚑⚑ WHAT COUNTS AS WORTH COMING BACK TO — and it is NOT "he opened it". Saving on the first card
+// drawn means glancing at a deck and backing out leaves an offer waiting to nag him the next time
+// he opens it, for nothing.
+//
+// ⚑ BUT "HAS HE RATED ANYTHING" IS THE WRONG TEST ON ITS OWN, and his own description of how he
+// works is why: "if I am using the timer, I am not strictly doing flashcards — I am actually
+// practicing verbally reciting, but using the flashcards as a prompt." A sitting where he recites
+// through ten minutes of Hebrews without rating a single card is real work, and losing it because
+// no rating was recorded would be the worse of the two mistakes.
+//
+// So: a rating, OR time on the clock. Half a minute is enough to separate "I looked at it" from
+// "I was working".
+const FLASH_KEEP_MIN_S = 30;
+function flashWorthKeeping(session, now) {
+  return Object.keys(session.exit).length > 0 || flashElapsed(session.clock, now) >= FLASH_KEEP_MIN_S;
+}
+function flashSave(d, session) {
+  const now = Date.now();
+  if (!session.history.length || !flashWorthKeeping(session, now)) return;
+  flashStore()[d.id] = flashSnapshot(d, session, now);
+  save();
+}
+function flashClear(d) { const st = flashStore(); if (d && st[d.id]) { delete st[d.id]; save(); } }
+
+// Rebuild a live session from a snapshot. Returns null when this doc cannot supply the cards the
+// snapshot names.
+// ⚑ SAYING "I CANNOT REBUILD THIS" IS BETTER THAN RESUMING A DECK WITH HOLES IN IT. A doc can
+// legitimately be narrower than the one the session was saved from — a scope launch builds a doc of
+// just the verses it was asked for — and quietly dropping the missing cards would shrink his deck
+// without telling him, which is the flattering direction again.
+function flashRestore(d, snap) {
+  const byN = {};
+  d.sections.forEach(x => {
+    if (snap.ns.indexOf(x.n) >= 0) byN[x.n] = { n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn, ci: x.ci };
+  });
+  if (snap.ns.some(n => !byN[n])) return null;
+  const asPool = n => { const it = byN[n]; return it && { ...it, m: CR.mastery(prDocId(d, it), prN(it)), last: CR.lastPracticeTs(prDocId(d, it), prN(it)) }; };
+  const session = {
+    order: snap.order, intent: snap.intent, budget: snap.budget, plain: RV.isPlainPass(snap.order),
+    deckSize: snap.deckSize, byN,
+    pool: (snap.poolNs || []).map(asPool).filter(Boolean),
+    active: (snap.activeNs || []).map(asPool).filter(Boolean),
+    history: (snap.history || []).slice(), cursor: snap.cursor,
+    ratings: { ...snap.ratings }, exit: { ...snap.exit },
+    reps: snap.reps || 0, capDue: false, capOffered: !!snap.capOffered,
+    seed: snap.order === 'seq' ? 1 : 3,
+    clock: { ...snap.clock, laps: (snap.clock.laps || []).map(l => ({ ...l })), gaps: (snap.clock.gaps || []).slice() },
+    lastCi: snap.lastCi == null ? null : snap.lastCi,
+    lapN: snap.lapN || 0
+  };
+  // ⚑ THE SITTING KEEPS ITS ORIGINAL START, so Stats records ONE session spanning the nights it
+  // actually took rather than a new one per sitting.
+  statsStamp(session, 'flash', d.id, snap.clock.startedAt);
+  flashResume(session.clock, Date.now());   // the clock starts again HERE, not at the saved instant
+  return session;
+}
+
+// The offer. Three shapes, because there are three genuinely different situations.
+function flashResumeOffer(d, queue, budget, order, intent, snap) {
+  setImmersive(false);
+  setHeader('Unfinished deck', { back: true });
+  const now = Date.now();
+  const stale = now - snap.savedAt > FLASH_STALE_MS;
+  const rated = Object.keys(snap.exit || {}).length;
+  const elapsed = Math.max(0, Math.floor(snap.clock.accrued));
+  const days = Math.floor((now - snap.savedAt) / (24 * 60 * 60 * 1000));
+  const wrap = document.createElement('div');
+  wrap.append(h(`
+    <div class="card" style="padding:22px 16px">
+      <div style="font-weight:700;font-size:16px">${esc(snap.docName || d.name || 'This deck')}</div>
+      <div class="muted" style="margin-top:8px;font-size:13.5px;line-height:1.7">
+        ${rated} of ${snap.deckSize} cards rated · ${SC.fmtSecs(elapsed)} on the clock${
+          snap.clock.laps.length ? ' · ' + snap.clock.laps.length + ' lap' + (snap.clock.laps.length === 1 ? '' : 's') : ''}<br>
+        Left ${days === 0 ? 'earlier today' : days === 1 ? 'yesterday' : days + ' days ago'}.
+      </div>
+    </div>`));
+
+  const restored = flashRestore(d, snap);
+  if (!restored) {
+    // ⚑ STATED, NOT PAPERED OVER. This selection cannot supply the saved deck's cards, so resuming
+    // here would silently drop them. The saved session is LEFT ALONE so it can still be resumed
+    // from wherever it was started.
+    wrap.append(h(`<div class="muted" style="font-size:12.5px;margin:10px 4px;line-height:1.6">This selection doesn't contain all of that deck's verses, so it can't be picked up here — open the same selection you started with. Starting now leaves it untouched.</div>`));
+    const go = h(`<button class="btn">Start this selection</button>`).firstChild;
+    go.onclick = () => render(() => flashStart(d, queue, budget, order, intent), false);
+    wrap.append(go);
+    main().append(wrap);
+    return;
+  }
+
+  if (stale) {
+    // ⚑ A DECK LEFT FOR A FORTNIGHT IS NOT SOMETHING TO DROP BACK INTO — but the ratings he gave
+    // are real work and would otherwise be thrown away silently. "Finish it" commits them: the
+    // terminal marks fire and the sitting is logged, exactly as if he had reached the end.
+    wrap.append(h(`<div class="muted" style="font-size:12.5px;margin:10px 4px;line-height:1.6">That's been sitting for over a fortnight. Finishing it records the ${rated} rating${rated === 1 ? '' : 's'} you already gave; discarding throws them away.</div>`));
+    const fin = h(`<button class="btn">Finish it</button>`).firstChild;
+    fin.onclick = () => { flashClear(d); render(() => flashEnd(d, restored), false); };
+    wrap.append(fin);
+    const bin = h(`<button class="btn secondary">Discard and start fresh</button>`).firstChild;
+    bin.onclick = () => { flashClear(d); render(() => flashStart(d, queue, budget, order, intent), false); };
+    wrap.append(bin);
+    main().append(wrap);
+    return;
+  }
+
+  // ⚑⚑ EVERY EXIT FROM THIS SCREEN GOES THROUGH `render()`, AND THE FIRST VERSION OF IT DID NOT.
+  // `main().append(wrap)` is how a screen draws; only `render()` CLEARS main first. Calling
+  // `flashCard` straight from a handler left the offer's own card sitting above the deck — the
+  // header said "Flashcards · Q1" and looked completely correct while the body carried both
+  // screens. That is the twenty-fourth session's pill-row defect exactly, and the reason
+  // test-practice-nav.mjs has a whole section named for it.
+  const go = h(`<button class="btn">Resume</button>`).firstChild;
+  go.onclick = () => render(() => flashCard(d, restored), false);
+  wrap.append(go);
+  const fresh = h(`<button class="btn secondary">Start fresh</button>`).firstChild;
+  fresh.onclick = () => { flashClear(d); render(() => flashStart(d, queue, budget, order, intent), false); };
+  wrap.append(fresh);
+  main().append(wrap);
+}
+
 // ---- Flashcards: ONE deck engine (adaptive · sequential · in-order) ----
 //
 // ⚑⚑ FORTY-FIFTH SESSION — TWO SCREENS BECAME ONE, AND THE REASON IS NAVIGATION.
@@ -16529,7 +16863,10 @@ function newFlashSession(d, queue, budget, order, intent) {
     reps: 0,            // ratings given (a re-rate counts: it is real practice)
     capDue: false,      // soft cap reached and not yet answered
     capOffered: false,  // ...and once answered, never asked again
-    seed: order === 'seq' ? 1 : 3
+    seed: order === 'seq' ? 1 : 3,
+    clock: flashClockNew(Date.now()),
+    lastCi: null,       // the chapter the frontier is in, for auto-lapping
+    lapN: 0             // manual laps are numbered; auto-laps carry their chapter's name
   };
 }
 
@@ -16564,6 +16901,7 @@ function deckNext(d, session) {
   if (!deckAtFrontier(session)) { session.cursor++; return true; }
   const item = deckDraw(d, session);
   if (!item) return false;
+  flashMaybeLap(d, session, item, Date.now());   // ⚑ the frontier is the only place progress happens
   session.history.push(item.n);
   session.cursor = session.history.length - 1;
   return true;
@@ -16604,7 +16942,15 @@ const flashSeen = session => new Set(session.history).size;
 const flashFrac = session => (session.deckSize ? flashRated(session) / session.deckSize : 0);
 const flashSeenFrac = session => (session.deckSize ? flashSeen(session) / session.deckSize : 0);
 
+// ⚑ THE GATE SITS HERE, NOT ON THE SETUP SCREEN, BECAUSE THERE ARE FOUR LAUNCH SITES — the setup
+// screen, the Train sheet, a module, and the ＋-fan. Putting the check on one of them would have
+// meant three ways to start a deck that silently ignored an unfinished one.
 function flashSession(d, queue, budget, order = 'adaptive', intent = 'practice') {
+  const snap = flashSaved(d);
+  if (snap) { render(() => flashResumeOffer(d, queue, budget, order, intent, snap), false); return; }
+  flashStart(d, queue, budget, order, intent);
+}
+function flashStart(d, queue, budget, order = 'adaptive', intent = 'practice') {
   const session = newFlashSession(d, queue, budget, order, intent);
   statsStamp(session, 'flash', d.id);
   if (!session.plain) flashIntroduce(session);
@@ -16619,7 +16965,10 @@ function flashEnd(d, session) {
   // memorized off a 5 he then replaced with a 2.
   touched.forEach(n => {
     const it = session.byN[n] || { n: Number(n) };
-    CR.logPractice(prDocId(d, it), prN(it), 'flash', session.exit[n] * 20);
+    // ⚑ ONE MASTERY ENTRY PER CARD PER SITTING, at whatever he last said. Re-entering this screen
+    // after rating more must not fill his history with duplicates of one sitting — see
+    // CR.logPracticeSession. `flashRate` needs no such guard: it only ever ADDS a mark.
+    CR.logPracticeSession(prDocId(d, it), prN(it), 'flash', session.exit[n] * 20, session._sid);
     flashRate(d, it, session.exit[n]);                                     // ≥4 trained · 5 memorized
   });
   logStatsSession(session, d, {
@@ -16627,16 +16976,123 @@ function flashEnd(d, session) {
     score: avgOf(touched.map(n => session.exit[n] * 20)),
     items: touched.map(n => ({ n: Number(n), label: (session.byN[n] && session.byN[n].q) || ('Q' + n), val: session.exit[n], tag: 'rating' }))
   });
+  flashClear(d);   // ⚑ a finished deck is not an unfinished one — nothing left to resume
   const dist = [1, 2, 3, 4, 5].map(r => `${r}: ${touched.filter(n => session.exit[n] === r).length}`).join('  ·  ');
   const left = session.deckSize - touched.length;
+  // ⚑ THE CLOCK STOPS HERE. Banking the running segment means the total cannot keep climbing while
+  // he reads his own scorecard, and (chunk 6) it is the value a resumed session picks back up from.
+  const now = Date.now();
+  flashClockSync(session.clock, now);
+  // ⚑⚑ THIS SCREEN IS RE-ENTRANT AND CHUNK 1 IS WHY: "‹ Back to the deck" lets him leave the
+  // summary, rate more, and come back, so everything here can run twice. Closing the open lap a
+  // second time would add a zero-length duplicate to his breakdown.
+  if (!session.closedAt) {
+    const open = flashOpenLap(session.clock, now);
+    // ⚑ THE LAP HE IS STILL IN GETS CLOSED, or the parts would not sum to the whole — the final
+    // stretch after the last chapter boundary would simply be missing from the breakdown.
+    if (session.clock.laps.length && open > 0) {
+      const inCh = d.bible && session.lastCi != null;
+      flashLap(session, inCh ? d.bible.book + ' ' + (session.lastCi + 1) : 'Lap ' + (session.lapN + 1), now, inCh ? session.lastCi + 1 : null);
+    }
+    session.closedAt = now;
+  }
+  flashPause(session.clock, now);
+  const total = flashElapsed(session.clock, now);
+  session.total = total;
   practiceSummary(d, session.plain ? 'Flashcards (in order)' : 'Flashcards', [
     `${touched.length} of ${session.deckSize} card${session.deckSize === 1 ? '' : 's'} rated · ${session.reps} rating${session.reps === 1 ? '' : 's'} given`,
+    `Total time — ${SC.fmtSecs(total)}`,
+    ...session.clock.laps.map(l => `${l.label} — ${SC.fmtSecs(l.secs)}`),
+    // ⚑ AN UNCOUNTED GAP IS STATED, NEVER SWALLOWED. If the deck sat open overnight the total he is
+    // reading is not the wall clock, and he is entitled to know that rather than wonder.
+    ...(session.clock.gaps.length
+      ? [`${session.clock.gaps.length} gap${session.clock.gaps.length === 1 ? '' : 's'} of ${session.clock.gaps.map(g => SC.fmtSecs(Math.round(g / 1000))).join(' · ')} not counted`]
+      : []),
     ...(touched.length ? [`Exit ratings — ${dist}`] : []),
     ...(left > 0 ? [`${left} card${left === 1 ? '' : 's'} never rated — that's fine.`] : [])
   ], touched.length, null, {
     // ⚑ THE SUMMARY IS NOT A ONE-WAY DOOR EITHER. Same reason as ‹ back: reaching the end of a
     // deck is not a decision to be finished with it.
-    backToDeck: session.history.length ? () => render(() => flashCard(d, session), false) : null
+    // ⚑ AND GOING BACK RESTARTS THE CLOCK. It was banked on the way in; without this the time he
+    // spends on the second stretch would vanish from a total he is about to file.
+    backToDeck: session.history.length
+      ? () => { flashResume(session.clock, Date.now()); session.closedAt = null; render(() => flashCard(d, session), false); }
+      : null,
+    // Scripture only — review times are a Scripture tracker, and a creed has nowhere to file to.
+    logReview: (d.bible && total > 0)
+      // ⚑⚑ `render(flashEnd)`, NOT `rerender()`. rerender re-runs the top of the navigation stack —
+      // and every screen in a deck is drawn with push=false, so the top is still the LAUNCHER. It
+      // would have re-entered `flashSession`, found the snapshot cleared, and started him on a
+      // brand-new deck the moment he filed his review time. The summary redraws itself instead,
+      // which is safe because flashEnd is now re-entrant.
+      ? { logged: session.logged || 0, open: () => flashLogSheet(d, session, total, () => render(() => flashEnd(d, session), false)) }
+      : null
+  });
+}
+
+// ===== Filing a sitting to the Scripture review tracker (Phase 11 chunk 7) =====
+// ⚑ HIS RULING, IN HIS WORDS: the timer "runs always but not always counting towards review times —
+// I have to submit it for that." So nothing here happens on its own. The deck times every sitting;
+// this is the one place that time becomes a review-time entry, and he presses it.
+
+// Chapter laps only. A manual lap is a boundary he drew INSIDE a chapter, so filing it as that
+// chapter's review time would claim work he did not do.
+const flashChapterLaps = session => session.clock.laps.filter(l => l.ch != null && l.secs > 0);
+
+// The chapters he actually TOUCHED, not the ones the deck was built from. He may have selected
+// Hebrews 1–4 and got through two of them; filing 1–4 would be the flattering direction again.
+function flashTouchedScope(d, session) {
+  if (!d.bible) return null;
+  const chs = [...new Set(session.history
+    .map(n => flashChapterOf(d, session.byN[n]))
+    .filter(ci => ci != null)
+    .map(ci => ci + 1))].sort((a, b) => a - b);
+  if (!chs.length) return null;
+  if (chs.length === 1) return { kind: 'chapter', ch: chs[0] };
+  const contiguous = chs.every((c, i) => i === 0 || c === chs[i - 1] + 1);
+  return contiguous ? { kind: 'range', from: chs[0], to: chs[chs.length - 1] } : null;   // null = whole book
+}
+
+function flashLogSheet(d, session, total, onDone) {
+  const book = d.bible.book;
+  const laps = flashChapterLaps(session);
+  const scope = flashTouchedScope(d, session);
+  // per-chapter is only offered when there is more than one chapter to separate; with one, the two
+  // options would file the identical entry under two names.
+  let mode = laps.length >= 2 ? 'chapters' : 'whole';
+  openSheet('Log to review times', (body, close) => {
+    body.append(h(`<div class="muted" style="font-size:12.5px;line-height:1.6;margin:0 2px 10px">This sitting isn't in your review times yet. Choose how to file it.</div>`));
+    const rows = [];
+    const opt = (key, title, sub) => {
+      const row = h(`<div class="row" style="gap:10px;padding:11px 0;align-items:flex-start;border-top:1px solid var(--line);cursor:pointer">
+          <span data-a="box" style="font-size:16px;line-height:1.3">○</span>
+          <div class="grow"><div style="font-size:14px;font-weight:600">${esc(title)}</div>
+            <div class="muted" style="font-size:12px;margin-top:2px">${esc(sub)}</div></div>
+        </div>`).firstElementChild;
+      row.onclick = () => { mode = key; rows.forEach(r => r.el.querySelector('[data-a=box]').textContent = r.key === mode ? '◉' : '○'); };
+      rows.push({ key, el: row });
+      body.append(row);
+    };
+    opt('whole', 'The whole sitting', `${SC.fmtSecs(total)} · ${book}${scope ? ' ' + SC.scopeLabel(scope) : ''}`);
+    if (laps.length >= 2) opt('chapters', 'Each chapter separately', laps.map(l => l.label + ' ' + SC.fmtSecs(l.secs)).join(' · '));
+    rows.forEach(r => r.el.querySelector('[data-a=box]').textContent = r.key === mode ? '◉' : '○');
+
+    const go = h(`<button class="btn" style="margin-top:14px">Log it</button>`).firstChild;
+    go.onclick = () => {
+      if (mode === 'chapters') laps.forEach(l => SC.logReviewTime(book, l.secs, { scope: { kind: 'chapter', ch: l.ch } }));
+      else SC.logReviewTime(book, total, scope ? { scope } : {});
+      // ⚑ MARKED ON THE SESSION, so the summary can say so and the button cannot be pressed twice.
+      // A double-filed sitting is not a cosmetic problem: it is a number in his review tracker that
+      // never happened, and nothing downstream could tell it from a real one.
+      session.logged = mode === 'chapters' ? laps.length : 1;
+      toast(mode === 'chapters' ? `${laps.length} chapters logged` : 'Review logged — ' + SC.fmtSecs(total));
+      close();
+      onDone();
+    };
+    body.append(go);
+    const not = h(`<button class="btn secondary" style="margin-top:8px">Not now</button>`).firstChild;
+    not.onclick = close;
+    body.append(not);
   });
 }
 
@@ -16684,12 +17140,16 @@ function flashCard(d, session) {
   // back to a verse in order to try it again, so the front stays the QUESTION side — the badge is
   // there to tell him which verse he is repeating and why, not to answer it for him.
   // ⚑ THE TOP STRIP IS ALWAYS PRESENT, EVEN WHEN EMPTY. A badge that appears on some cards and not
-  // others would move the card up and down by its own height as he swipes through a deck. Its right
-  // side is padded clear of the fixed ✕, and that padding is the slot chunk 5's clock drops into.
-  wrap.append(h(`<div class="imm-top">${
-    isNew ? '<span class="badge" style="background:var(--gold)">NEW</span>'
-    : prior !== undefined ? `<span class="badge" style="background:var(--line);color:var(--text-2)">you rated ${prior}</span>`
-    : ''}</div>`));
+  // others would move the card up and down by its own height as he swipes through a deck.
+  // ⚑ THE CLOCK TAKES ITS LEFT END — his ruling, 24 Aug. The ✕ keeps the screen's top-right corner
+  // and the strip's right padding clears it, so nothing had to move to make room.
+  const top = h(`<div class="imm-top"></div>`).firstElementChild;
+  top.append(flashClockBar(d, session));
+  if (isNew || prior !== undefined) {
+    top.append(h(`${isNew ? '<span class="badge" style="background:var(--gold)">NEW</span>'
+      : `<span class="badge" style="background:var(--line);color:var(--text-2)">you rated ${prior}</span>`}`));
+  }
+  wrap.append(top);
 
   const card = immersiveCard();
   // ⚑ SWIPE UP = FORWARD, DOWN = BACK — the same two functions the ‹ › rail calls, so the gesture
@@ -16707,6 +17167,10 @@ function flashCard(d, session) {
 
   immersiveSession(wrap, flashFrac(session), () => render(() => flashEnd(d, session), false), flashSeenFrac(session));
   main().append(wrap);
+  // ⚑ SAVED ON EVERY CARD. There is no "leaving" event to hang this on that iOS reliably delivers —
+  // a tab can be discarded, the app can be killed, the phone can die. The only instant guaranteed to
+  // happen is the one he is looking at.
+  flashSave(d, session);
 
   function draw() {
     card.innerHTML = '';
@@ -16750,6 +17214,47 @@ function flashCard(d, session) {
     if (!deckNext(d, session)) { render(() => flashEnd(d, session), false); return; }
     render(() => flashCard(d, session), false);
   }
+}
+
+// The clock, a Lap control and pause — the deck's whole timing surface, in the strip's left end.
+// ⚑ IT REPAINTS ITSELF ON A TICKER RATHER THAN RE-RENDERING THE SCREEN. Re-rendering once a second
+// to move a clock would rebuild the card, re-run the text fit, and re-bind the gesture handlers
+// underneath his finger.
+function flashClockBar(d, session) {
+  const el = h(`<div class="imm-clock">
+      <button data-a="time" class="imm-clock-t" aria-label="Elapsed time — tap to hide"></button>
+      <button data-a="lap" class="imm-clock-b">Lap</button>
+      <button data-a="pause" class="imm-clock-b" aria-label="Pause"></button>
+    </div>`).firstElementChild;
+  const time = el.querySelector('[data-a=time]');
+  const pause = el.querySelector('[data-a=pause]');
+  const paint = () => {
+    const now = Date.now();
+    flashClockSync(session.clock, now);
+    // ⚑ HIDDEN HIDES THE NUMBER, NOT THE CLOCK. He asked to be able to hide the readout; a running
+    // total he cannot see is still running, and the laps he takes still land where they should.
+    time.textContent = session.clock.hidden ? '⏱' : SC.fmtSecs(flashElapsed(session.clock, now));
+    time.classList.toggle('off', !!session.clock.hidden);
+    pause.textContent = flashPaused(session.clock) ? '▶' : '⏸';
+    el.classList.toggle('paused', flashPaused(session.clock));
+  };
+  time.onclick = () => { session.clock.hidden = !session.clock.hidden; paint(); };
+  pause.onclick = () => {
+    const now = Date.now();
+    flashPaused(session.clock) ? flashResume(session.clock, now) : flashPause(session.clock, now);
+    paint();
+  };
+  el.querySelector('[data-a=lap]').onclick = () => {
+    const now = Date.now();
+    // ⚑ manual laps are NUMBERED; auto-laps carry their chapter's name. Two kinds of boundary, and
+    // the label is what tells him which he is reading at the end.
+    session.lapN++;
+    const lap = flashLap(session, 'Lap ' + session.lapN, now);
+    toast(lap.label + ' — ' + SC.fmtSecs(lap.secs));
+    paint();
+  };
+  flashClockMount(d, session, paint);
+  return el;
 }
 
 // ‹ · position · › — the visible fallback for the swipe that chunk 2 puts on the card itself.
@@ -16896,6 +17401,18 @@ function practiceSummary(d, mode, lines, count, stats = null, opts = {}) {
     card.className = 'card';
     lines.forEach(l => card.append(h(`<div style="font-size:13px;padding:4px 0;border-bottom:1px solid var(--line)">${esc(l)}</div>`)));
     wrap.append(card);
+  }
+  // ⚑ `logReview` — the deck's one route into the Scripture review tracker, and it is a BUTTON
+  // because he ruled that it must be: the clock runs on every sitting, and only a sitting he
+  // submits becomes a review time. Once filed it says so and cannot be pressed again.
+  if (opts.logReview) {
+    if (opts.logReview.logged) {
+      wrap.append(h(`<div class="muted" style="text-align:center;font-size:12.5px;margin:14px 4px 0">✓ Logged to your review times${opts.logReview.logged > 1 ? ` — ${opts.logReview.logged} chapters` : ''}</div>`));
+    } else {
+      const lg = h(`<button class="btn">⏱ Log to review times</button>`);
+      lg.firstChild.onclick = opts.logReview.open;
+      wrap.append(lg);
+    }
   }
   // ⚑ `backToDeck` — the flashcard deck hands one in so that finishing is not a one-way door.
   // Reaching the end of a deck is not a decision to be done with it, which is the same reason
