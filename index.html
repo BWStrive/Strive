@@ -1436,7 +1436,15 @@ function bibleMultiDoc(b, parts) {
       });
     });
   });
-  return { id: 'bible:' + b.name + ':multi', name: b.name + ' (ESV)', group: 'bible', bible: { book: b.name, multi: true }, sections };
+  // ⛑⛑ THE ID NAMES THE SELECTION, NOT JUST THE BOOK. This returned `bible:<Book>:multi` for
+  // EVERY multi-chapter selection, so Hebrews 1-7 from a pathway, the Hebrews 1-13 module and an
+  // ad-hoc Hebrews 2-3 were one identity: they shared a resume slot in `flashInFlight` and
+  // overwrote each other silently. A doc id is what tells two decks apart; it has to carry what
+  // makes them different.
+  // ⚑ A one-chapter multi doc therefore collides with `bibleDoc`'s id ON PURPOSE — same book, same
+  // chapter, same verses, same stable card keys. That is one deck reached two ways, not two decks.
+  const cis = [...new Set(parts.map(p => p.ci + 1))].sort((x, y) => x - y);
+  return { id: 'bible:' + b.name + ':' + cis.join('.'), name: b.name + ' (ESV)', group: 'bible', bible: { book: b.name, multi: true }, sections };
 }
 
 // Virtual practice document for a Bible chapter (plugs into the creeds practice engine).
@@ -1452,6 +1460,7 @@ function bibleDoc(b, ci, verses) {
 }
 
 // Strive — Scripture domain: memorization tracking, review times, migrated data
+
 
 
 
@@ -1564,12 +1573,127 @@ function setChapter(book, ci, val) {
   save();
 }
 
+// ==== RUNS — a PASS through a book, spanning as many sittings as it takes (46th session) ====
+//
+// ⛑⛑ THE CONCEPT THE APP WAS MISSING. Baruch, Aug 28 2026: "If I reviewed Ephesians chapter one
+// today, Ephesians chapter two tomorrow, Ephesians chapter three the next day, and then chapters
+// four through six the day after that, I want all the times put together so I get my total time
+// for that book." Nothing in the model could express that. There were three partial mechanisms —
+// `review.covered` (a watermark, no time), `reviewTimes` (a flat list that never joins into a
+// pass), and `flashInFlight` (ONE interrupted sitting, cleared at the summary) — and not one of
+// them was a pass through a unit.
+//
+// ⚑ A RUN IS PER BOOK, AND DELIBERATELY SO. His units are books ("I have Ephesians all memorized,
+// and First Timothy, and Second Timothy, and Titus, and James") or a growing prefix of one
+// ("Hebrews one through seven"). Keying on the book covers both: the run completes when every
+// verse he has MEMORIZED in that book has been covered since the run opened, so Hebrews 1-7
+// completes at chapter 7 today and at chapter 8 the week he learns it. No unit plumbing, no second
+// definition of "done" to keep in step with the cycle engine.
+//
+// ⚑ A RUN ACCRUES ONLY WHAT HE FILED. His standing ruling (Aug 25): "it runs always but not always
+// counting towards review times — I have to submit it for that." A run is the sum of submitted
+// times, so there is never a second, larger total sitting beside the one he vouched for.
+const RUN_HISTORY_MAX = 12;
+function runsStore() {
+  if (!S().runs || typeof S().runs !== 'object') S().runs = {};
+  return S().runs;
+}
+function bookRuns(bookName) {
+  const st = runsStore();
+  if (!st[bookName]) st[bookName] = { open: null, past: [] };
+  const r = st[bookName];
+  if (!Array.isArray(r.past)) r.past = [];
+  return r;
+}
+// The coverage keys for the verses he has MEMORIZED in a book — the population a run is a pass over.
+// ⚑ MEMORIZED, NOT ALL. A run over Hebrews must not wait on six chapters he has never learned.
+function bookMemorizedKeys(bookName) {
+  const book = allBooks.find(b => b.name === bookName);
+  if (!book) return [];
+  const prog = S().progress[bookName] || {};
+  const keys = [];
+  for (let ci = 0; ci < book.verses.length; ci++) {
+    for (let v = 1; v <= book.verses[ci]; v++) {
+      if (prog[ci + '_' + v]) keys.push(coverageKey('bible:' + bookName + ':' + (ci + 1), v));
+    }
+  }
+  return keys;
+}
+function runComplete(bookName, run) {
+  if (!run) return false;
+  const keys = bookMemorizedKeys(bookName);
+  return keys.length > 0 && keys.every(k => isCovered(k, run.startedAt));
+}
+// Accrue a filed review time onto the book's open run, opening one if none is running, and closing
+// it the moment the pass is complete.
+// ⚑ CLOSED ON THE ENTRY THAT COMPLETES IT, not on the next launch. A run that stays "open" after he
+// finished the book would keep swallowing the next pass's time into the last one's total.
+function runAccrue(bookName, secs, scope, ts) {
+  const r = bookRuns(bookName);
+  if (!r.open) r.open = { startedAt: ts, lastAt: ts, secs: 0, chapters: {}, sittings: 0 };
+  const run = r.open;
+  run.secs += secs;
+  run.sittings += 1;
+  run.lastAt = Math.max(run.lastAt || 0, ts);
+  // ⚑ ONLY A CHAPTER ENTRY GETS A PER-CHAPTER LINE. A range or a whole-book time is real time and
+  // belongs in the total, but splitting it across its chapters would invent numbers he never
+  // recorded — the same refusal the scoring side makes about an elite anchor it cannot measure.
+  if (scope && scope.kind === 'chapter') run.chapters[scope.ch] = (run.chapters[scope.ch] || 0) + secs;
+  if (runComplete(bookName, run)) {
+    run.closedAt = ts;
+    r.past.push(run);
+    if (r.past.length > RUN_HISTORY_MAX) r.past = r.past.slice(-RUN_HISTORY_MAX);
+    r.open = null;
+  }
+  return r;
+}
+// How far through the book this run has got. Chapters, because that is the unit he talks in:
+// "it took me 10 minutes to do Hebrews chapter 1 last time."
+// ⚑ ONLY CHAPTERS HE HAS MEMORIZED SOMETHING IN COUNT — a run over Hebrews 1-7 is 7 chapters long,
+// not 13, and a readout saying "4 of 13" would measure him against work he has not started.
+function runProgress(bookName, run) {
+  const book = allBooks.find(b => b.name === bookName);
+  const prog = S().progress[bookName] || {};
+  const since = run ? run.startedAt : Date.now();
+  let chTotal = 0, chDone = 0, vTotal = 0, vDone = 0;
+  if (!book) return { chDone, chTotal, vDone, vTotal };
+  for (let ci = 0; ci < book.verses.length; ci++) {
+    let inCh = 0, coveredCh = 0;
+    for (let v = 1; v <= book.verses[ci]; v++) {
+      if (!prog[ci + '_' + v]) continue;
+      inCh++;
+      if (isCovered(coverageKey('bible:' + bookName + ':' + (ci + 1), v), since)) coveredCh++;
+    }
+    if (!inCh) continue;
+    chTotal++; vTotal += inCh; vDone += coveredCh;
+    if (coveredCh === inCh) chDone++;
+  }
+  return { chDone, chTotal, vDone, vTotal };
+}
+
+// Every book carrying a run, open or finished — what the Runs section draws.
+function booksWithRuns() {
+  const st = (S().runs && typeof S().runs === 'object') ? S().runs : {};
+  return Object.keys(st).filter(b => st[b] && (st[b].open || (st[b].past || []).length));
+}
+
+// The run before this one, for "faster or slower than last time".
+function lastRun(bookName) {
+  const p = bookRuns(bookName).past;
+  return p.length ? p[p.length - 1] : null;
+}
+function openRun(bookName) { return bookRuns(bookName).open; }
+
 function logReviewTime(bookName, secs, { ts = Date.now(), note = '', scope = null } = {}) {
   if (!S().reviewTimes[bookName]) S().reviewTimes[bookName] = [];
   const e = { ts, secs };
   if (note) e.note = note;
   if (scope) e.scope = scope;   // {kind:'chapter', ch} | {kind:'range', from, to} — absent = whole book
   S().reviewTimes[bookName].push(e);
+  // ⛑ ONE WRITER. Every door that files a review time — the flashcard summary sheet, the recite
+  // timer, a pathway step, the manual entry form — comes through here, so the run ledger is fed
+  // from one place rather than from four that would drift.
+  runAccrue(bookName, secs, scope, ts);
   recordStreakDay();
   save();
 }
@@ -1785,7 +1909,7 @@ const ABBR = { Genesis: 'Gen', Exodus: 'Ex', Leviticus: 'Lev', Numbers: 'Num', D
 function abbr(name) { return ABBR[name] || name.slice(0, 3); }
 
 
-const SC = {BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookStats,bookXP,chapterStats,corpusStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,lifetimeVersesMarked,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,parseDuration,parseScopeInput,removeCurrentItem,removeReviewTime,resetBook,resetCorpus,restoreBookProgress,reviewHistory,reviewIntervalDays,reviewSecsBetween,scopeLabel,setChapter,setCurrentBook,setItemDue,setReviewInterval,toggleVerse,totalVerses,verseDone,versesLeft,versesMarked,versesMarkedToday};
+const SC = {BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookMemorizedKeys,bookRuns,bookStats,bookXP,booksWithRuns,chapterStats,corpusStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,lastRun,lifetimeVersesMarked,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,openRun,parseDuration,parseScopeInput,removeCurrentItem,removeReviewTime,resetBook,resetCorpus,restoreBookProgress,reviewHistory,reviewIntervalDays,reviewSecsBetween,runAccrue,runComplete,runProgress,scopeLabel,setChapter,setCurrentBook,setItemDue,setReviewInterval,toggleVerse,totalVerses,verseDone,versesLeft,versesMarked,versesMarkedToday};
 // Strive — Modules (Phase 11 foundation, D-AB). A "Module" = one named chunk of ONE book,
 // stored at the VERSE level so coverage carries even if the book is later re-sliced.
 // Additive + sync-safe (whole-state blob).
@@ -9347,7 +9471,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260825-1316'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260825-1316';
+const BUILD_ID = '20260828-1611'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260828-1611';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -11886,6 +12010,22 @@ function scriptureHome() {
   main().append(wrap);
   // SM6: reading plans live in their own Area; review moved to the Scripture Review Area
 
+  // ⛑⛑ THE DOOR TO HIS OWN TIMES (chunk 5, 46th session). `reviewArea()` is a full screen —
+  // fastest, average, per-book graphs, a deletable log — and its three doors were Stats, the Areas
+  // hub, and a small target on the dashboard card. Baruch, Aug 28: "I want to be able to see the
+  // graph and the results for that so that I can push myself, and I just do not even know how to
+  // check it out at this point." A screen he cannot find is a screen he does not have.
+  {
+    const row = h(`<div class="card" style="cursor:pointer;margin-bottom:12px">
+      <div class="row"><div class="grow">
+        <div style="font-size:15px;font-weight:600">Review times &amp; graphs</div>
+        <div class="muted" style="font-size:12px;margin-top:2px">How long each book and chapter takes you</div>
+      </div><span class="chev">›</span></div>
+    </div>`).firstElementChild;
+    row.onclick = () => render(reviewArea);
+    body.append(row);
+  }
+
   // current book hero
   const cur = SC.currentBook();
   if (cur) {
@@ -12869,12 +13009,15 @@ function bookDecayNote(v) {
   return 'reviewed';
 }
 
-// per-verse coverage keys for a book's MEMORIZED verses (whole-book review = what you've memorized)
-function bookMemorizedKeys(b) {
-  const prog = (state.scripture.progress || {})[b.name] || {}, out = [];
-  for (const k in prog) { if (!prog[k]) continue; const [ci, v] = k.split('_').map(Number); out.push('bible:' + b.name + ':' + (ci + 1) + '#' + v); }
-  return out;
-}
+// ⛑⛑ THIS FUNCTION USED TO LIVE HERE TOO, AND THE FLATTENED BUILD IS WHAT FOUND IT (46th session).
+// `build_preview.py` refuses duplicate top-level names across modules — module scope hid a second
+// `bookMemorizedKeys` in scripture.js the moment runs needed one. One definition now, in the module
+// that owns scripture progress, and app.js calls it.
+// ⚑ AND THE TWO WERE NOT THE SAME FUNCTION. This one walked the stored `progress` keys; the
+// surviving one walks the CANON and checks progress against it. A stale key — a verse number no
+// longer in the chapter, from an old import — was emitted by this version and is refused by that
+// one. `collectReviewAssignments` feeds these keys to the cycle engine, and a key nothing can ever
+// cover is a cycle that can never complete.
 // every active review assignment (modules with a cadence + whole-book assignments), resolved to keys
 function collectReviewAssignments() {
   const out = [];
@@ -12892,7 +13035,7 @@ function collectReviewAssignments() {
   }
   for (const bookName in (state.review.books || {})) {
     const b = allBooks.find(x => x.name === bookName); if (!b) continue;
-    const keys = bookMemorizedKeys(b); if (!keys.length) continue;
+    const keys = SC.bookMemorizedKeys(b.name); if (!keys.length) continue;
     out.push({ id: 'book-' + bookName, kind: 'book', book: b, a: state.review.books[bookName], keys, title: bookName });
   }
   // per-scope review cadences from the D-AF assign store — CHAPTER and VERSE scopes. Whole-book review
@@ -13789,6 +13932,32 @@ function moduleScreen(b, mod) {
 
   wrap.append(sectionTitle('Practice'));
   wrap.append(h(`<div class="muted" style="font-size:12px;margin:-4px 4px 8px">Rehearse this module. Marking it reviewed (coverage) arrives with the review engine.</div>`));
+  // ⛑⛑ THE CARD ORDER IS HIS HERE TOO (chunk 2, 46th session). `moduleLaunch` hardcoded
+  // `'adaptive'` and this screen offered no way to say otherwise, so tapping Flashcards on a module
+  // dropped him at a random verse — Baruch, Aug 28: "it just started me in random spots and there
+  // was no way to say start me from the beginning or start me from where I left off."
+  // ⚑ SAME TOKENS, SAME LABELS, SAME STORED PREFERENCE as the Train sheet — `FLASH_ORDER_PILLS`
+  // over `RV.FLASH_ORDERS`, remembered under `scopeLaunch[RV.TRAIN]`. Two screens spelling one
+  // concept two ways is how this project got two builders that disagreed about an EMOM.
+  // ⚑ AND THE DEFAULT IS `inorder`, not adaptive: an unrecognised stored value falls back to the
+  // plain pass, which is the same rule `scopeModeControls` already follows.
+  let modOrder = (() => {
+    const saved = (state.settings.scopeLaunch[RV.TRAIN] || {}).order;
+    return RV.FLASH_ORDERS.includes(saved) ? saved : 'inorder';
+  })();
+  const ordRow = h(`<div class="pillrow" style="margin-bottom:8px">
+      <span class="muted" style="font-size:11px;align-self:center;margin-right:2px">Cards</span>
+      ${FLASH_ORDER_PILLS.map(([o, l]) => `<button class="pill${modOrder === o ? ' on' : ''}" data-o="${o}" style="padding:4px 10px;font-size:12px">${l}</button>`).join('')}
+    </div>`).firstElementChild;
+  ordRow.querySelectorAll('[data-o]').forEach(b => b.onclick = () => {
+    modOrder = b.dataset.o;
+    ordRow.querySelectorAll('[data-o]').forEach(x => x.classList.toggle('on', x === b));
+    // remembered the same way the Train sheet remembers it, so one choice serves both doors
+    const pref = state.settings.scopeLaunch[RV.TRAIN] || (state.settings.scopeLaunch[RV.TRAIN] = {});
+    pref.order = modOrder;
+    save();
+  });
+  wrap.append(ordRow);
   const modes = h(`<div>
     <div class="row" style="gap:8px">
       <button class="btn" data-m="flash" style="margin-top:0;flex:1">Flashcards</button>
@@ -13801,7 +13970,7 @@ function moduleScreen(b, mod) {
   </div>`).firstElementChild;
   modes.querySelectorAll('[data-m]').forEach(btn => btn.onclick = () => {
     if (btn.dataset.m === 'recite') render(() => reviewTimer(b, MOD.moduleReviewScope(mod), title));   // speak it aloud, log the time
-    else moduleLaunch(b, mod, btn.dataset.m, btn);
+    else moduleLaunch(b, mod, btn.dataset.m, btn, modOrder);
   });
   wrap.append(modes);
 
@@ -13837,7 +14006,7 @@ async function moduleFetchDoc(b, mod, onStatus) {
 }
 
 // Launch a module directly into a practice session (from the module detail screen).
-async function moduleLaunch(b, mod, mode, btn) {
+async function moduleLaunch(b, mod, mode, btn, order = 'inorder') {
   if (btn && btn.dataset.busy) return;
   if (!MOD.moduleChapters(mod).length) { toast('This module has no verses'); return; }
   const orig = btn ? btn.textContent : '';
@@ -13848,7 +14017,7 @@ async function moduleLaunch(b, mod, mode, btn) {
     const queue = doc.sections.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn, ci: x.ci }));
     if (mode === 'fade') render(() => fadeScreen(doc, queue, 0, 0, []));
     else if (mode === 'typer') render(() => typerScreen(doc, queue, 0, []));
-    else render(() => flashSession(doc, queue, 20, 'adaptive'));
+    else render(() => flashSession(doc, queue, 20, order));
   } catch (err) {
     if (btn) { delete btn.dataset.busy; btn.textContent = orig; }
     esvErrToast(err);
@@ -14277,6 +14446,52 @@ function reviewArea() {
   renderTimes(wrap);
 }
 
+// A run card per book: the pass in progress, then the last one finished, with the delta between
+// the last two so he has something to beat.
+// ⚑ NO PROJECTION, NO PACE, NO ESTIMATE. He asked to see what a pass cost him and what the previous
+// one cost him. A predicted finish time would be this project inventing a number again.
+function runsSection(container) {
+  const books = SC.booksWithRuns();
+  if (!books.length) return;
+  const openFirst = books.slice().sort((a, b) => {
+    const oa = SC.openRun(a) ? 0 : 1, ob = SC.openRun(b) ? 0 : 1;
+    if (oa !== ob) return oa - ob;
+    const la = SC.lastRun(a), lb = SC.lastRun(b);
+    return ((lb && lb.closedAt) || 0) - ((la && la.closedAt) || 0);
+  });
+  container.append(sectionTitle('Passes through a book'));
+  const dayOf = ms => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  openFirst.forEach(name => {
+    const open = SC.openRun(name), last = SC.lastRun(name);
+    const past = SC.bookRuns(name).past;
+    const prev = past.length > 1 ? past[past.length - 2] : null;
+    const wrap = h(`<div class="card"><div class="title" style="font-size:15px;font-weight:600">${esc(name)}</div></div>`).firstElementChild;
+    if (open) {
+      const pr = SC.runProgress(name, open);
+      wrap.append(h(`<div class="statgrid" style="margin-top:10px">
+        <div class="stat"><div class="v">${SC.fmtSecs(open.secs)}</div><div class="l">So far</div></div>
+        <div class="stat"><div class="v">${pr.chDone} / ${pr.chTotal}</div><div class="l">Chapters · ${open.sittings} sitting${open.sittings === 1 ? '' : 's'}</div></div>
+      </div>`));
+      wrap.append(h(`<div class="muted" style="font-size:12px;margin-top:8px">Started ${esc(dayOf(open.startedAt))}${last ? ' · last pass took ' + esc(SC.fmtSecs(last.secs)) : ''}</div>`));
+      const chs = Object.keys(open.chapters).map(Number).sort((a, b) => a - b);
+      if (chs.length) {
+        wrap.append(h(`<div class="muted" style="font-size:12px;margin-top:6px;line-height:1.7">${
+          chs.map(c => `${esc(name)} ${c} — ${esc(SC.fmtSecs(open.chapters[c]))}`).join(' · ')}</div>`));
+      }
+    } else if (last) {
+      // ⚑ THE DELTA IS ONLY DRAWN WHEN THERE ARE TWO PASSES TO COMPARE. One pass and a "0:00
+      // faster" line would be a comparison against nothing, dressed as a result.
+      const d = prev ? prev.secs - last.secs : null;
+      wrap.append(h(`<div class="statgrid" style="margin-top:10px">
+        <div class="stat"><div class="v">${SC.fmtSecs(last.secs)}</div><div class="l">Last pass</div></div>
+        <div class="stat"><div class="v">${d == null ? '—' : (d > 0 ? '−' : '+') + SC.fmtSecs(Math.abs(d))}</div><div class="l">${d == null ? 'no earlier pass' : d > 0 ? 'faster than before' : 'slower than before'}</div></div>
+      </div>`));
+      wrap.append(h(`<div class="muted" style="font-size:12px;margin-top:8px">${esc(dayOf(last.startedAt))}–${esc(dayOf(last.closedAt))} · ${last.sittings} sitting${last.sittings === 1 ? '' : 's'} · ${past.length} pass${past.length === 1 ? '' : 'es'} on record</div>`));
+    }
+    container.append(wrap);
+  });
+}
+
 function renderTimes(container) {
   // manual entry
   const entry = h(`
@@ -14310,7 +14525,23 @@ function renderTimes(container) {
   //   whole-book time            → OT/NT corpus graph, one line per book, always
   //   chapter/range, book is a current project (or any range) → that book's graph, points labeled
   //   chapter, any other book    → shared Individual Chapters graph, one line per chapter
+  // ⛑⛑ RUNS — A PASS THROUGH A BOOK, ACROSS AS MANY SITTINGS AS IT TOOK (46th session).
+  // This is the thing he actually asked for and the app could not express: "I want all the times
+  // put together so I get my total time for that book when I am doing it consecutively all the way
+  // through the book." The flat `reviewTimes` list below answers "how long was that sitting";
+  // this answers "how long did the BOOK take me, and was it faster than last time".
+  runsSection(container);
+
+  // ⛑⛑ A BOOK HE HAS MEMORIZED GETS ITS OWN GRAPH WHETHER OR NOT IT IS A "CURRENT PROJECT"
+  // (chunk 5, 46th session). This set was current projects ONLY, so a chapter time for Ephesians,
+  // 1-2 Timothy, Titus or James — books he FINISHED, and therefore stopped listing as projects —
+  // was routed into the shared "Individual Chapters" bucket instead of the book's own card. Those
+  // are exactly the books he reviews most: "I have Ephesians all memorized, and First Timothy, and
+  // Second Timothy, and Titus, and James... I want to review those books."
+  // ⚑ A project with nothing memorized yet still earns its card (the loop below adds it), so this
+  // is a UNION of the two populations, not a replacement of one by the other.
   const projectSet = new Set((state.scripture.currentItems || []).filter(it => it.ch == null).map(it => it.book));
+  SC.memorizedBooks().forEach(b => projectSet.add(b.name));
   const shortScope = e => !e.scope ? 'all' : e.scope.kind === 'chapter' ? String(e.scope.ch) : e.scope.from + '–' + e.scope.to;
 
   const corpus = { ot: {}, nt: {} };   // book → entries (whole-book)
@@ -16569,6 +16800,18 @@ function flashChapterOf(d, item) {
 // ⚑ AND A SINGLE-CHAPTER DECK NEVER AUTO-LAPS, because every card returns the same ci — there is no
 // boundary to cross. That is his ruling, and it falls out of the rule rather than needing a branch.
 function flashMaybeLap(d, session, item, now) {
+  // ⛑⛑ ONLY A WRITTEN-ORDER PASS HAS CHAPTER BOUNDARIES WORTH STAMPING (chunk 3, 46th session).
+  // `adaptive` sorts the whole deck by mastery and ignores chapters entirely, so the three cards in
+  // rotation routinely sit in three different chapters and EVERY rotation step crossed a boundary.
+  // Probed on Hebrews 1-7 with his own kind of history: **59 laps in 60 cards**, each about twenty
+  // seconds, labelled "Hebrews 3 · Hebrews 1 · Hebrews 2 · Hebrews 3 …".
+  // ⚑ AND IT WAS ONE BUTTON AWAY FROM BEING PERMANENT. "⏱ Log to review times → each chapter
+  // separately" files one `SC.logReviewTime` per chapter lap; on such a session it would have
+  // written dozens of twenty-second chapter times into the graph he wants to measure himself by,
+  // and nothing downstream could tell them from real ones.
+  // ⚑ MANUAL LAPS ARE UNTOUCHED — he draws those himself, in any order, and they are already
+  // refused as chapter times by `flashChapterLaps`.
+  if (!session.plain) return null;
   const ci = flashChapterOf(d, item);
   if (ci == null) return null;
   if (session.lastCi == null) { session.lastCi = ci; return null; }
@@ -16628,15 +16871,32 @@ function flashClockSnapshot(clock, now) {
     laps: clock.laps.map(l => ({ ...l })), gaps: clock.gaps.slice()
   };
 }
+// ⛑⛑ A CARD'S IDENTITY IS `docId#verse`, NEVER ITS POSITION IN THE DECK.
+// `bibleMultiDoc` numbers sections 1..N across whatever chapters it was handed, and `fetchScopeDoc`
+// then FILTERS that doc down to the keys still uncovered. So `n` is a position in a list whose
+// membership changes every time his coverage changes — and a snapshot keyed on `n` means one verse
+// on Monday and a different verse on Tuesday. It failed safe only because coverage never moved;
+// the moment chunk 1 made it move, resuming would have restored his ratings onto the wrong verses.
+// ⚑ THE KEY IS `RV.coverageKey(prDocId, prN)` — the same identity the coverage watermark and the
+// mastery history already use. A fourth spelling of "which verse is this" is how the first three
+// drift apart.
+const flashCardKey = (d, x) => RV.coverageKey(prDocId(d, x), prN(x));
+const flashRekey = (obj, f) => {
+  const out = {};
+  Object.keys(obj || {}).forEach(k => { const v = f(k); if (v != null) out[v] = obj[k]; });
+  return out;
+};
 function flashSnapshot(d, session, now) {
+  const K = n => flashCardKey(d, session.byN[n] || { n: Number(n) });
   return {
     docId: d.id, docName: d.name || '', order: session.order, intent: session.intent,
     budget: session.budget, deckSize: session.deckSize,
-    ns: Object.keys(session.byN).map(Number),
-    history: session.history.slice(), cursor: session.cursor,
-    ratings: { ...session.ratings }, exit: { ...session.exit },
+    cards: Object.keys(session.byN).map(K),
+    history: session.history.map(K), cursor: session.cursor,
+    ratings: flashRekey(session.ratings, K), exit: flashRekey(session.exit, K),
     reps: session.reps, capOffered: !!session.capOffered,
-    activeNs: session.active.map(c => c.n), poolNs: session.pool.map(c => c.n),
+    activeKeys: session.active.map(c => flashCardKey(d, c)),
+    poolKeys: session.pool.map(c => flashCardKey(d, c)),
     lastCi: session.lastCi, lapN: session.lapN,
     clock: flashClockSnapshot(session.clock, now),
     savedAt: now
@@ -16679,19 +16939,25 @@ function flashClear(d) { const st = flashStore(); if (d && st[d.id]) { delete st
 // just the verses it was asked for — and quietly dropping the missing cards would shrink his deck
 // without telling him, which is the flattering direction again.
 function flashRestore(d, snap) {
+  // ⚑ A SNAPSHOT WRITTEN BEFORE THIS CHANGE CARRIES `ns`, NOT `cards`, AND IS REFUSED RATHER THAN
+  // GUESSED AT. Its numbers cannot be mapped onto verses after the fact — that is the whole defect.
+  // Refusing shows him the "can't be picked up here" screen once; guessing would restore his
+  // ratings onto whatever verse now happens to sit at that index.
+  if (!Array.isArray(snap.cards)) return null;
+  const byKey = {};
+  d.sections.forEach(x => { byKey[flashCardKey(d, x)] = x; });
+  if (snap.cards.some(k => !byKey[k])) return null;
+  const nOf = k => (byKey[k] ? byKey[k].n : null);
   const byN = {};
-  d.sections.forEach(x => {
-    if (snap.ns.indexOf(x.n) >= 0) byN[x.n] = { n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn, ci: x.ci };
-  });
-  if (snap.ns.some(n => !byN[n])) return null;
-  const asPool = n => { const it = byN[n]; return it && { ...it, m: CR.mastery(prDocId(d, it), prN(it)), last: CR.lastPracticeTs(prDocId(d, it), prN(it)) }; };
+  snap.cards.forEach(k => { const x = byKey[k]; byN[x.n] = { n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn, ci: x.ci }; });
+  const asPool = k => { const it = byN[nOf(k)]; return it && { ...it, m: CR.mastery(prDocId(d, it), prN(it)), last: CR.lastPracticeTs(prDocId(d, it), prN(it)) }; };
   const session = {
     order: snap.order, intent: snap.intent, budget: snap.budget, plain: RV.isPlainPass(snap.order),
     deckSize: snap.deckSize, byN,
-    pool: (snap.poolNs || []).map(asPool).filter(Boolean),
-    active: (snap.activeNs || []).map(asPool).filter(Boolean),
-    history: (snap.history || []).slice(), cursor: snap.cursor,
-    ratings: { ...snap.ratings }, exit: { ...snap.exit },
+    pool: (snap.poolKeys || []).map(asPool).filter(Boolean),
+    active: (snap.activeKeys || []).map(asPool).filter(Boolean),
+    history: (snap.history || []).map(nOf).filter(n => n != null), cursor: snap.cursor,
+    ratings: flashRekey(snap.ratings, nOf), exit: flashRekey(snap.exit, nOf),
     reps: snap.reps || 0, capDue: false, capOffered: !!snap.capOffered,
     seed: snap.order === 'seq' ? 1 : 3,
     clock: { ...snap.clock, laps: (snap.clock.laps || []).map(l => ({ ...l })), gaps: (snap.clock.gaps || []).slice() },
@@ -16917,6 +17183,21 @@ function deckRate(d, session, r) {
   session.ratings[item.n] = r;
   session.exit[item.n] = r;
   session.reps++;
+  // ⛑⛑ POSITION IS WRITTEN HERE, ON ANY RATING — NOT AT THE SUMMARY, AND NOT ONLY ON A 4 OR 5.
+  // Baruch, Aug 28 2026: "I'm expecting to start where I left off yesterday, and instead it's just
+  // starting me at the beginning again." `flashRate` was the ONLY writer of `review.covered` and it
+  // is called from `flashEnd` alone, so a fifteen-minute sitting he walked away from recorded
+  // NOTHING — and even a finished deck only counted cards he rated 4 or 5. His practice is to
+  // recite aloud and rate what he recited, so `uncoveredKeys` returned the whole unit every launch
+  // and the in-order deck dropped him on verse one, for ever.
+  //
+  // ⛑ HIS RULING (Aug 28): a rating is still REQUIRED — swiping past a card silently must not
+  // claim it. But ANY rating counts as "I worked this verse today". A 2 says he does not know it,
+  // not that he did not review it, and pinning him to one chapter until he can score it 4 is the
+  // behaviour he asked to be rid of. The TRAINED (>=4) and MEMORIZED (=5) thresholds are untouched
+  // and still fire in `flashEnd` on his FINAL answer — those are claims about knowing a verse;
+  // this is a claim about having worked it.
+  RV.markCovered(RV.coverageKey(prDocId(d, item), prN(item)));
   if (!session.plain) {
     if (r >= FLASH_MEMORIZED_MIN) {
       session.active = session.active.filter(c => c.n !== item.n);   // a 5 retires it from rotation
