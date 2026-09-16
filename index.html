@@ -53,15 +53,31 @@ body {
 }
 #app { height: 100%; display: flex; flex-direction: column; }
 
+/* ⚑ NAV (16 Sep): You on the left, the title centred, Plan on the right. Three columns so the title
+   sits on the page's centre line whatever the sides hold; the sides never shrink below their own
+   contents, the title gives way and ellipsizes instead. */
 header.topbar {
   padding: calc(env(safe-area-inset-top) + 12px) 16px 10px;
-  display: flex; align-items: center; gap: 10px;
+  display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(0, max-content) minmax(max-content, 1fr);
+  align-items: center; gap: 10px; min-height: 30px;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
 header.topbar .back { border: none; background: none; color: var(--gold); font-family: var(--serif-display); font-size: 12px; font-weight: 700; letter-spacing: .08em; padding: 4px 6px 4px 0; cursor: pointer; display: none; }
-header.topbar h1 { font-family: var(--serif-display); font-size: 15px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; flex: 1; }
+header.topbar h1 { font-family: var(--serif-display); font-size: 15px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+header.topbar .tb-side { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+header.topbar .tb-left { justify-self: start; }
+header.topbar .tb-right { justify-self: end; }
+/* Plan — the avatar's twin: the same 30px coin, the same brass hairline, an engraved calendar leaf.
+   Selected = burgundy line, the app's one highlight colour (brass is never a fill). */
+header.topbar .h-plan {
+  flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid var(--gold); background: var(--card); color: var(--gold);
+  cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;
+}
+header.topbar .h-plan.on { color: var(--accent); border-color: var(--accent); }
+header.topbar .h-plan .plus-ico { width: 17px; height: 17px; }
 header.topbar .h-action { border: none; background: none; color: var(--gold); font-family: var(--serif-display); font-size: 11px; font-weight: 700; letter-spacing: .1em; cursor: pointer; padding: 4px; }
 /* Floating close ✕ for practice-session screens (fade/typer/flashcards/scramble/binary) */
 .practice-x { position: fixed; top: calc(env(safe-area-inset-top) + 8px); right: 12px; z-index: 250; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--text); font-size: 17px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
@@ -165,6 +181,8 @@ nav.tabbar button {
 nav.tabbar button.active { color: var(--text); }
 nav.tabbar button.active::after { content: ''; width: 3px; height: 3px; border-radius: 50%; background: var(--gold); margin-top: 2px; }
 nav.tabbar .ico { font-size: 17px; line-height: 1; }
+nav.tabbar .ico .plus-ico { width: 21px; height: 21px; }
+nav.tabbar button.active .ico { color: var(--accent); }
 
 /* raised, slightly larger center ＋ (D-S) */
 /* ⚑⚑ THE LONG-PRESS MISFIRE WAS THREE MISSING PROPERTIES, NOT A BAD GESTURE. Thirtieth session.
@@ -272,6 +290,10 @@ header.topbar .avatar {
 }
 .pill.on { background: transparent; border-color: var(--gold); color: var(--gold); font-weight: 700; }
 .pillrow { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+/* The Fitness Today card's quick-adds — one row, no wrapping (his standing rule). */
+.pillrow.ft-quick { flex-wrap: nowrap; gap: 5px; align-items: center; margin-bottom: 0; }
+.pillrow.ft-quick .pill { flex: 1 1 0; min-width: 0; padding: 6px 2px; font-size: 12.5px; white-space: nowrap; text-align: center; }
+.pillrow.ft-quick .ft-quick-lbl { flex: 0 0 auto; color: var(--gold); font-size: 15px; font-weight: 700; padding-right: 1px; }
 
 .list-item {
   display: flex; align-items: center; gap: 12px;
@@ -402,17 +424,22 @@ header.topbar .avatar {
 <body>
 <div id="app">
   <header class="topbar">
-    <button class="back" id="h-back">‹ Back</button>
+    <div class="tb-side tb-left">
+      <button class="back" id="h-back">‹ Back</button>
+      <button class="avatar" id="h-avatar" title="You" aria-label="You / Profile">B</button>
+    </div>
     <h1 id="h-title">Strive</h1>
-    <button class="h-action" id="h-action" style="display:none"></button>
-    <button class="avatar" id="h-avatar" title="You" aria-label="You / Profile">B</button>
+    <div class="tb-side tb-right">
+      <button class="h-action" id="h-action" style="display:none"></button>
+      <button class="h-plan" id="h-plan" title="Plan" aria-label="Plan"></button>
+    </div>
   </header>
   <main id="main"></main>
 </div>
 <nav class="tabbar">
-  <button data-tab="home"><span class="ico">◈</span>Home</button>
+  <button data-tab="home" data-ico="bible"><span class="ico"></span>Study</button>
   <button class="tab-plus" data-tab="plus" aria-label="Quick add"><span class="ico">＋</span></button>
-  <button data-tab="plan"><span class="ico">▤</span>Plan</button>
+  <button data-tab="fitness" data-ico="training"><span class="ico"></span>Fitness</button>
 </nav>
 <div id="toast"></div>
 <script>
@@ -940,7 +967,26 @@ const MCHEYNE = [["Genesis 1","Matthew 1","Ezra 1","Acts 1"],["Genesis 2","Matth
 const KEY = 'strive-v1';
 const BACKUP_KEY = 'strive-v1-backup';           // raw pre-migration snapshot, written once, never overwritten
 const PRE_IMPORT_KEY = 'strive-pre-import-backup'; // safety copy taken before a restore replaces state
-const SCHEMA = 2;
+const PRE_V3_KEY = 'strive-pre-v3-backup';         // raw schema-2 snapshot taken before the A6 repairs, written once
+// ⚑ SCHEMA 3 (16 Sep 2026, A6) — the data REPAIRS. Schema 2 → 3 changes no shape; it runs the
+// registered repairs (runs reconciled against review times, zero-answer stats rows dropped) once for
+// every existing install. They are idempotent, because import and sync reset the stamp and re-run them.
+const SCHEMA = 3;
+
+// Domain modules register their repairs here rather than store.js importing them (they import
+// store.js). They run inside migrateState, after every module has been evaluated, because app.js
+// calls load() at its top level and imports are hoisted above it.
+const REPAIRS = [];
+function registerRepair(name, fn) { REPAIRS.push([name, fn]); }
+// Also called by sync after it merges two devices' review evidence into the live state (A5).
+function runRepairs() {
+  const repaired = {};
+  let allOk = true;
+  REPAIRS.forEach(([name, fn]) => {
+    try { repaired[name] = fn(); } catch (e) { allOk = false; console.warn('repair failed', name, e); }
+  });
+  return { repaired, allOk };
+}
 
 function defaultState() {
   return {
@@ -1031,8 +1077,13 @@ function load() {
       // one-time raw snapshot of true pre-v2 data, before anything touches it
       try {
         const parsed = JSON.parse(d);
-        if (!(parsed.meta && parsed.meta.schema >= SCHEMA) && !localStorage.getItem(BACKUP_KEY)) {
+        if (!(parsed.meta && parsed.meta.schema >= 2) && !localStorage.getItem(BACKUP_KEY)) {
           localStorage.setItem(BACKUP_KEY, d);
+        }
+        // ⚑ A6 rewrites history, so the history it rewrites is kept first. Best-effort: a full
+        // quota must not stop the app loading.
+        if (parsed.meta && parsed.meta.schema === 2 && !localStorage.getItem(PRE_V3_KEY)) {
+          try { localStorage.setItem(PRE_V3_KEY, d); } catch (e) { console.warn('pre-v3 snapshot skipped', e); }
         }
       } catch (e) { /* unparseable — deepMerge below will throw and warn */ }
       deepMerge(state, JSON.parse(d));
@@ -1204,7 +1255,12 @@ function migrateState() {
   // dead XP wallet (B5) — no live data, Phase 11 designs rewards fresh
   delete state.xp;
 
-  state.meta = { schema: SCHEMA, migratedAt: Date.now() };
+  // ⚑ SCHEMA 3 — THE REPAIRS. A repair that throws leaves the stamp unwritten, so it is tried again
+  // on the next load rather than being skipped for ever; every repair is idempotent.
+  const { repaired, allOk } = runRepairs();
+  if (!allOk) { saveNow(); return; }
+
+  state.meta = { schema: SCHEMA, migratedAt: Date.now(), repaired };
   saveNow();   // immediate, not debounced — a refresh mid-migration must not race the write
 }
 
@@ -1603,7 +1659,58 @@ function bookRuns(bookName) {
   if (!st[bookName]) st[bookName] = { open: null, past: [] };
   const r = st[bookName];
   if (!Array.isArray(r.past)) r.past = [];
+  // ⚑ A2 (16 Sep) — COMPLETION IS DERIVED ON READ. It used to be decided only at the instant a time
+  // was filed, so a pass that became complete a few ms AFTER the filing (Sep 11: `.313` filed,
+  // `.319` coverage re-stamped) stayed "open" for ever and swallowed the next pass's time. Every
+  // reader now settles the ledger first, so the answer cannot depend on write order.
+  if (settleRun(bookName, r)) save();
   return r;
+}
+// ⚑⚑ ONE WATERMARK (A12, 16 Sep). A run used to count coverage from its `startedAt` — the
+// instant the first time was FILED — while the Train launcher counted from a cadence's
+// `cycleStart`, which is 0 for a book with no schedule. Two clocks, and the launcher's said
+// "everything is covered" while the run's said 135/155. That is A11: the deck rebuilt Ephesians
+// and opened on 1:1 with twenty verses still to do.
+// Now a pass has ONE "since": `run.since` (legacy runs fall back to `startedAt`), inherited from
+// `r.since` — the instant the previous pass closed, or the instant a fresh pass was deliberately
+// begun. The launcher asks `passSince`, the run asks `runSince`, and they are the same number.
+const runSince = run => (run ? (run.since != null ? run.since : run.startedAt) : 0);
+// Where the NEXT pass counts from when none is open: the deliberate start, else the instant the
+// last pass closed (runs closed before 16 Sep carry no `r.since`), else nothing on record.
+function nextSince(r) {
+  if (r.since) return r.since;
+  const last = r.past[r.past.length - 1];
+  return last && last.closedAt != null ? last.closedAt + 1 : 0;
+}
+function passSince(bookName) {
+  const r = bookRuns(bookName);
+  return r.open ? runSince(r.open) : nextSince(r);
+}
+// A deliberate new pass with no time filed yet (the launcher found nothing left to do). Only
+// when no pass is open — an open pass is the pass, and moving its watermark would lose work.
+function startFreshPass(bookName, now = Date.now()) {
+  const r = bookRuns(bookName);
+  if (r.open) return false;
+  r.since = now;
+  save();
+  return true;
+}
+// The instant the pass became complete = the latest covering stamp in it. Derived, so a filing
+// that lands after the last verse cannot move the pass's end.
+function completionTs(bookName, since) {
+  let max = 0;
+  for (const k of bookMemorizedKeys(bookName)) { const t = coverageTs(k); if (t >= since && t > max) max = t; }
+  return max;
+}
+function settleRun(bookName, r) {
+  const run = r.open;
+  if (!run || !runComplete(bookName, run)) return false;
+  run.closedAt = Math.max(completionTs(bookName, runSince(run)), runSince(run));
+  r.past.push(run);
+  if (r.past.length > RUN_HISTORY_MAX) r.past = r.past.slice(-RUN_HISTORY_MAX);
+  r.open = null;
+  r.since = run.closedAt + 1;   // the verse that finished this pass must not also count toward the next
+  return true;
 }
 // The coverage keys for the verses he has MEMORIZED in a book — the population a run is a pass over.
 // ⚑ MEMORIZED, NOT ALL. A run over Hebrews must not wait on six chapters he has never learned.
@@ -1622,16 +1729,23 @@ function bookMemorizedKeys(bookName) {
 function runComplete(bookName, run) {
   if (!run) return false;
   const keys = bookMemorizedKeys(bookName);
-  return keys.length > 0 && keys.every(k => isCovered(k, run.startedAt));
+  return keys.length > 0 && keys.every(k => isCovered(k, runSince(run)));
 }
 // Accrue a filed review time onto the book's open run, opening one if none is running, and closing
 // it the moment the pass is complete.
 // ⚑ CLOSED ON THE ENTRY THAT COMPLETES IT, not on the next launch. A run that stays "open" after he
 // finished the book would keep swallowing the next pass's time into the last one's total.
 function runAccrue(bookName, secs, scope, ts) {
-  const r = bookRuns(bookName);
-  if (!r.open) r.open = { startedAt: ts, lastAt: ts, secs: 0, chapters: {}, sittings: 0 };
-  const run = r.open;
+  const r = bookRuns(bookName);   // settled — a pass already complete is already closed
+  let run = r.open;
+  if (!run) {
+    // ⚑ A SITTING THAT BEGAN BEFORE THE LAST PASS CLOSED BELONGS TO THAT PASS. `ts` is the
+    // sitting's START, so "finish Ephesians, then file the time" lands in the pass it finished
+    // rather than opening a phantom next pass — which settle-on-read would otherwise cause.
+    const last = r.past[r.past.length - 1];
+    if (last && ts <= last.closedAt) run = last;
+    else run = r.open = { startedAt: ts, since: nextSince(r) || ts, lastAt: ts, secs: 0, chapters: {}, sittings: 0 };
+  }
   run.secs += secs;
   run.sittings += 1;
   run.lastAt = Math.max(run.lastAt || 0, ts);
@@ -1639,13 +1753,29 @@ function runAccrue(bookName, secs, scope, ts) {
   // belongs in the total, but splitting it across its chapters would invent numbers he never
   // recorded — the same refusal the scoring side makes about an elite anchor it cannot measure.
   if (scope && scope.kind === 'chapter') run.chapters[scope.ch] = (run.chapters[scope.ch] || 0) + secs;
-  if (runComplete(bookName, run)) {
-    run.closedAt = ts;
-    r.past.push(run);
-    if (r.past.length > RUN_HISTORY_MAX) r.past = r.past.slice(-RUN_HISTORY_MAX);
-    r.open = null;
+  settleRun(bookName, r);
+  return run;
+}
+// A4/A3 — the inverse, for a deleted review time. Finds the pass the entry was filed into (by the
+// `run` id stamped at filing; legacy entries by time window) and takes its seconds back out.
+function runUnaccrue(bookName, e) {
+  const r = bookRuns(bookName);
+  const all = (r.open ? [r.open] : []).concat(r.past.slice().reverse());
+  let run = e.run != null ? all.find(x => x.startedAt === e.run) : null;
+  if (!run) run = all.find(x => e.ts >= x.startedAt && e.ts <= (x.closedAt != null ? x.closedAt : Infinity));
+  if (!run) return false;
+  run.secs = Math.max(0, run.secs - (e.secs || 0));
+  run.sittings = Math.max(0, (run.sittings || 0) - 1);
+  if (e.scope && e.scope.kind === 'chapter' && run.chapters[e.scope.ch] != null) {
+    run.chapters[e.scope.ch] = Math.max(0, run.chapters[e.scope.ch] - (e.secs || 0));
+    if (!run.chapters[e.scope.ch]) delete run.chapters[e.scope.ch];
   }
-  return r;
+  // A pass with nothing left filed against it is not a pass. Coverage is untouched either way.
+  if (run.sittings === 0) {
+    if (run === r.open) r.open = null;
+    else r.past = r.past.filter(x => x !== run);
+  }
+  return true;
 }
 // How far through the book this run has got. Chapters, because that is the unit he talks in:
 // "it took me 10 minutes to do Hebrews chapter 1 last time."
@@ -1684,26 +1814,145 @@ function lastRun(bookName) {
 }
 function openRun(bookName) { return bookRuns(bookName).open; }
 
+// ⚑ A3 — A DOUBLE TAP FILES ONCE. Two byte-identical entries a moment apart are one tap bounced,
+// not two sittings (the 09-15 export: 2 × 45:00, same ts). Same-sitting entries that differ
+// (per-chapter laps) are untouched.
+let lastFiled = null;
+// ⚑ A RANGE THAT IS EVERY CHAPTER IS THE WHOLE BOOK. The flashcard sheet files a whole-book deck as
+// "1–6", which SM1 routes to a different card and graph from a whole-book time — so Ephesians' two
+// passes landed in two groupings with no comparison between them. One spelling, at the one door.
+function normScope(bookName, scope) {
+  if (!scope || scope.kind !== 'range') return scope || null;
+  const b = allBooks.find(x => x.name === bookName);
+  return b && scope.from === 1 && scope.to === b.chapters ? null : scope;
+}
+const sameEntry = (a, b) => a.ts === b.ts && a.secs === b.secs && JSON.stringify(a.scope || null) === JSON.stringify(b.scope || null);
 function logReviewTime(bookName, secs, { ts = Date.now(), note = '', scope = null } = {}) {
   if (!S().reviewTimes[bookName]) S().reviewTimes[bookName] = [];
   const e = { ts, secs };
   if (note) e.note = note;
+  scope = normScope(bookName, scope);
   if (scope) e.scope = scope;   // {kind:'chapter', ch} | {kind:'range', from, to} — absent = whole book
-  S().reviewTimes[bookName].push(e);
+  const now = Date.now();
+  const list = S().reviewTimes[bookName];
+  if (lastFiled && lastFiled.book === bookName && now - lastFiled.at < 5000 && lastFiled.e === list[list.length - 1] && sameEntry(lastFiled.e, e)) return false;
+  lastFiled = { book: bookName, at: now, e };
+  list.push(e);
   // ⛑ ONE WRITER. Every door that files a review time — the flashcard summary sheet, the recite
   // timer, a pathway step, the manual entry form — comes through here, so the run ledger is fed
   // from one place rather than from four that would drift.
-  runAccrue(bookName, secs, scope, ts);
+  const run = runAccrue(bookName, secs, scope, ts);
+  if (run) e.run = run.startedAt;   // which pass this time went into, so a delete can take it back out
   recordStreakDay();
   save();
+  return true;
 }
 
-function removeReviewTime(bookName, ts) {
-  if (S().reviewTimes[bookName]) {
-    S().reviewTimes[bookName] = S().reviewTimes[bookName].filter(e => e.ts !== ts);
-    save();
-  }
+// ⚑ A3 — DELETES ONE ENTRY, AND TAKES ITS TIME BACK OUT OF THE PASS. This filtered on `ts` alone,
+// so one ✕ on a duplicate removed every entry sharing the timestamp, and the seconds stayed in
+// `runs` — the only way the two stores could disagree. `which` is the entry (or a bare ts, legacy).
+function removeReviewTime(bookName, which) {
+  const list = S().reviewTimes[bookName];
+  if (!list) return false;
+  const probe = (which && typeof which === 'object') ? which : { ts: which };
+  let i = list.indexOf(which);
+  if (i < 0) i = list.findIndex(e => e.ts === probe.ts && (probe.secs == null || sameEntry(e, probe)));
+  if (i < 0) return false;
+  const [e] = list.splice(i, 1);
+  runUnaccrue(bookName, e);
+  // ⚑ A5 — A DELETE IS REMEMBERED, so a sync merge cannot bring the entry back from the other device.
+  if (!Array.isArray(S().reviewTimesDeleted)) S().reviewTimesDeleted = [];
+  S().reviewTimesDeleted.push({ book: bookName, ts: e.ts, secs: e.secs, scope: e.scope || null, at: Date.now() });
+  if (S().reviewTimesDeleted.length > 300) S().reviewTimesDeleted = S().reviewTimesDeleted.slice(-300);
+  save();
+  return true;
 }
+
+// ⚑⚑ A6 (16 Sep) — RECONCILE EVERY PASS AGAINST THE REVIEW TIMES THAT BUILT IT. Before A3 a ✕ could
+// remove entries and leave their seconds in `runs`, so the two stores disagreed. The review times are
+// the record he vouched for; the passes are rebuilt from them:
+//   · each entry is tied to its pass (`e.run`) — by id, else by the pass's time window;
+//   · each pass's secs / sittings / chapters are recomputed from its entries;
+//   · a pass with no entry behind it is an orphan and goes.
+// Entries older than the first pass (review times predate passes) are left untied.
+//
+// ⚑ AND ONE RECOVERY, NARROW ON PURPOSE — the A3 signature. Two identical taps at T filed S twice;
+// the first closed the previous pass (its `closedAt` is T), the second opened an orphan (`startedAt`
+// T, S secs, 1 sitting); one ✕ then deleted both. The previous pass therefore carries exactly S
+// secs and 1 sitting its entries don't explain. Only when all of that lines up is ONE entry (T, S)
+// restored — he meant to delete the duplicate, not the sitting — and it is filed as the pass the
+// coverage says he actually finished (Ephesians: 09-13 → 09-15, 45 min, per his acceptance test).
+function recoverDoubleTapDelete(bookName, r, list, byRun) {
+  const open = r.open, last = r.past[r.past.length - 1];
+  if (!open || !last || byRun.get(open).length || open.sittings !== 1 || last.closedAt !== open.startedAt) return false;
+  const mine = byRun.get(last);
+  const sum = mine.reduce((a, e) => a + (e.secs || 0), 0);
+  if (last.secs - sum !== open.secs || (last.sittings || 0) - mine.length !== 1) return false;
+  const T = open.startedAt, secs = open.secs;
+  r.open = null;
+  // The closing entry is gone, so the previous pass ends at its last surviving sitting.
+  last.closedAt = mine.length ? Math.max(...mine.map(e => e.ts)) : last.startedAt;
+  const since = last.closedAt + 1;
+  const keys = bookMemorizedKeys(bookName);
+  const stamps = keys.map(k => coverageTs(k));
+  const complete = keys.length > 0 && stamps.every(t => t >= since);
+  const e = { ts: T, secs, restored: 'A6' };
+  let run;
+  if (complete) {
+    const first = Math.min(...stamps), end = Math.max(...stamps);
+    run = { startedAt: Math.min(first, T), since, lastAt: T, secs: 0, chapters: {}, sittings: 0, closedAt: end };
+    r.past.push(run);
+    r.since = end + 1;
+  } else {
+    run = r.open = { startedAt: T, since, lastAt: T, secs: 0, chapters: {}, sittings: 0 };
+  }
+  list.push(e);
+  list.sort((a, b) => a.ts - b.ts);
+  byRun.delete(open);
+  byRun.set(run, [e]);
+  return true;
+}
+function repairRuns() {
+  const st = runsStore();
+  const out = { books: 0, orphans: 0, restored: 0, entriesTied: 0, scopesWhole: 0 };
+  for (const [bn, arr] of Object.entries(S().reviewTimes || {})) {
+    (arr || []).forEach(e => { if (e && e.scope && !normScope(bn, e.scope)) { delete e.scope; out.scopesWhole++; } });
+  }
+  for (const bookName of Object.keys(st)) {
+    const r = st[bookName];
+    if (!r || typeof r !== 'object') { delete st[bookName]; continue; }
+    if (!Array.isArray(r.past)) r.past = [];
+    if (!S().reviewTimes[bookName]) S().reviewTimes[bookName] = [];
+    const list = S().reviewTimes[bookName];
+    const runs = r.past.concat(r.open ? [r.open] : []);
+    const byRun = new Map(runs.map(x => [x, []]));
+    for (const e of list) {
+      let run = e.run != null ? runs.find(x => x.startedAt === e.run) : null;
+      if (!run) run = runs.find(x => e.ts >= x.startedAt && (x === r.open || x.closedAt == null || e.ts <= x.closedAt));
+      if (run) byRun.get(run).push(e);
+    }
+    if (recoverDoubleTapDelete(bookName, r, list, byRun)) out.restored++;
+    for (const [run, mine] of byRun) {
+      if (!mine.length) {
+        out.orphans++;
+        if (run === r.open) r.open = null; else r.past = r.past.filter(x => x !== run);
+        continue;
+      }
+      run.secs = mine.reduce((a, e) => a + (e.secs || 0), 0);
+      run.sittings = mine.length;
+      run.chapters = {};
+      mine.forEach(e => {
+        if (e.scope && e.scope.kind === 'chapter') run.chapters[e.scope.ch] = (run.chapters[e.scope.ch] || 0) + e.secs;
+        if (e.run !== run.startedAt) { e.run = run.startedAt; out.entriesTied++; }
+      });
+      run.lastAt = Math.max(...mine.map(e => e.ts));
+    }
+    r.past.sort((a, b) => a.startedAt - b.startedAt);
+    out.books++;
+  }
+  return out;
+}
+registerRepair('A6-runs', repairRuns);
 
 // Detect which book a pathway-step label refers to.
 // "Ephesians" → whole book; "Hebrews 1-7" → range; "Hebrews 3" → single chapter.
@@ -1909,7 +2158,7 @@ const ABBR = { Genesis: 'Gen', Exodus: 'Ex', Leviticus: 'Lev', Numbers: 'Num', D
 function abbr(name) { return ABBR[name] || name.slice(0, 3); }
 
 
-const SC = {BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookMemorizedKeys,bookRuns,bookStats,bookXP,booksWithRuns,chapterStats,corpusStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,lastRun,lifetimeVersesMarked,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,openRun,parseDuration,parseScopeInput,removeCurrentItem,removeReviewTime,resetBook,resetCorpus,restoreBookProgress,reviewHistory,reviewIntervalDays,reviewSecsBetween,runAccrue,runComplete,runProgress,scopeLabel,setChapter,setCurrentBook,setItemDue,setReviewInterval,toggleVerse,totalVerses,verseDone,versesLeft,versesMarked,versesMarkedToday};
+const SC = {BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookMemorizedKeys,bookRuns,bookStats,bookXP,booksWithRuns,chapterStats,corpusStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,lastRun,lifetimeVersesMarked,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,normScope,openRun,parseDuration,parseScopeInput,passSince,removeCurrentItem,removeReviewTime,repairRuns,resetBook,resetCorpus,restoreBookProgress,reviewHistory,reviewIntervalDays,reviewSecsBetween,runAccrue,runComplete,runProgress,runSince,scopeLabel,setChapter,setCurrentBook,setItemDue,setReviewInterval,startFreshPass,toggleVerse,totalVerses,verseDone,versesLeft,versesMarked,versesMarkedToday};
 // Strive — Modules (Phase 11 foundation, D-AB). A "Module" = one named chunk of ONE book,
 // stored at the VERSE level so coverage carries even if the book is later re-sliced.
 // Additive + sync-safe (whole-state blob).
@@ -2709,6 +2958,20 @@ function sessionId(mode, docId, startTs) { return mode + '|' + (docId || '-') + 
 // mode: 'flash' | 'binary' | 'typer' | 'fade' | 'scramble' | 'timer'
 // rec:  { id, mode, intent, title, docId, ts, secs, total, done, score, items:[{n,label,val,tag}] }
 // Returns the stored record. Upserts on `id`, so a re-rendered scorecard refreshes rather than duplicates.
+// ⚑ A8 (16 Sep) — A LAUNCH THAT ANSWERED NOTHING IS NOT A SITTING. 55 of 94 rows in the 09-15
+// were `done: 0`, most a few seconds long — the reopen loop of A11 wrote seven in seven
+// minutes. Under two minutes with nothing answered is a reopen; a long sitting that answered nothing
+// (25 min of typing, Aug) is still real time and is kept.
+const JUNK_MAX_SECS = 120;
+const isJunkSession = x => !!x && (x.done || 0) === 0 && (x.secs || 0) < JUNK_MAX_SECS;
+function dropJunkSessions() {
+  const s = SS();
+  const before = s.sessions.length;
+  s.sessions = s.sessions.filter(x => !isJunkSession(x));
+  return before - s.sessions.length;
+}
+registerRepair('A8-junk-sessions', dropJunkSessions);
+
 function logSession(rec) {
   const s = SS();
   const now = Date.now();
@@ -2726,6 +2989,8 @@ function logSession(rec) {
     items: Array.isArray(rec.items) ? rec.items.slice(0, 200) : []
   };
   const i = s.sessions.findIndex(x => x.id === clean.id);
+  // A re-entered summary can take a session back to nothing answered; the row goes with it.
+  if (isJunkSession(clean)) { if (i >= 0) { s.sessions.splice(i, 1); save(); } return null; }
   if (i >= 0) s.sessions[i] = clean; else s.sessions.push(clean);
   s.sessions.sort((a, b) => a.ts - b.ts);
   if (s.sessions.length > CAP) s.sessions.splice(0, s.sessions.length - CAP);
@@ -2739,7 +3004,14 @@ function allSessions() { return SS().sessions.slice(); }
 function sessionById(id) { return SS().sessions.find(s => s.id === id) || null; }
 function removeSession(id) {
   const s = SS(), i = s.sessions.findIndex(x => x.id === id);
-  if (i >= 0) { s.sessions.splice(i, 1); save(); return true; }
+  if (i >= 0) {
+    s.sessions.splice(i, 1);
+    // A5 — remembered, so a sync merge cannot resurrect it from the other device.
+    if (!Array.isArray(state.stats.deleted)) state.stats.deleted = [];
+    state.stats.deleted.push(id);
+    if (state.stats.deleted.length > 500) state.stats.deleted = state.stats.deleted.slice(-500);
+    save(); return true;
+  }
   return false;
 }
 
@@ -2794,7 +3066,7 @@ const MODE_LABELS = {
 };
 function modeLabel(m) { return MODE_LABELS[m] || m; }
 
-const ST = {MODE_LABELS,allSessions,dailyCounts,ensureStats,logSession,modeLabel,removeSession,scoreSeries,sessionById,sessionId,sessions,summary};
+const ST = {JUNK_MAX_SECS,MODE_LABELS,allSessions,dailyCounts,dropJunkSessions,ensureStats,isJunkSession,logSession,modeLabel,removeSession,scoreSeries,sessionById,sessionId,sessions,summary};
 // Strive — planner: day/week/month/year items, recurring rules
 
 
@@ -9181,6 +9453,112 @@ async function pushNow() {
   changed();
 }
 
+// ⚑⚑ A5 (16 Sep) — TWO DEVICES' REVIEW WORK IS NEVER THROWN AWAY BY A SYNC CHOICE.
+// The trigger for the whole Ephesians episode was Baruch moving between phone and iPad. A conflict
+// here was all-or-nothing: whichever copy he picked, every verse he had reviewed on the other device
+// vanished. The whole blob is still one blob and still last-write-wins for everything else (plans,
+// fitness, settings) — but the SCRIPTURE REVIEW EVIDENCE is append-only by nature, so it is merged:
+//   · review.covered          latest stamp per verse (stamps are true rating times since A1)
+//   · scripture.reviewTimes   union, keeping deletions made on either side (tombstones)
+//   · scripture.runs          union of passes by id; the repairs then rebuild totals from the entries
+//   · stats.sessions          union by id, minus deletions
+//   · creeds.practice         union of attempts (the mastery history — Scripture and creeds)
+//   · flashInFlight           per deck, the newer unfinished deck
+// ⚑ NOT MERGED, DELIBERATELY: memorization marks. "Erase progress" is a real action, and a union
+// would silently undo it. The chosen side's marks stand.
+const SYNC_TOMB_MAX = 300;
+const syncClone = o => JSON.parse(JSON.stringify(o));
+const syncEntryKey = e => e.ts + '|' + e.secs + '|' + JSON.stringify(e.scope || null);
+function mergeReviewEvidence(into, from) {
+  const out = { covered: 0, times: 0, timesDropped: 0, runs: 0, sessions: 0, attempts: 0, decks: 0 };
+  if (!into || !from) return out;
+  // coverage
+  if (!into.review) into.review = {};
+  if (!into.review.covered) into.review.covered = {};
+  const ci = into.review.covered, cf = (from.review && from.review.covered) || {};
+  for (const k in cf) if (typeof cf[k] === 'number' && !(ci[k] >= cf[k])) { ci[k] = cf[k]; out.covered++; }
+  // review times + tombstones
+  if (!into.scripture) into.scripture = {};
+  const si = into.scripture, sf = from.scripture || {};
+  // ⚑ A TOMBSTONE IS APPLIED ONLY TO THE SIDE THAT HASN'T HEARD OF IT. Each device's list is already
+  // net of its own deletions, so a deletion known to both is never applied twice (which would eat a
+  // genuine duplicate on a second merge).
+  const tombKey = t => t.book + '|' + syncEntryKey(t) + '|' + t.at;
+  const tA = new Map((si.reviewTimesDeleted || []).filter(Boolean).map(t => [tombKey(t), t]));
+  const tB = new Map((sf.reviewTimesDeleted || []).filter(Boolean).map(t => [tombKey(t), t]));
+  const onlyA = {}, onlyB = {};
+  tA.forEach((t, k) => { if (!tB.has(k)) { const e = t.book + '|' + syncEntryKey(t); onlyA[e] = (onlyA[e] || 0) + 1; } });
+  tB.forEach((t, k) => { if (!tA.has(k)) { const e = t.book + '|' + syncEntryKey(t); onlyB[e] = (onlyB[e] || 0) + 1; } });
+  si.reviewTimesDeleted = [...new Map([...tA, ...tB]).values()].sort((a, b) => (a.at || 0) - (b.at || 0)).slice(-SYNC_TOMB_MAX);
+  if (!si.reviewTimes) si.reviewTimes = {};
+  const books = new Set(Object.keys(si.reviewTimes).concat(Object.keys(sf.reviewTimes || {})));
+  for (const book of books) {
+    const group = arr => { const m = new Map(); (arr || []).forEach(e => { const k = syncEntryKey(e); if (!m.has(k)) m.set(k, []); m.get(k).push(e); }); return m; };
+    const a = group(si.reviewTimes[book]), b = group((sf.reviewTimes || {})[book]);
+    const merged = [];
+    for (const k of new Set([...a.keys(), ...b.keys()])) {
+      const ea = a.get(k) || [], eb = b.get(k) || [];
+      const bk = book + '|' + k;
+      const ca = Math.max(0, ea.length - (onlyB[bk] || 0));   // this side, less deletions only the other side made
+      const cb = Math.max(0, eb.length - (onlyA[bk] || 0));   // and vice versa
+      const want = Math.max(ca, cb);
+      const keep = ea.slice(0, want);
+      for (let i = keep.length; i < want; i++) { keep.push(syncClone(eb[i])); out.times++; }
+      out.timesDropped += Math.max(0, ea.length - keep.length);
+      merged.push(...keep);
+    }
+    si.reviewTimes[book] = merged.sort((x, y) => x.ts - y.ts);
+  }
+  // passes
+  if (!si.runs) si.runs = {};
+  for (const book in (sf.runs || {})) {
+    const theirs = sf.runs[book];
+    if (!theirs) continue;
+    const mine = si.runs[book];
+    if (!mine) { si.runs[book] = syncClone(theirs); out.runs++; continue; }
+    const past = new Map((mine.past || []).map(p => [p.startedAt, p]));
+    (theirs.past || []).forEach(p => { if (!past.has(p.startedAt)) { past.set(p.startedAt, syncClone(p)); out.runs++; } });
+    let open = mine.open && !past.has(mine.open.startedAt) ? mine.open : null;
+    const other = theirs.open && !past.has(theirs.open.startedAt) ? theirs.open : null;
+    if (other && (!open || other.startedAt < open.startedAt)) { open = syncClone(other); out.runs++; }
+    mine.past = [...past.values()].sort((x, y) => x.startedAt - y.startedAt);
+    mine.open = open;
+    if ((theirs.since || 0) > (mine.since || 0)) mine.since = theirs.since;
+  }
+  // stats
+  if (!into.stats) into.stats = {};
+  if (!Array.isArray(into.stats.sessions)) into.stats.sessions = [];
+  const gone = new Set((into.stats.deleted || []).concat((from.stats && from.stats.deleted) || []));
+  into.stats.deleted = [...gone].slice(-500);
+  const byId = new Map(into.stats.sessions.map(x => [x.id, x]));
+  ((from.stats && from.stats.sessions) || []).forEach(x => {
+    const have = byId.get(x.id);
+    if (!have) { byId.set(x.id, syncClone(x)); out.sessions++; }
+    else if ((x.done || 0) > (have.done || 0)) byId.set(x.id, syncClone(x));
+  });
+  into.stats.sessions = [...byId.values()].filter(x => !gone.has(x.id)).sort((x, y) => x.ts - y.ts);
+  // practice attempts (mastery history)
+  const pf = (from.creeds && from.creeds.practice) || {};
+  if (!into.creeds) into.creeds = {};
+  if (!into.creeds.practice) into.creeds.practice = {};
+  const pi = into.creeds.practice;
+  for (const doc in pf) for (const n in pf[doc] || {}) {
+    if (!pi[doc]) pi[doc] = {};
+    const mine = pi[doc][n] || [];
+    const key = e => e.sid ? 'sid:' + e.sid : e.ts + '|' + e.mode;
+    const seen = new Set(mine.map(key));
+    const add = (pf[doc][n] || []).filter(e => !seen.has(key(e))).map(syncClone);
+    if (!add.length) continue;
+    out.attempts += add.length;
+    pi[doc][n] = mine.concat(add).sort((x, y) => x.ts - y.ts).slice(-20);
+  }
+  // unfinished decks
+  const fi = into.flashInFlight || (into.flashInFlight = {}), ff = from.flashInFlight || {};
+  for (const id in ff) if (ff[id] && (!fi[id] || (ff[id].savedAt || 0) > (fi[id].savedAt || 0))) { fi[id] = syncClone(ff[id]); out.decks++; }
+  return out;
+}
+let lastMerge = null;
+
 function applyRemote(row) {
   applying = true;
   try { applyRemoteState(row.data); } finally { applying = false; }
@@ -9220,9 +9598,10 @@ async function syncNow({ confirmFn = (m) => confirm(m), interactive = false } = 
       if (looksEmpty()) { applyRemote(remote); return 'pulled-first'; }
       const useCloud = await confirmFn(
         'Cloud data exists (last saved ' + new Date(remote.ts).toLocaleString() + ' by device "' + (remote.device || '?') + '").\n\n' +
-        'OK = REPLACE this device with the cloud copy.\nCancel = keep this device’s data and OVERWRITE the cloud.');
-      if (useCloud) { applyRemote(remote); return 'pulled-first'; }
-      await pushNow(); return 'pushed-first';
+        'OK = REPLACE this device with the cloud copy.\nCancel = keep this device’s data and OVERWRITE the cloud.\n\n' +
+        'Either way, Scripture reviews from both are kept.');
+      if (useCloud) { await takeCloudKeepingReviews(remote); return 'pulled-first'; }
+      await keepLocalKeepingReviews(remote); return 'pushed-first';
     }
     if (remote.ts === m.lastRemoteTs) {              // cloud unchanged since we last saw it
       if (m.dirty) { await pushNow(); return 'pushed'; }
@@ -9233,10 +9612,11 @@ async function syncNow({ confirmFn = (m) => confirm(m), interactive = false } = 
       // both sides changed since last sync → conflict guard; user picks, cloud offered first (LWW default)
       const keepCloud = await confirmFn(
         'Both this device and another changed since the last sync.\n\n' +
-        'OK = use the cloud copy (' + new Date(remote.ts).toLocaleString() + ', device "' + (remote.device || '?') + '") — this device’s recent changes are lost.\n' +
-        'Cancel = keep THIS device and overwrite the cloud.');
-      if (keepCloud) { applyRemote(remote); return 'pulled-conflict'; }
-      await pushNow(); return 'pushed-conflict';
+        'OK = use the cloud copy (' + new Date(remote.ts).toLocaleString() + ', device "' + (remote.device || '?') + '").\n' +
+        'Cancel = keep THIS device and overwrite the cloud.\n\n' +
+        'Either way, Scripture reviews, review times and practice from BOTH devices are kept. Other recent changes on the side you don’t pick are lost.');
+      if (keepCloud) { await takeCloudKeepingReviews(remote); return 'pulled-conflict'; }
+      await keepLocalKeepingReviews(remote); return 'pushed-conflict';
     }
     // remote.ts < lastRemoteTs — clock skew or restored cloud; treat our copy as source
     await pushNow();
@@ -9249,6 +9629,24 @@ async function syncNow({ confirmFn = (m) => confirm(m), interactive = false } = 
   } finally {
     syncing = false;
   }
+}
+
+// The two ways out of a conflict. Both merge the other side's review evidence first, and both push,
+// because the result differs from what the cloud holds.
+async function takeCloudKeepingReviews(remote) {
+  const data = syncClone(remote.data);
+  lastMerge = mergeReviewEvidence(data, state);
+  applyRemote({ ...remote, data });
+  // applyRemoteState skips the repairs for a blob already at the current schema, so run them here:
+  // they tie the merged entries to their passes and rebuild the totals.
+  applying = true;
+  try { runRepairs(); } finally { applying = false; }
+  await pushNow();
+}
+async function keepLocalKeepingReviews(remote) {
+  applying = true;
+  try { lastMerge = mergeReviewEvidence(state, remote.data); runRepairs(); } finally { applying = false; }
+  await pushNow();
 }
 
 function schedulePush() {
@@ -9270,7 +9668,7 @@ function init() {
   if (isConfigured() && isSignedIn()) syncNow();
 }
 
-const SY = {deviceId,getConfig,getSession,init,isConfigured,isSignedIn,looksEmpty,onPulled,onStatusChange,schedulePush,setConfig,signIn,signOut,signUp,status,syncNow};
+const SY = {deviceId,getConfig,getSession,init,isConfigured,isSignedIn,looksEmpty,mergeReviewEvidence,onPulled,onStatusChange,schedulePush,setConfig,signIn,signOut,signUp,status,syncNow};
 // Strive — Phase 6.1: vision-model table-of-contents extraction.
 //
 // Why this exists: R3's Tesseract path reads the characters roughly correctly and then
@@ -9471,7 +9869,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260828-1611'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260828-1611';
+const BUILD_ID = '20260916-1056'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260916-1056';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -9490,6 +9888,10 @@ function setHeader(title, { back = false, action = null } = {}) {
   document.getElementById('h-title').textContent = title;
   const b = document.getElementById('h-back');
   b.style.display = back ? 'block' : 'none';
+  // You sits where Back sits: a root screen shows the avatar, a screen with somewhere to go back to
+  // shows Back. Profile is always one tap from any tab root.
+  const av = document.getElementById('h-avatar');
+  if (av) av.style.display = back ? 'none' : 'flex';
   backTarget = typeof back === 'function' ? back : null;
   const a = document.getElementById('h-action');
   if (action) { a.style.display = 'block'; a.textContent = action.label; a.onclick = action.fn; }
@@ -9707,7 +10109,31 @@ function immersiveCard() {
   // grow to fill the screen. Do not reintroduce one "just for this."
   return card;
 }
-function rerender() { const s = stack[stack.length - 1]; setImmersive(false); main().innerHTML = ''; s(); }
+// ⚑ A7 (16 Sep) — AN EMPTY STACK LANDS ON THE TAB, NEVER ON A BLANK PAGE. `s()` on an empty stack
+// threw after `main()` had already been cleared: a white screen with a dead ‹ Back, escapable only
+// through the bottom bar — exactly what he reported (S15).
+function rerender() {
+  const s = stack[stack.length - 1];
+  if (typeof s !== 'function') { switchTab(activeTab); return; }
+  setImmersive(false); main().innerHTML = ''; s();
+}
+// Marks a pushed screen as a practice SETUP screen, so a session's exit knows whether there is a
+// picker between it and the place he launched from.
+const setupScreen = fn => { fn._setup = true; return fn; };
+// ⚑ A7 — WHERE A FINISHED SESSION GOES. "Done" popped TWO screens unconditionally, which is right
+// only when the session came through practice setup. Train (launchScopeMode), module launch and the
+// ＋ fan push the session straight onto the screen he tapped, so Done threw away that screen too —
+// and from a tab root it emptied the stack (the blank screen). Now: Done returns to the screen he
+// launched from; Review again returns to the setup screen if there was one, else runs the deck again.
+function sessionDone() {
+  if (stack.length > 1) stack.pop();
+  if (stack.length > 1 && stack[stack.length - 1]._setup) stack.pop();
+  rerender();
+}
+function sessionAgain() {
+  if (stack.length > 1 && stack[stack.length - 2]._setup) stack.pop();
+  rerender();
+}
 function goBack() {
   if (stack.length > 1) { stack.pop(); rerender(); }
 }
@@ -9727,6 +10153,8 @@ function switchTab(tab) {
   // visit wandered to. See `planReset` for why this cannot live inside `plan()`.
   if (tab === 'plan') planReset();
   document.querySelectorAll('nav.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  const hp = document.getElementById('h-plan');
+  if (hp) hp.classList.toggle('on', tab === 'plan');
   render(TABS[tab]);
 }
 window._switchTab = switchTab;
@@ -9868,14 +10296,12 @@ function dailyVerseCard() {
 function checkinStrip() {
   const today = todayKey(), wk = weekStartKey();
   const dayTs = k => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
-  const ftCount = fromTs => FT.allLogs().filter(l => l.ts >= fromTs).length;
   const chips = [
     ['mem', 'Memorize', SC.versesMarked(today, today), SC.versesMarked(wk, today)],
     ['bible', 'Bible', RP.chaptersRead(today, today), RP.chaptersRead(wk, today)],
     ['creeds', 'Creeds', CR.sectionsMarked(today, today), CR.sectionsMarked(wk, today)],
-    ['read', 'Reading', RD.pagesBetween(dayTs(today)), RD.pagesBetween(dayTs(wk))],
-    ['fit', 'Fitness', ftCount(dayTs(today)), ftCount(dayTs(wk))]
-  ];
+    ['read', 'Reading', RD.pagesBetween(dayTs(today)), RD.pagesBetween(dayTs(wk))]
+  ];   // ⚑ Fitness left for its own dashboard (16 Sep) — this strip is the Study side's day
   const el = h(`<div style="display:flex;gap:6px;margin-bottom:13px">
     ${chips.map(([k, label, d, w]) => `
       <div class="chk-chip" data-k="${k}" style="flex:1;min-width:0;cursor:pointer;text-align:center;padding:8px 2px 7px;border:1px solid ${d > 0 ? 'var(--gold)' : 'var(--line)'};border-radius:var(--radius);background:var(--card)">
@@ -9892,7 +10318,6 @@ function checkinStrip() {
     if (k === 'bible') render(plansScreen);
     if (k === 'read') { const rb = RD.byStatus('reading')[0]; render(rb ? () => bookDetail(rb) : readingHome); }
     if (k === 'creeds') { const doc = CR.currentDoc(); render(doc ? () => creedDocScreen(doc) : creedsHome); }
-    if (k === 'fit') render(fitnessHome);
   });
   return el;
 }
@@ -10114,47 +10539,6 @@ function dashboard() {
         <div><span style="font-weight:700">${life.pagesRead.toLocaleString()}</span> <span class="muted" style="font-size:12px">pages read</span></div>
       </div>
     </div>
-    <div class="card" id="d-fitness" style="cursor:pointer">
-      <h3>Fitness</h3>
-      ${(() => {
-        const fs = FT.ftStats();
-        const lw = FT.latestWeight();
-        const lastW = fs.lastLog ? FT.getWorkout(fs.lastLog.wid) : null;
-        const now = new Date();
-        const thisMonth = FT.allLogs().filter(l => { const d2 = new Date(l.ts); return d2.getFullYear() === now.getFullYear() && d2.getMonth() === now.getMonth(); }).length;
-        const asm = FT.assessment().live;
-        return `<div class="row">
-          <div class="grow">
-            ${lastW ? `<div style="font-weight:700;font-size:14px">${esc(lastW.name)}</div>
-            <div class="muted" style="font-size:12px">${esc(fs.lastLog.result)} · ${new Date(fs.lastLog.ts).toLocaleDateString()}</div>` : '<div class="muted">No workouts logged yet.</div>'}
-          </div>
-          <div style="text-align:right;flex-shrink:0">
-            ${asm.overall !== null ? `<div style="font-family:var(--serif-display);font-weight:700;font-size:15px">${asm.overall}</div><div class="muted" style="font-size:10px">level</div>` : ''}
-          </div>
-          <div style="text-align:right;flex-shrink:0">
-            ${lw ? `<div style="font-weight:700">${lw.lbs} lbs</div><div class="muted" style="font-size:11px">weight</div>` : ''}
-          </div>
-          <span class="chev">›</span>
-        </div>
-        <div style="display:flex;gap:2px;margin-top:10px">${FT.ASSESS_DOMAINS.map(([dk2, dl]) => {
-          const dom = asm.domains[dk2];
-          return ftRadial(dl, dom && dom.unlocked ? dom.level : null, dk2);
-        }).join('')}</div>
-        ${(() => {
-          const oz = FT.waterForDay(), sl = FT.lastNightSleep(), mt = FT.macroTotals();
-          const bits = [`${oz} oz water`, `${sl ? fmtDur(sl.mins) : '—'} sleep`, (mt.p || mt.c || mt.f) ? `${mt.p}P ${mt.c}C ${mt.f}F · ${mt.cal} kcal` : 'no meals yet'];
-          return `<div class="muted" style="font-size:12px;margin-top:8px">${bits.join(' · ')}</div>`;
-        })()}
-        <div class="pillrow" id="d-ft-quick" style="margin-top:8px">
-          <button class="pill" data-ql="workout">＋ Workout</button>
-          <button class="pill" data-ql="water">＋ Water</button>
-          <button class="pill" data-ql="meal">＋ Meal</button>
-          <button class="pill" data-ql="sleep">＋ Sleep</button>
-          <button class="pill" data-ql="weight">＋ Weight</button>
-        </div>
-        <div class="muted" style="font-size:12px;margin-top:8px">${fs.totalLogs} logged · ${thisMonth} this month · ${fs.thisYear} this year</div>`;
-      })()}
-    </div>
     <div class="card" id="d-stats" style="cursor:pointer">
       <div class="row"><h3 style="border:none;margin:0;padding:0">Stats</h3>
       <div class="grow muted" style="font-size:12px;text-align:right;margin-right:4px">${(() => {
@@ -10176,7 +10560,6 @@ function dashboard() {
   // you different before but at this point the way that the fitness home page is laid out, it
   // makes it easy to navigate to the overall fitness page and it shows it pretty largely at the
   // top." The hub's own card carries the Level ring, so nothing is further away than one tap.
-  main().querySelector('#d-fitness').onclick = () => ftGo('hub');
   { // 7B.2 dashboard-as-hub — Scripture card clickable targets
     const scT = main().querySelector('#d-sc-title'); if (scT) scT.onclick = () => render(scriptureHome);
     main().querySelectorAll('[data-corpus]').forEach(r => r.onclick = () => { const k = r.dataset.corpus; render(() => corpusBooks(k === 'all' ? null : k)); });
@@ -10188,22 +10571,6 @@ function dashboard() {
     // domain — every workout in it, scoring or not. His instruction: "the standard should be it
     // just brings me to the assessment piece of that, not the full library." The library is still
     // one tap away on the toggle; it is no longer what you land on.
-    main().querySelectorAll('#d-fitness [data-dom]').forEach(r => r.onclick = e => { e.stopPropagation(); ftDomainView = 'assess'; render(() => ftDomainScreen(r.dataset.dom)); });
-  }
-  const ftq = main().querySelector('#d-ft-quick');
-  if (ftq) {
-    ftq.onclick = e => e.stopPropagation();
-    // ⚑ The §22 rule, applied to the four quick-add pills: the mode must TRAVEL WITH the stack
-    // entry. This pushed a bare `fitnessHome` and set ftMode beside it, so a later rerender()
-    // would redraw the frame against whatever ftMode happened to be by then. ftGo pushes a
-    // closure that re-asserts its own mode. Same defect §22 fixed on the hub, four call sites
-    // it never reached.
-    const openFt = m => ftGo(m);
-    ftq.querySelector('[data-ql=workout]').onclick = e => { e.stopPropagation(); render(workoutPicker); };
-    ftq.querySelector('[data-ql=water]').onclick = e => { e.stopPropagation(); openFt('water'); };
-    ftq.querySelector('[data-ql=meal]').onclick = e => { e.stopPropagation(); openFt('diet'); };
-    ftq.querySelector('[data-ql=sleep]').onclick = e => { e.stopPropagation(); openFt('sleep'); };
-    ftq.querySelector('[data-ql=weight]').onclick = e => { e.stopPropagation(); openFt('weight'); };
   }
   // 7B.2 / D-P — the Creeds card and its title go to the master list (home); each current
   // document row deep-links to that document.
@@ -12147,7 +12514,7 @@ function practiceCreedsLauncher() {
     const st = CR.docStats(d.id);
     const el = h(`<div class="list-item" style="cursor:pointer">
       <div class="grow"><div class="title">${esc(d.name)}</div><div class="sub">${st.done}/${st.total} ${d.group === 'catechisms' ? 'Q&As' : 'sections'} · ${st.pct}%</div></div><span class="chev">›</span></div>`).firstElementChild;
-    el.onclick = () => render(() => practiceSetup(d));
+    el.onclick = () => render(setupScreen(() => practiceSetup(d)));
     wrap.append(el);
   });
   main().append(wrap);
@@ -13162,7 +13529,14 @@ async function launchScopeMode(t, mode, scope, intent, btn, order) {
     render(() => reviewTimer(t.book, (t.kind === 'module' && t.mod) ? MOD.moduleReviewScope(t.mod) : null, t.title));
     return;
   }
-  const cycleStart = (t.a && t.a.cycleStart) || 0;
+  // ⚑⚑ A12 (16 Sep) — ONE WATERMARK. With no schedule `t.a.cycleStart` was 0, so every verse EVER
+  // stamped counted as covered; Ephesians (no schedule since the reset) came back "nothing left",
+  // fell to the rebuild below and opened on 1:1 with twenty verses still to do (A11). A schedule
+  // still governs where there is one; where there isn't, the book's current PASS does — the same
+  // number the run itself counts from. His ruling, 16 Sep: "the start of the current pass."
+  const hasCadence = !!(t.a && Number(t.a.cycleStart) > 0);
+  const passBook = (!t.creed && t.book && t.book.name) || null;
+  const cycleStart = hasCadence ? t.a.cycleStart : (passBook ? SC.passSince(passBook) : 0);
   // ⚑ THE RULE LIVES IN review.js, NOT HERE. This used to be an inline `filter(k => !RV.isCovered(...))`
   // — the same rule `RV.uncoveredDeck` states, written a second time, and the second copy was the
   // one that ran. Calling `RV.uncoveredKeys` puts the live path under the checks that already
@@ -13174,7 +13548,30 @@ async function launchScopeMode(t, mode, scope, intent, btn, order) {
   // behaviour and this change does NOT alter it — `uncoveredKeys` takes no n, so a cap cannot be
   // smuggled in through a refactor. If a cap comes back it comes back as its own decision.
   let keys = scope === 'cycle' ? RV.uncoveredKeys(t.keys, cycleStart) : t.keys.slice();
-  if (!keys.length) keys = t.keys.slice();   // all covered this cycle → a fresh pass over the whole unit
+  // ⚑ A9 — ALL COVERED IS NO LONGER A SILENT START-OVER. It still serves the whole unit (there is
+  // nothing else to serve), but it SAYS so, and for a whole book with no schedule it begins the
+  // next pass on purpose, so the next launch counts from here instead of from nothing.
+  // ⚑⚑ A10 (16 Sep) — AN UNFINISHED DECK IN THIS UNIT IS OFFERED BACK, CURSOR AND ALL. The snapshot is
+  // keyed on the doc id, and the doc is built from whatever is uncovered NOW — so after any rating
+  // the next launch built a narrower doc, found no snapshot (or one it could not rebuild), and his
+  // place among the cards he recited without rating was lost. If a saved deck lies wholly inside
+  // this unit, the doc is rebuilt from THAT deck's cards so the resume offer can restore it exactly;
+  // "Start fresh" discards it and launches the uncovered deck as normal.
+  let held = null;
+  if (mode === 'flash' && scope === 'cycle' && !t.creed && passBook) {
+    const unit = new Set(t.keys);
+    held = Object.values(flashStore())
+      .filter(sn => sn && Array.isArray(sn.cards) && sn.cards.length && String(sn.docId || '').indexOf('bible:' + passBook + ':') === 0 && sn.cards.every(k => unit.has(k)))
+      .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))[0] || null;
+    if (held) keys = held.cards.slice();
+  }
+  if (!keys.length && t.keys.length) {
+    keys = t.keys.slice();
+    if (scope === 'cycle') {
+      if (!hasCadence && passBook && t.kind === 'book') { SC.startFreshPass(passBook); toast(`${passBook} is covered this pass — starting a new pass`); }
+      else toast('All covered this ' + (hasCadence ? 'cycle' : 'pass') + ' — going through it again');
+    }
+  }
   if (!keys.length) { toast(t.creed ? 'Nothing learned in this scope yet' : 'No verses in this scope yet'); return; }
   const orig = btn ? btn.textContent : '';
   if (btn) { btn.textContent = '…'; btn.disabled = true; }
@@ -13196,7 +13593,8 @@ async function launchScopeMode(t, mode, scope, intent, btn, order) {
   // three orders since 7.4 shipped.
   // ⚑⚑ AND THE TWO-ENGINE BRANCH IS GONE (45th). It read `isPlainPass ? orderedFlashCard : flashSession`
   // in THREE places; `flashSession` now owns all three orders, so the order is simply passed in.
-  if (mode === 'flash') render(() => flashSession(doc, queue, prSetup.budget, order, intent));
+  const fresh = held ? () => { if (stack.length > 1) stack.pop(); launchScopeMode(t, mode, scope, intent, null, order); } : null;
+  if (mode === 'flash') render(() => flashSession(doc, queue, prSetup.budget, order, intent, fresh));
   else if (mode === 'typer') render(() => typerScreen(doc, queue, 0, [], intent));
   else render(() => fadeScreen(doc, queue, 0, 0, []));
 }
@@ -14119,7 +14517,7 @@ function practiceScope(b, intent = 'practice') {
         try {
           const doc = await moduleFetchDoc(b, mod, st => { label.textContent = st; });
           if (!doc) { delete row.dataset.busy; label.textContent = orig; toast('Could not load verses'); return; }
-          render(() => practiceSetup(doc, intent));
+          render(setupScreen(() => practiceSetup(doc, intent)));
         } catch (e) { delete row.dataset.busy; label.textContent = orig; esvErrToast(e); }
       };
       wrap.append(row);
@@ -14158,7 +14556,7 @@ function practiceScope(b, intent = 'practice') {
         doc = bibleMultiDoc(b, parts);
       }
       if (!doc.sections.length) { toast('No verses in that selection'); start.textContent = orig; return; }
-      render(() => practiceSetup(doc, intent));
+      render(setupScreen(() => practiceSetup(doc, intent)));
     } catch (e) {
       delete start.dataset.busy;
       start.textContent = orig;
@@ -14260,7 +14658,7 @@ function chapterScreen(b, ci) {
     try {
       const entry = await esvFetchChapter(b.name, ci + 1);
       delete prB.dataset.busy;
-      render(() => practiceSetup(bibleDoc(b, ci, entry.verses)));
+      render(setupScreen(() => practiceSetup(bibleDoc(b, ci, entry.verses))));
     } catch (e) {
       delete prB.dataset.busy;
       prB.textContent = orig;
@@ -14298,7 +14696,7 @@ function reviewTimer(b, presetScope = null, scopeName = null) {
       scope = sc.scope;
     }
     sw.stop();
-    SC.logReviewTime(b.name, theSecs, { scope });
+    SC.logReviewTime(b.name, theSecs, { scope, ts: Date.now() - theSecs * 1000 });   // sitting start
     // a timed recitation is a sitting too — it belongs in Stats beside the card modes (D-AB).
     // No score: the timer measures duration, not accuracy (D-AE keeps it out of the ring for the
     // same reason), so it contributes to counts and time but never to the average score.
@@ -14506,7 +14904,9 @@ function renderTimes(container) {
         <button class="pill on" data-a="add" style="padding:11px 16px">Add</button>
       </div>
     </div>`).firstElementChild;
+  let adding = false;   // ⚑ A3 — one tap, one entry
   entry.querySelector('[data-a=add]').onclick = () => {
+    if (adding) return;
     const book = entry.querySelector('[data-a=book]').value;
     const dateStr = entry.querySelector('[data-a=date]').value;
     const secs = SC.parseDuration(entry.querySelector('[data-a=dur]').value);
@@ -14514,8 +14914,12 @@ function renderTimes(container) {
     const bookObj = SC.allBooks.find(x => x.name === book);
     const sc = SC.parseScopeInput(entry.querySelector('[data-a=scope]').value, bookObj);
     if (!sc.ok) { toast('Scope must be a chapter (5) or range (1–7) within ' + book); return; }
-    const ts = dateStr ? new Date(dateStr + 'T12:00:00').getTime() : Date.now();
-    SC.logReviewTime(book, secs, { ts, scope: sc.scope });
+    // ⚑ A3 — TODAY IS "JUST NOW", not noon. A date-only noon stamp is a guess, and on 15 Sep it
+    // opened a pass whose watermark sat hours after the verses it was filed for. Today's entry is
+    // taken to have started `secs` ago; an earlier date has nothing better than noon.
+    const ts = (!dateStr || dateStr === todayKey()) ? Date.now() - secs * 1000 : new Date(dateStr + 'T12:00:00').getTime();
+    adding = true;
+    if (!SC.logReviewTime(book, secs, { ts, scope: sc.scope })) { toast('Already logged'); rerender(); return; }
     toast('Logged ' + SC.fmtSecs(secs) + ' for ' + book + (sc.scope ? ' · ' + SC.scopeLabel(sc.scope) : ''));
     rerender();
   };
@@ -14597,7 +15001,12 @@ function renderTimes(container) {
               <span class="muted" style="margin-left:8px">${esc(e.book)} · ${SC.scopeLabel(e.scope)} · ${new Date(e.ts).toLocaleDateString()}</span></div>
             <button style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button>
           </div>`);
-        row.querySelector('button').onclick = () => { SC.removeReviewTime(e.book, e.ts); toast('Entry removed'); rerender(); };
+        // ⚑ A3 — CONFIRMED, AND ONE ENTRY. It deleted every entry sharing a timestamp, silently.
+        row.querySelector('button').onclick = () => {
+          if (!confirm(`Delete this review time — ${SC.fmtSecs(e.secs)} · ${e.book} · ${new Date(e.ts).toLocaleDateString()}? It also comes out of that pass's total.`)) return;
+          if (SC.removeReviewTime(e.book, e)) toast('Entry removed'); else toast('Could not find that entry');
+          rerender();
+        };
         list.append(row);
       });
     }
@@ -15828,7 +16237,7 @@ function creedDocScreen(d) {
   // primary action — Practice (catechisms only, as before)
   if (d.group === 'catechisms') {
     const prBtn = h(`<button class="btn">🎯 Practice</button>`);
-    prBtn.firstChild.onclick = () => render(() => practiceSetup(d));
+    prBtn.firstChild.onclick = () => render(setupScreen(() => practiceSetup(d)));
     wrap.append(prBtn);
   }
 
@@ -16080,8 +16489,15 @@ const prN = x => x.vn != null ? x.vn : x.n;
 const FLASH_TRAINED_MIN = 4;
 const FLASH_MEMORIZED_MIN = 5;
 
+// ⚑⚑ A1 (16 Sep) — NO COVERAGE WRITE HERE ANY MORE. `flashRate` runs from `flashEnd` alone, at the
+// END of the sitting and again every time the summary is re-entered, so this line re-stamped every
+// card rated ≥4 with the session-end instant — re-dating verses he had already earned (Eph 09-15
+// 00:37:25: 98 stamps in 2 ms). `deckRate` has ALREADY stamped every rated card, at any rating, at
+// the moment he rated it; that is the true time and it must stand.
+// ⚠ AND THE FIX IS NOT A NEVER-OVERWRITE GUARD IN `markCovered`. `covered` holds one latest stamp per
+// verse and a cycle asks `ts >= since`; refusing to overwrite would make a verse uncoverable in
+// every later pass. `FLASH_TRAINED_MIN` stays as a claim about knowing a verse (the ring), not coverage.
 function flashRate(d, item, r) {
-  if (r >= FLASH_TRAINED_MIN) RV.markCovered(RV.coverageKey(prDocId(d, item), prN(item)));
   if (r >= FLASH_MEMORIZED_MIN) markMemorized(d, item);
 }
 
@@ -16972,7 +17388,9 @@ function flashRestore(d, snap) {
 }
 
 // The offer. Three shapes, because there are three genuinely different situations.
-function flashResumeOffer(d, queue, budget, order, intent, snap) {
+function flashResumeOffer(d, queue, budget, order, intent, snap, onFresh = null) {
+  // A10 — when the deck was rebuilt from the saved cards, "fresh" means the launcher's deck, not these.
+  const startFresh = () => { flashClear(d); if (onFresh) onFresh(); else render(() => flashStart(d, queue, budget, order, intent), false); };
   setImmersive(false);
   setHeader('Unfinished deck', { back: true });
   const now = Date.now();
@@ -16991,6 +17409,11 @@ function flashResumeOffer(d, queue, budget, order, intent, snap) {
       </div>
     </div>`));
 
+  // ⚑ A5 — SAY WHEN THIS DECK IS BEHIND. Verses in it reviewed after it was left (on another device,
+  // or in another deck) mean resuming would walk him back over done work — so it is said, and
+  // starting fresh becomes the first button.
+  const moved = (snap.cards || []).filter(k => RV.coverageTs(k) > (snap.savedAt || 0)).length;
+  if (moved) wrap.append(h(`<div class="card" style="border-color:var(--accent);font-size:13px;line-height:1.6;padding:12px 14px">${moved} of these verse${moved === 1 ? ' was' : 's were'} reviewed after you left this deck — on another device or in another deck. Starting fresh picks up from there.</div>`));
   const restored = flashRestore(d, snap);
   if (!restored) {
     // ⚑ STATED, NOT PAPERED OVER. This selection cannot supply the saved deck's cards, so resuming
@@ -17013,7 +17436,7 @@ function flashResumeOffer(d, queue, budget, order, intent, snap) {
     fin.onclick = () => { flashClear(d); render(() => flashEnd(d, restored), false); };
     wrap.append(fin);
     const bin = h(`<button class="btn secondary">Discard and start fresh</button>`).firstChild;
-    bin.onclick = () => { flashClear(d); render(() => flashStart(d, queue, budget, order, intent), false); };
+    bin.onclick = startFresh;
     wrap.append(bin);
     main().append(wrap);
     return;
@@ -17025,12 +17448,11 @@ function flashResumeOffer(d, queue, budget, order, intent, snap) {
   // header said "Flashcards · Q1" and looked completely correct while the body carried both
   // screens. That is the twenty-fourth session's pill-row defect exactly, and the reason
   // test-practice-nav.mjs has a whole section named for it.
-  const go = h(`<button class="btn">Resume</button>`).firstChild;
+  const go = h(`<button class="btn${moved ? ' secondary' : ''}">Resume</button>`).firstChild;
   go.onclick = () => render(() => flashCard(d, restored), false);
-  wrap.append(go);
-  const fresh = h(`<button class="btn secondary">Start fresh</button>`).firstChild;
-  fresh.onclick = () => { flashClear(d); render(() => flashStart(d, queue, budget, order, intent), false); };
-  wrap.append(fresh);
+  const fresh = h(`<button class="btn${moved ? '' : ' secondary'}">Start fresh</button>`).firstChild;
+  fresh.onclick = startFresh;
+  if (moved) { wrap.append(fresh); wrap.append(go); } else { wrap.append(go); wrap.append(fresh); }
   main().append(wrap);
 }
 
@@ -17226,9 +17648,9 @@ const flashSeenFrac = session => (session.deckSize ? flashSeen(session) / sessio
 // ⚑ THE GATE SITS HERE, NOT ON THE SETUP SCREEN, BECAUSE THERE ARE FOUR LAUNCH SITES — the setup
 // screen, the Train sheet, a module, and the ＋-fan. Putting the check on one of them would have
 // meant three ways to start a deck that silently ignored an unfinished one.
-function flashSession(d, queue, budget, order = 'adaptive', intent = 'practice') {
+function flashSession(d, queue, budget, order = 'adaptive', intent = 'practice', onFresh = null) {
   const snap = flashSaved(d);
-  if (snap) { render(() => flashResumeOffer(d, queue, budget, order, intent, snap), false); return; }
+  if (snap) { render(() => flashResumeOffer(d, queue, budget, order, intent, snap, onFresh), false); return; }
   flashStart(d, queue, budget, order, intent);
 }
 function flashStart(d, queue, budget, order = 'adaptive', intent = 'practice') {
@@ -17251,11 +17673,6 @@ function flashEnd(d, session) {
     // CR.logPracticeSession. `flashRate` needs no such guard: it only ever ADDS a mark.
     CR.logPracticeSession(prDocId(d, it), prN(it), 'flash', session.exit[n] * 20, session._sid);
     flashRate(d, it, session.exit[n]);                                     // ≥4 trained · 5 memorized
-  });
-  logStatsSession(session, d, {
-    mode: 'flash', intent: session.intent, total: session.reps, done: touched.length,
-    score: avgOf(touched.map(n => session.exit[n] * 20)),
-    items: touched.map(n => ({ n: Number(n), label: (session.byN[n] && session.byN[n].q) || ('Q' + n), val: session.exit[n], tag: 'rating' }))
   });
   flashClear(d);   // ⚑ a finished deck is not an unfinished one — nothing left to resume
   const dist = [1, 2, 3, 4, 5].map(r => `${r}: ${touched.filter(n => session.exit[n] === r).length}`).join('  ·  ');
@@ -17280,6 +17697,16 @@ function flashEnd(d, session) {
   flashPause(session.clock, now);
   const total = flashElapsed(session.clock, now);
   session.total = total;
+  // ⚑ A4 (16 Sep) — STATS GET THE RAILED CLOCK, NOT THE WALL CLOCK. `logStatsSession` defaulted to
+  // `now - start`, and a resumed deck keeps its first night's start, so Ephesians 09-13 logged
+  // 135,812 s (37 h 43 m) for a sitting whose clock — gaps over 90 min discounted — said otherwise.
+  // Logged here, after the clock is banked, so the number is the one on his summary.
+  logStatsSession(session, d, {
+    mode: 'flash', intent: session.intent, total: session.reps, done: touched.length,
+    score: avgOf(touched.map(n => session.exit[n] * 20)),
+    items: touched.map(n => ({ n: Number(n), label: (session.byN[n] && session.byN[n].q) || ('Q' + n), val: session.exit[n], tag: 'rating' })),
+    secs: Math.round(total)
+  });
   practiceSummary(d, session.plain ? 'Flashcards (in order)' : 'Flashcards', [
     `${touched.length} of ${session.deckSize} card${session.deckSize === 1 ? '' : 's'} rated · ${session.reps} rating${session.reps === 1 ? '' : 's'} given`,
     `Total time — ${SC.fmtSecs(total)}`,
@@ -17360,8 +17787,12 @@ function flashLogSheet(d, session, total, onDone) {
 
     const go = h(`<button class="btn" style="margin-top:14px">Log it</button>`).firstChild;
     go.onclick = () => {
-      if (mode === 'chapters') laps.forEach(l => SC.logReviewTime(book, l.secs, { scope: { kind: 'chapter', ch: l.ch } }));
-      else SC.logReviewTime(book, total, scope ? { scope } : {});
+      // ⚑ `ts` IS THE SITTING'S START. It defaulted to the moment he pressed Log — AFTER every verse
+      // the sitting covered — so a pass opened here could only ever complete through flashEnd's
+      // re-dating (A1). With that gone, the start is the honest time and the one that works.
+      const ts = session.clock.startedAt || Date.now();
+      if (mode === 'chapters') laps.forEach(l => SC.logReviewTime(book, l.secs, { ts, scope: { kind: 'chapter', ch: l.ch } }));
+      else SC.logReviewTime(book, total, scope ? { ts, scope } : { ts });
       // ⚑ MARKED ON THE SESSION, so the summary can say so and the button cannot be pressed twice.
       // A double-filed sitting is not a cosmetic problem: it is a number in his review tracker that
       // never happened, and nothing downstream could tell it from a real one.
@@ -17704,10 +18135,10 @@ function practiceSummary(d, mode, lines, count, stats = null, opts = {}) {
     wrap.append(back);
   }
   const again = h(`<button class="btn${opts.backToDeck ? ' secondary' : ''}">Review again</button>`);
-  again.firstChild.onclick = () => { stack.pop(); rerender(); };
+  again.firstChild.onclick = sessionAgain;
   wrap.append(again);
   const done = h(`<button class="btn secondary">Done</button>`);
-  done.firstChild.onclick = () => { stack.pop(); stack.pop(); rerender(); };
+  done.firstChild.onclick = sessionDone;
   wrap.append(done);
   main().append(wrap);
 }
@@ -17771,6 +18202,7 @@ function ftHub(body) {
     </div>`);
   card.firstElementChild.onclick = () => ftGo('level');
   body.append(card);
+  body.append(ftTodayCard());
   body.append(ftStreakCard());
 
   // ⚑ THE SPLIT IS DERIVED FROM `FT_GROUPS`, NOT FROM AN INDEX, AND THAT WAS A LIVE BUG.
@@ -17787,6 +18219,56 @@ function ftHub(body) {
     body.append(sectionTitle(title));
     rows.forEach(([m, l, sub]) => body.append(ftHubRow(m, l, sub)));
   });
+}
+
+// ⚑ NAV (16 Sep) — THE FITNESS CARD THAT USED TO SIT ON THE STUDY DASHBOARD, now the top of the
+// Fitness & Health dashboard. Same content and the same quick-adds; the Level number is dropped
+// because the ring directly above already says it.
+function ftTodayCard() {
+  const fs = FT.ftStats();
+  const lw = FT.latestWeight();
+  const lastW = fs.lastLog ? FT.getWorkout(fs.lastLog.wid) : null;
+  const now = new Date();
+  const thisMonth = FT.allLogs().filter(l => { const d2 = new Date(l.ts); return d2.getFullYear() === now.getFullYear() && d2.getMonth() === now.getMonth(); }).length;
+  const asm = FT.assessment().live;
+  const oz = FT.waterForDay(), sl = FT.lastNightSleep(), mt = FT.macroTotals();
+  const bits = [`${oz} oz water`, `${sl ? fmtDur(sl.mins) : '—'} sleep`, (mt.p || mt.c || mt.f) ? `${mt.p}P ${mt.c}C ${mt.f}F · ${mt.cal} kcal` : 'no meals yet'];
+  const el = h(`
+    <div class="card" id="d-fitness">
+      <h3>Today</h3>
+      <div class="row">
+        <div class="grow">
+          ${lastW ? `<div style="font-weight:700;font-size:14px">${esc(lastW.name)}</div>
+          <div class="muted" style="font-size:12px">${esc(fs.lastLog.result)} · ${new Date(fs.lastLog.ts).toLocaleDateString()}</div>` : '<div class="muted">No workouts logged yet.</div>'}
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          ${lw ? `<div style="font-weight:700">${lw.lbs} lbs</div><div class="muted" style="font-size:11px">weight</div>` : ''}
+        </div>
+      </div>
+      <div style="display:flex;gap:2px;margin-top:10px">${FT.ASSESS_DOMAINS.map(([dk2, dl]) => {
+        const dom = asm.domains[dk2];
+        return ftRadial(dl, dom && dom.unlocked ? dom.level : null, dk2);
+      }).join('')}</div>
+      <div class="muted" style="font-size:12px;margin-top:8px">${bits.join(' · ')}</div>
+      <div class="pillrow ft-quick" id="d-ft-quick" style="margin-top:10px">
+        <span class="ft-quick-lbl" aria-hidden="true">＋</span>
+        <button class="pill" data-ql="workout" aria-label="Log a workout">Workout</button>
+        <button class="pill" data-ql="water" aria-label="Log water">Water</button>
+        <button class="pill" data-ql="meal" aria-label="Log a meal">Meal</button>
+        <button class="pill" data-ql="sleep" aria-label="Log sleep">Sleep</button>
+        <button class="pill" data-ql="weight" aria-label="Log weight">Weight</button>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:8px">${fs.totalLogs} logged · ${thisMonth} this month · ${fs.thisYear} this year</div>
+    </div>`).firstElementChild;
+  // ⚑ 'assess', NOT 'lib' — a domain tapped from the dashboard opens its assessment (his ruling).
+  el.querySelectorAll('[data-dom]').forEach(r => r.onclick = e => { e.stopPropagation(); ftDomainView = 'assess'; render(() => ftDomainScreen(r.dataset.dom)); });
+  const q = el.querySelector('#d-ft-quick');
+  q.querySelector('[data-ql=workout]').onclick = () => render(workoutPicker);
+  q.querySelector('[data-ql=water]').onclick = () => ftGo('water');
+  q.querySelector('[data-ql=meal]').onclick = () => ftGo('diet');
+  q.querySelector('[data-ql=sleep]').onclick = () => ftGo('sleep');
+  q.querySelector('[data-ql=weight]').onclick = () => ftGo('weight');
+  return el;
 }
 
 function ftHubRow(mode, label, sub) {
@@ -17809,13 +18291,19 @@ function ftHubRow(mode, label, sub) {
 // frame that re-asserts the mode it was rendered with, and nothing depends on module state
 // surviving a navigation.
 function ftScreen(mode) { ftMode = mode; return fitnessHome(); }
-const ftGo = mode => render(() => ftScreen(mode));
+const ftGo = mode => { const f = () => ftScreen(mode); if (mode === 'hub') f._ftHub = true; render(f); };
+// The Fitness tab's root frame. Tagged, so a screen above it knows Back is a plain pop.
+const fitnessTab = () => ftScreen('hub');
+fitnessTab._ftHub = true;
 
 function fitnessHome() {
   const onHub = ftMode === 'hub';
   const onLevel = ftMode === 'level';
-  const label = onHub ? 'Fitness' : (FT_HUB.find(x => x[0] === ftMode) || [null, 'Fitness Level'])[1];
-  setHeader(label, { back: onHub ? () => switchTab('home') : () => ftScreen('hub') });
+  const label = onHub ? 'Fitness & Health' : (FT_HUB.find(x => x[0] === ftMode) || [null, 'Fitness Level'])[1];
+  // ⚑ NAV (16 Sep) — the hub IS the Fitness tab now. As the tab root it has no Back; reached from
+  // elsewhere it pops. A sub-screen pops straight onto a hub beneath it, and otherwise goes up to one.
+  const below = stack[stack.length - 2];
+  setHeader(label, { back: onHub ? stack.length > 1 : (below && below._ftHub ? true : () => ftScreen('hub')) });
   const wrap = document.createElement('div');
   const body = document.createElement('div');
   wrap.append(body);
@@ -23093,15 +23581,39 @@ function enablePlusReorder(list) {
 // 3-item shell (D-S): Home · ＋ · Plan. ⚑ Plan lands on the NAVIGABLE day (Aug 18 2026) — it used
 // to land on a fixed Today screen with the navigable one pushed behind a header action.
 // Areas + Settings tabs removed — the dashboard is the hub, Settings lives in You/Profile (avatar).
-const TABS = { home: dashboard, plan: plan };
+// ⚑ NAV (16 Sep): Study · ＋ · Fitness in the bar; Plan is the calendar coin in the header, top right.
+// His words: "one dashboard on the left of the plus and one on the right of it."
+const TABS = { home: dashboard, fitness: fitnessTab, plan: plan };
+const PLAN_ICON = '<path d="M-10 -7 H10 V10 H-10 Z"/><path d="M-10 -2 H10"/><path d="M-5 -11 V-4 M5 -11 V-4"/><path d="M0 1.5 L3 4.5 L0 7.5 L-3 4.5 Z" fill="currentColor" stroke="none"/>';
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('h-back').onclick = headerBack;
   const av = document.getElementById('h-avatar');
   if (av) av.onclick = () => render(youProfile);
+  const hp = document.getElementById('h-plan');
+  if (hp) {
+    hp.innerHTML = `<svg class="plus-ico" viewBox="-14 -14 28 28" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PLAN_ICON}</svg>`;
+    hp.onclick = () => switchTab('plan');
+  }
+  document.querySelectorAll('nav.tabbar button[data-ico]').forEach(b => {
+    const ic = b.querySelector('.ico');
+    if (ic) ic.innerHTML = plusIconSvg(b.dataset.ico, 21);
+  });
   document.querySelectorAll('nav.tabbar button:not(.tab-plus)').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
   wirePlusFan();
   switchTab('home');
-  SY.onPulled(() => { SC.ensureKeys(); toast('Synced from cloud ☁️'); rerender(); });
+  // ⚑ A5 — A DECK OPEN ON SCREEN IS NOT CARRIED ACROSS A PULL. The deck in memory was built from the
+  // state that was just replaced; carrying on would build on another device's past (the stale iPad
+  // deck that finished 37 hours late). Leave it; reopening offers the deck back with what changed.
+  SY.onPulled(() => {
+    SC.ensureKeys();
+    if (document.body.classList.contains('immersive')) {
+      toast('Synced from your other device — reopen the deck to carry on');
+      switchTab(activeTab);
+      return;
+    }
+    toast('Synced from cloud ☁️');
+    rerender();
+  });
   SY.init();
   
 });
