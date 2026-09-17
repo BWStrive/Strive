@@ -399,6 +399,27 @@ header.topbar .avatar {
 .pw-hint { color: var(--text-2); background: var(--accent-soft); border-radius: 2px; cursor: pointer; user-select: none; }
 .pw-missed { color: var(--danger); }
 .pw-revealed { color: var(--text); }
+/* C (17 Sep) — the typing page: a chapter stays on screen; a missed word gets a wash that deepens with
+   each miss across sessions and lightens as it is got right; a word missed THIS time is underlined. */
+.tp-card { touch-action: pan-y; }
+.tp-page { font-size: 15px; line-height: 1.95; }
+.tp-verse { margin: 0 0 4px; }
+.tp-vn { font-family: var(--serif-display); font-size: 10px; font-weight: 700; color: var(--text-2); margin-right: 4px; vertical-align: super; }
+.tp-acc { font-family: var(--serif-display); font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--text-2); margin-left: 2px; }
+.tp-page .pw-word { padding: 0 1px; }
+.tp-page .pw-missed { color: var(--text); box-shadow: inset 0 -2px 0 var(--danger); }
+.pw-l1 { background: rgba(156, 58, 48, .10); }
+.pw-l2 { background: rgba(156, 58, 48, .20); }
+.pw-l3 { background: rgba(156, 58, 48, .32); }
+.pw-l4 { background: rgba(156, 58, 48, .46); }
+.pw-l5 { background: rgba(156, 58, 48, .60); }
+.tp-end { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; margin-top: 10px; padding: 10px 12px;
+  border: 1px solid var(--gold); border-radius: var(--radius); background: var(--card); font-weight: 600; white-space: nowrap; }
+.tp-end > span { overflow: hidden; text-overflow: ellipsis; }
+.ty-min .pill { flex: 1 1 0; padding-left: 0; padding-right: 0; }
+.tp-nav .btn { width: auto; margin-top: 0; min-width: 0; flex: 1 1 0; padding-left: 8px; padding-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-nav .btn[data-a=prev] { flex: 0 0 52px; }
+.tp-nav .btn[data-a=again] { flex: 2 1 0; }
 
 .statgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 /* D (17 Sep) — scorecards: Current · Fastest · Slowest on one row; chapter/unit rows as a tight table */
@@ -1301,6 +1322,9 @@ function ensureShapes() {
   // the current schema, which is every existing install, so a new container placed there would
   // never exist for the one person who has data. Same reasoning as the reading-categories note.
   if (!state.flashInFlight || typeof state.flashInFlight !== 'object') state.flashInFlight = {};
+  // C (17 Sep) — typing: per-word error memory, and the chapter page he left.
+  if (!state.typerMemory || typeof state.typerMemory !== 'object') state.typerMemory = {};
+  if (!state.typerInFlight || typeof state.typerInFlight !== 'object') state.typerInFlight = {};
   if (!Array.isArray(state.scripture.currentItems)) state.scripture.currentItems = [];
   if (!Array.isArray(state.reading.categories)) state.reading.categories = [];
   if (!Array.isArray(state.reading.tags)) state.reading.tags = [];
@@ -9955,7 +9979,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260916-2127'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260916-2127';
+const BUILD_ID = '20260916-2144'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260916-2144';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -17016,6 +17040,69 @@ const TYPER_MISS_LIMIT = 2;
 // Whether he claims that one is a judgement, and therefore his.
 const TYPER_MEMORIZED_MIN = 90;
 
+// =======================================================================================
+// ⛑⛑ C (17 Sep) — THE CHAPTER IS THE SCREEN, NOT THE VERSE. Baruch, 15 Sep, in James 1:
+//     "the verse immediately leaves the screen and goes to the next blank verse. So then I don't
+//      know if I got the last word right … I'm on verse 22, but I can see verses one through 21
+//      and the words that I got wrong."
+// Scripture: every verse of a chapter stays on one page as he types it, with its marks. The page
+// clears only when the chapter is finished (a bar asks before moving on, so the last word can be
+// checked) or when he leaves — and a chapter he leaves is picked up where he stopped (C1).
+// Creeds keep one question to a page and still advance on their own.
+//   C2 — the FIRST wrong letter marks the word (it still gets one more try before it is revealed).
+//   C3 — per-word error memory: a red wash behind the word that darkens each time it is missed and
+//        lightens each time it is got right, kept per word position in each verse.
+//   C4 — swipe right (or ↻) restarts the verse; with nothing typed yet it steps back a verse.
+//   C5 — the "are these memorized?" threshold is his setting, default 90%.
+// W2, his ruling 17 Sep: "it shouldn't count unless I completed the verse." A restart or a step
+// back records nothing; only a completed verse writes the memory — and stepping back over a
+// completed verse takes its write back out.
+//
+// THE KEYBOARD INVARIANT STILL HOLDS (see the Aug 5 note above): one <input> for the whole session,
+// never replaced, and no render()/rerender() between verses or chapters.
+// =======================================================================================
+const TYPER_MIN_CHOICES = [80, 85, 90, 95, 100];
+function typerMemorizedMin() {
+  const v = Number(state.settings && state.settings.typerMemorizedMin);
+  return TYPER_MIN_CHOICES.includes(v) ? v : TYPER_MEMORIZED_MIN;
+}
+const TYPER_MEM_MAX = 5;
+function typerMemStore() {
+  if (!state.typerMemory || typeof state.typerMemory !== 'object') state.typerMemory = {};
+  return state.typerMemory;
+}
+// { keyWordIndex: level 1..5 } for one verse — the index counts only the words he types.
+const typerMemLevels = key => ({ ...(typerMemStore()[key] || {}) });
+const typerMemNext = (prev, missed) => missed ? Math.min(TYPER_MEM_MAX, (prev || 0) + 1) : Math.max(0, (prev || 0) - 1);
+function typerMemSet(key, levels) {
+  const clean = {};
+  Object.keys(levels || {}).forEach(i => { if (levels[i] > 0) clean[i] = levels[i]; });
+  if (Object.keys(clean).length) typerMemStore()[key] = clean; else delete typerMemStore()[key];
+  save();
+}
+// The chapter page he left: { [chapterDocId]: { done: [{ key, acc, miss, secs }], savedAt } }.
+// ⚑ NUMBERS AND KEYS ONLY — never verse text (the whole state syncs as one blob; see flashSnapshot).
+function typerPageStore() {
+  if (!state.typerInFlight || typeof state.typerInFlight !== 'object') state.typerInFlight = {};
+  return state.typerInFlight;
+}
+function typerSwipeBack(el, onBack) {
+  let x0 = 0, y0 = 0, t0 = 0, live = false;
+  const stamp = e => (typeof e.timeStamp === 'number' ? e.timeStamp : Date.now());
+  el.addEventListener('pointerdown', e => { live = true; el._swallow = false; x0 = e.clientX || 0; y0 = e.clientY || 0; t0 = stamp(e); });
+  el.addEventListener('pointerup', e => {
+    if (!live) return;
+    live = false;
+    const dx = (e.clientX || 0) - x0, dy = (e.clientY || 0) - y0;
+    // ⚑ SIDEWAYS ONLY. The page scrolls vertically, so up/down belongs to the scroll, not to us.
+    if (Math.abs(dx) < Math.abs(dy) * SWIPE_RATIO) return;
+    if (swipeIntent(dx, dy, stamp(e) - t0) !== 'prev') return;
+    el._swallow = true;
+    onBack();
+  });
+  el.addEventListener('pointercancel', () => { live = false; });
+}
+
 function typerScreen(d, queue, qi0, results, intent = 'practice') {
   statsStamp(results, 'typer', d.id);
   const isCreed = queue.length && queue[0].vn == null;   // creeds carry .n (question); scripture carries .vn
@@ -17024,12 +17111,9 @@ function typerScreen(d, queue, qi0, results, intent = 'practice') {
   const memorizedOffer = [];
 
   const finishSession = () => {
-    // ⚑ THE SUMMARY IS DRAWN FIRST AND THE OFFER OPENS OVER IT. `render()` clears `main` and then
-    // closes any open sheet (the exit invariant added earlier this session), so opening the sheet
-    // before the summary would have left it floating over a blank screen and then closed it.
-    // Order matters here for a reason that only exists because of another fix.
+    // ⚑ THE SUMMARY IS DRAWN FIRST AND THE OFFER OPENS OVER IT (render() closes open sheets).
     showSummary();
-    const pending = memorizedOffer.filter(o => !alreadyMemorized(d, o.item));
+    const pending = memorizedOffer.filter(o => !alreadyMemorized(d, o.item) && results.some(r => r.key === o.key));
     if (pending.length) memorizedSheet(d, pending, () => {});
   };
   const showSummary = () => {
@@ -17041,157 +17125,328 @@ function typerScreen(d, queue, qi0, results, intent = 'practice') {
   };
   if (!queue[qi0]) { finishSession(); return; }
 
+  const keyOf = it => RV.coverageKey(prDocId(d, it), prN(it));
+  const pageOf = it => isCreed ? 'q' + it.n : prDocId(d, it);
+  const refOf = it => String(it.q || '').replace(/\s*\(ESV\)\s*$/, '');
+  const pageTitleOf = it => refOf(it).replace(/:\d+$/, '');
+
+  // ⚑ C1 — PICK UP THE CHAPTER HE LEFT. The launch skips the verses the saved page already has,
+  // and the page draws them back (from the queue's text, else the cached chapter) before he types.
+  let restore = null;
+  if (!isCreed) {
+    const pk = pageOf(queue[qi0]);
+    const snap = typerPageStore()[pk];
+    if (snap && Array.isArray(snap.done) && snap.done.length) {
+      if (Date.now() - (snap.savedAt || 0) > FLASH_STALE_MS) { delete typerPageStore()[pk]; save(); }
+      else {
+        const doneKeys = new Set(snap.done.map(x => x.key));
+        let i = qi0;
+        while (i < queue.length && pageOf(queue[i]) === pk && doneKeys.has(keyOf(queue[i]))) i++;
+        if (i < queue.length && pageOf(queue[i]) === pk) { restore = { pk, snap }; qi0 = i; }
+      }
+    }
+  }
+
   // ---------- the shell, built ONCE ----------
   const wrap = document.createElement('div');
-  const counter = h(`<div class="muted" style="margin:2px 4px 8px"></div>`).firstChild;
+  const counter = h(`<div class="muted" style="margin:2px 4px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>`).firstChild;
   wrap.append(counter);
+  const resumeRow = h(`<div class="row tp-resume" style="display:none;flex-wrap:nowrap;gap:8px;margin:0 4px 8px;font-size:12px">
+      <span class="muted grow" style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" data-a="rtxt"></span>
+      <button class="pill" data-a="over" style="padding:5px 10px;font-size:12px">Start chapter over</button>
+    </div>`).firstElementChild;
+  wrap.append(resumeRow);
   const prompt = h(`<div class="card"><div data-a="q" style="font-weight:700;font-size:15px;line-height:1.5"></div></div>`).firstElementChild;
   wrap.append(prompt);
 
   const card = document.createElement('div');
-  card.className = 'card';
+  card.className = 'card tp-card';
   card.style.minHeight = '120px';
   const body = document.createElement('div');
-  body.style.cssText = 'font-size:15px;line-height:1.9';
+  body.className = 'tp-page';
   card.append(body);
 
   // ⚑ THE PERSISTENT INPUT. Created once, appended once, never removed for the life of the session.
   const inp = h(`<input autocapitalize="off" autocomplete="off" autocorrect="off" style="position:absolute;opacity:0.01;height:1px;width:1px;border:none">`).firstChild;
   card.append(inp);
-  card.onclick = () => inp.focus();
+  card.onclick = () => { if (card._swallow) { card._swallow = false; return; } inp.focus(); };
   wrap.append(card);
-  // ⚑ THE SENTENCE RENDERS FROM THE CONSTANT. It read "Three misses" while the code counted to
-  // three in three other places — four copies of one number, and the copy on screen is the one
-  // that would have gone stale silently. See TYPER_MISS_LIMIT.
-  wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 8px">Keep typing — verses advance on their own. ${TYPER_MISS_LIMIT === 1 ? 'A miss' : TYPER_MISS_LIMIT + ' misses'} on a word reveals it.</div>`));
+  // ⚑ THE SENTENCE RENDERS FROM THE CONSTANT (see TYPER_MISS_LIMIT).
+  wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 8px">Keep typing — ${NOUN.toLowerCase()}s advance on their own. A wrong letter marks the word; ${TYPER_MISS_LIMIT === 1 ? 'a miss reveals it' : TYPER_MISS_LIMIT + ' misses on a word reveals it'}. Swipe right to restart the ${NOUN.toLowerCase()}.</div>`));
 
   const bar = h(`<div class="progressbar"><div style="width:0%"></div></div>`).firstElementChild;
   wrap.append(bar);
 
-  // ⚑ A WAY BACK, WHICH DID NOT EXIST AT ALL. His note: "I want to be able to swipe back to
-  // repeat verses in the Scripture typer. As it stands I can only go straight through, but
-  // mid-verse I want to be able to restart." `skip` was the only navigation and it only ever
-  // went forward (`load(qi + 1)`), so a verse he fumbled was gone until the next session.
-  //
-  // ⚑ BUTTONS RATHER THAN A SWIPE, and that is a testability ruling as much as a design one:
-  // `dom-shim.mjs` has no touch events, so a swipe handler is one no suite can reach — the same
-  // argument that shaped the builder in the twenty-ninth session (invariant 1). Buttons are
-  // reachable by a real `.click()`, and they are also the only affordance that is discoverable
-  // without being told it exists.
-  const nav = h(`<div class="row" style="gap:8px;margin-top:14px">
-      <button class="btn secondary" data-a="prev" style="flex:0 0 auto;padding-left:14px;padding-right:14px">‹</button>
-      <button class="btn secondary grow" data-a="again">↻ Restart this ${NOUN.toLowerCase()}</button>
-      <button class="btn secondary grow" data-a="skip">Skip</button>
+  // The end of a chapter: the page stays so the last word can be checked; he moves on when ready.
+  const endBar = h(`<div class="tp-end" style="display:none">
+      <span class="grow" data-a="etxt"></span>
+      <button class="pill on" data-a="enext" style="padding:9px 14px">Next chapter ›</button>
+    </div>`).firstElementChild;
+  wrap.append(endBar);
+
+  // ⚑ A WAY BACK (Aug) — buttons as well as the swipe, because buttons are discoverable and testable.
+  const nav = h(`<div class="row tp-nav" style="gap:8px;margin-top:14px;flex-wrap:nowrap">
+      <button class="btn secondary" data-a="prev">‹</button>
+      <button class="btn secondary" data-a="again">↻ Restart ${NOUN.toLowerCase()}</button>
+      <button class="btn secondary" data-a="skip">Skip</button>
     </div>`).firstElementChild;
   wrap.append(nav);
   const skip = nav.querySelector('[data-a=skip]');
 
   const immBar = immersiveSession(wrap, 0, () => { done = true; render(finishSession, false); });
 
-  // ---------- per-verse state, reset by load() ----------
-  let qi = qi0, item = null, words = [], pos = 0, misses = 0, missedWords = [], wordMisses = 0;
-  let total = 0, correct = 0, startTs = 0, cursor = null, done = false;
+  // ---------- state ----------
+  let qi = qi0, item = null, words = [], pos = 0, missedWords = [], wordMisses = 0;
+  let total = 0, correct = 0, startTs = 0, cursor = null, done = false, awaiting = false;
+  let pageKey = null, key = '', prior = {}, keyIdx = 0, missIdx = [], block = null, text = null;
+  const blocks = new Map();      // queue index → verse element on the page
+  const pageDone = new Map();    // key → { key, acc, miss, secs } for the page on screen
 
   const sessionFrac = () => (qi + (words.length ? pos / words.length : 0)) / queue.length;
 
-  function placeWord(w, missed) {
+  function placeWord(target, before, raw, cls) {
     const span = document.createElement('span');
-    span.className = 'pw-word ' + (missed ? 'pw-missed' : 'pw-revealed');
-    span.textContent = w.raw + ' ';
-    body.insertBefore(span, cursor);
+    span.className = 'pw-word ' + cls;
+    span.textContent = raw;
+    target.insertBefore(span, before);
+    target.insertBefore(document.createTextNode(' '), before);
+  }
+  const wordCls = (missed, lvl) => (missed ? 'pw-missed' : 'pw-revealed') + (lvl ? ' pw-l' + lvl : '');
+  function verseBlock(vn) {
+    const el = h(`<div class="tp-verse">${vn != null && !isCreed ? `<span class="tp-vn">${vn}</span>` : ''}<span class="tp-text"></span></div>`).firstElementChild;
+    return el;
+  }
+  // A verse already done — drawn whole, with this attempt's misses and the memory as it now stands.
+  function doneBlock(vn, raw, k, miss, acc) {
+    const el = verseBlock(vn);
+    const t = el.querySelector('.tp-text');
+    const lv = typerMemLevels(k);
+    const missSet = new Set(miss || []);
+    let ki = 0;
+    tokenize(raw).forEach((line, li) => {
+      if (li) t.append(document.createElement('br'));
+      line.forEach(w => {
+        if (!w.key) { placeWord(t, null, w.raw, 'pw-revealed'); return; }
+        const i = ki++;
+        placeWord(t, null, w.raw, wordCls(missSet.has(i), lv[i] || 0));
+      });
+    });
+    el.append(h(`<span class="tp-acc">${acc}%</span>`).firstChild);
+    return el;
+  }
+  function placeKey(w, missed) {
+    const i = keyIdx++;
+    if (missed) missIdx.push(i);
+    placeWord(text, cursor, w.raw, wordCls(missed, typerMemNext(prior[i], missed)));
   }
   function advanceAutos() {
     while (pos < words.length && !words[pos].key) {
-      if (words[pos].br) body.insertBefore(document.createElement('br'), cursor);
-      else placeWord(words[pos], false);
+      if (words[pos].br) text.insertBefore(document.createElement('br'), cursor);
+      else placeWord(text, cursor, words[pos].raw, 'pw-revealed');
       pos++;
     }
     bar.firstElementChild.style.width = (pos / words.length * 100) + '%';
     setImmersiveProgress(immBar, sessionFrac());
     if (pos >= words.length) finishVerse();
   }
+  function savePage() {
+    if (isCreed || !pageKey) return;
+    typerPageStore()[pageKey] = { done: [...pageDone.values()], savedAt: Date.now() };
+    save();
+  }
   function finishVerse() {
     if (done) return;
     const secs = Math.round((Date.now() - startTs) / 1000);
     const acc = total ? Math.round(100 * correct / total) : 100;
-    results.push({ n: item.n, acc, missed: missedWords, secs });
+    // ⚑ W2 — ONLY A COMPLETED VERSE WRITES THE MEMORY. `prior` is kept so a step back can undo it.
+    const next = {};
+    for (let i = 0; i < total; i++) next[i] = typerMemNext(prior[i], missIdx.includes(i));
+    typerMemSet(key, next);
+    results.push({ n: item.n, acc, missed: missedWords, secs, key, qi, miss: missIdx.slice(), prior: { ...prior } });
     CR.logPractice(prDocId(d, item), prN(item), 'typer', acc);
-    // ⚑ EVERY VERSE HE GETS THROUGH COUNTS AS TRAINED, at any accuracy. Practice used to mark
-    // nothing at all, so an hour on a passage left no trace on the cycle it belonged to.
-    RV.markCovered(RV.coverageKey(prDocId(d, item), prN(item)));
-    // ⚑⚑ AND ≥90% NO LONGER MARKS IT MEMORIZED BEHIND HIS BACK. It is COLLECTED here and
-    // offered at the end of the session — see `memorizedOffer` and the note on `finishSession`.
-    if (acc >= TYPER_MEMORIZED_MIN) memorizedOffer.push({ item, acc });
-    toast(`${NOUN} ${item.n}: ${acc}% in ${SC.fmtSecs(secs)}`);
-    // NOT a render — load() swaps the content in place so the keyboard never closes.
-    if (qi + 1 >= queue.length) { done = true; render(finishSession, false); return; }
-    load(qi + 1);
+    // ⚑ EVERY VERSE HE GETS THROUGH COUNTS AS TRAINED, at any accuracy.
+    RV.markCovered(key);
+    // ⚑⚑ ≥ his threshold is COLLECTED and offered at the end — never marked behind his back.
+    if (acc >= typerMemorizedMin()) memorizedOffer.push({ item, acc, key });
+    if (cursor && cursor.parentNode) cursor.remove();
+    block.append(h(`<span class="tp-acc">${acc}%</span>`).firstChild);
+    pageDone.set(key, { key, acc, miss: missIdx.slice(), secs });
+    savePage();
+    if (isCreed) toast(`${NOUN} ${item.n}: ${acc}% in ${SC.fmtSecs(secs)}`);
+    advanceFrom(qi);
+  }
+  // NOT a render — load() swaps the content in place so the keyboard never closes.
+  function advanceFrom(i) {
+    const nx = i + 1;
+    if (nx < queue.length && pageOf(queue[nx]) === pageKey) { load(nx); return; }
+    pageEnd(nx);
+  }
+  function pageEnd(nx) {
+    if (!isCreed && pageKey) { delete typerPageStore()[pageKey]; save(); }
+    if (isCreed) {
+      if (nx >= queue.length) { done = true; render(finishSession, false); return; }
+      load(nx);
+      return;
+    }
+    awaiting = true;
+    const accs = [...pageDone.values()].map(x => x.acc);
+    const avg = accs.length ? Math.round(accs.reduce((a, c) => a + c, 0) / accs.length) : null;
+    endBar.querySelector('[data-a=etxt]').textContent = `${pageTitleOf(item)} done${avg == null ? '' : ' · ' + avg + '%'}`;
+    const btn = endBar.querySelector('[data-a=enext]');
+    btn.textContent = nx >= queue.length ? 'See results' : 'Next chapter ›';
+    btn.onclick = () => {
+      awaiting = false;
+      endBar.style.display = 'none';
+      if (nx >= queue.length) { done = true; render(finishSession, false); return; }
+      load(nx);
+      inp.focus();
+    };
+    endBar.style.display = '';
+    bar.firstElementChild.style.width = '100%';
+    setImmersiveProgress(immBar, nx / queue.length);
   }
   function handle(ch) {
-    if (done || pos >= words.length) return;
+    if (done || awaiting || pos >= words.length) return;
     const w = words[pos];
     if (ch === w.key) {
-      placeWord(w, wordMisses >= TYPER_MISS_LIMIT);
-      if (wordMisses < TYPER_MISS_LIMIT) correct++;
+      const missed = wordMisses > 0;       // ⚑ C2 — the first wrong letter already marked it
+      placeKey(w, missed);
+      if (!missed) correct++;
       pos++; wordMisses = 0;
       advanceAutos();
     } else {
-      misses++; wordMisses++;
+      wordMisses++;
       card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
       if (wordMisses >= TYPER_MISS_LIMIT) {
         missedWords.push(w.raw.replace(/[.,;:!?”’)]+$/, ''));
-        placeWord(w, true);
+        placeKey(w, true);
         pos++; wordMisses = 0;
         advanceAutos();
       }
     }
   }
-
-  function load(next) {
-    qi = next;
+  function drawPage(pk, upTo) {
+    body.innerHTML = '';
+    blocks.clear();
+    pageDone.clear();
+    // this session's completed verses on this page, before `upTo`
+    const mine = results.filter(r => r.qi < upTo && pageOf(queue[r.qi]) === pk);
+    // the saved page from last time, drawn first (C1)
+    if (restore && restore.pk === pk) {
+      const sessionKeys = new Set(mine.map(r => r.key));
+      restore.snap.done.slice().sort((a, b) => Number(a.key.split('#')[1]) - Number(b.key.split('#')[1])).forEach(x => {
+        if (sessionKeys.has(x.key)) return;
+        const vn = Number(x.key.split('#')[1]);
+        const qItem = queue.find(q => keyOf(q) === x.key);
+        let raw = qItem ? qItem.a : null;
+        if (raw == null) {
+          const m = /^bible:(.+):(\d+)$/.exec(pk);
+          const cached = m ? esvChapterCached(m[1], Number(m[2])) : null;
+          raw = cached && cached.verses ? cached.verses[vn] : null;
+        }
+        if (raw == null) return;
+        const el = doneBlock(vn, raw, x.key, x.miss, x.acc);
+        if (qItem) blocks.set(queue.indexOf(qItem), el);   // so a step back onto it replaces it
+        body.append(el);
+        pageDone.set(x.key, { ...x });
+      });
+    }
+    mine.forEach(r => {
+      const it = queue[r.qi];
+      const el = doneBlock(it.vn, it.a, r.key, r.miss, r.acc);
+      blocks.set(r.qi, el);
+      body.append(el);
+      pageDone.set(r.key, { key: r.key, acc: r.acc, miss: r.miss, secs: r.secs });
+    });
+  }
+  function load(nx) {
+    qi = nx;
     item = queue[qi];
     if (!item) { done = true; render(finishSession, false); return; }
-    setHeader(`First-Letter · ${NOUN} ${item.n}`, { back: true });
-    counter.textContent = `${NOUN} ${qi + 1} of ${queue.length} · type the first letter of each word`;
-    prompt.querySelector('[data-a=q]').textContent = `Q${item.n}. ${item.q}`;
+    awaiting = false;
+    endBar.style.display = 'none';
+    const pk = pageOf(item);
+    if (pk !== pageKey) { pageKey = pk; drawPage(pk, qi); }
+    if (blocks.has(qi)) { blocks.get(qi).remove(); blocks.delete(qi); }
+    setHeader(isCreed ? `First-Letter · ${NOUN} ${item.n}` : `First-Letter · ${refOf(item)}`, { back: true });
+    counter.textContent = isCreed
+      ? `${NOUN} ${qi + 1} of ${queue.length} · type the first letter of each word`
+      : `${NOUN} ${qi + 1} of ${queue.length} · ${refOf(item)}`;
+    prompt.querySelector('[data-a=q]').textContent = isCreed ? `Q${item.n}. ${item.q}` : pageTitleOf(item);
+    const resumed = !!(restore && restore.pk === pk && pageDone.size > 0);
+    resumeRow.style.display = resumed ? '' : 'none';
+    if (resumed) resumeRow.querySelector('[data-a=rtxt]').textContent = `Picked up where you left ${pageTitleOf(item)}`;
 
     words = tokenize(item.a).flatMap((line, li) => [...line.map(w => ({ ...w, li })), { raw: '\n', key: null, br: true, li }]);
     words.pop();
-    pos = 0; misses = 0; missedWords = []; wordMisses = 0; correct = 0;
+    pos = 0; missedWords = []; wordMisses = 0; correct = 0; keyIdx = 0; missIdx = [];
     total = words.filter(w => w.key).length;
+    key = keyOf(item);
+    prior = typerMemLevels(key);
     startTs = Date.now();
 
-    // Rebuild the text area only — `inp` is a sibling of `body`, so clearing body cannot touch it.
-    body.innerHTML = '';
-    cursor = h(`<span style="color:var(--gold);font-weight:700">▊</span>`).firstChild;
-    body.append(cursor);
+    // A fresh block for this verse at the end of the page — `inp` is a sibling of `body`, never touched.
+    block = verseBlock(item.vn);
+    text = block.querySelector('.tp-text');
+    cursor = h(`<span class="tp-cursor" style="color:var(--gold);font-weight:700">▊</span>`).firstChild;
+    text.append(cursor);
+    blocks.set(qi, block);
+    body.append(block);
+    if (block.scrollIntoView) { try { block.scrollIntoView({ block: 'nearest' }); } catch (e) { /* layout-only */ } }
     advanceAutos();
     syncNav();
   }
+  // ⚑ W2 — stepping back over a completed verse takes its result AND its memory write back out.
+  function undoResult(i) {
+    const at = results.findIndex(r => r.qi === i);
+    if (at < 0) return;
+    const [r] = results.splice(at, 1);
+    typerMemSet(r.key, r.prior);
+    pageDone.delete(r.key);
+    const oi = memorizedOffer.findIndex(o => o.key === r.key);
+    if (oi >= 0) memorizedOffer.splice(oi, 1);
+    savePage();
+  }
+  function restartCurrent() {
+    if (awaiting) { stepBack(); return; }
+    load(qi);
+  }
+  function stepBack() {
+    // at a chapter's end the verse just finished is the one to redo
+    const target = awaiting ? qi : qi - 1;
+    if (target < 0) { load(0); return; }
+    if (!awaiting && blocks.has(qi)) { blocks.get(qi).remove(); blocks.delete(qi); }
+    undoResult(target);
+    if (pageOf(queue[target]) !== pageKey) pageKey = null;   // crossing back a chapter redraws that page
+    load(target);
+  }
 
   skip.onclick = () => {
-    if (qi + 1 >= queue.length) { done = true; render(finishSession, false); return; }
-    load(qi + 1);
+    if (awaiting) { endBar.querySelector('[data-a=enext]').click(); return; }
+    if (blocks.has(qi)) { blocks.get(qi).remove(); blocks.delete(qi); }
+    advanceFrom(qi);
     inp.focus();
   };
-  // ⚑ RESTART DISCARDS THE ATTEMPT RATHER THAN SCORING IT. `load()` resets `results`-bound state
-  // but never pushes to `results` — only `next()` does — so re-running a verse simply replaces
-  // the attempt in progress. A half-typed verse he abandons must not become a percentage.
-  nav.querySelector('[data-a=again]').onclick = () => { load(qi); inp.focus(); };
+  // ⚑ RESTART DISCARDS THE ATTEMPT RATHER THAN SCORING IT — nothing is written until a verse completes.
+  nav.querySelector('[data-a=again]').onclick = () => { restartCurrent(); inp.focus(); };
   const prev = nav.querySelector('[data-a=prev]');
-  prev.onclick = () => {
-    if (qi === 0) { load(0); inp.focus(); return; }   // already first — restart it rather than dead-end
-    // ⚑ STEPPING BACK DROPS THE RESULT ALREADY BANKED FOR THAT VERSE, so re-doing it replaces
-    // the old score instead of the session reporting the same verse twice. `results` is what
-    // `practiceSummary` prints and what the accuracy average is taken over.
-    const target = queue[qi - 1];
-    const at = results.findIndex(r => r.n === (target && target.n));
-    if (at >= 0) results.splice(at, 1);
-    load(qi - 1);
+  prev.onclick = () => { stepBack(); inp.focus(); };
+  // ⚑ C4 — SWIPE RIGHT: restart the verse; with nothing typed in it yet, step back one.
+  typerSwipeBack(card, () => { if (keyIdx > 0 || awaiting) restartCurrent(); else stepBack(); inp.focus(); });
+  resumeRow.querySelector('[data-a=over]').onclick = () => {
+    if (!confirm(`Start ${pageTitleOf(item)} over? The page is cleared and you begin again from its first verse. Scores already logged stay in your history.`)) return;
+    const pk = pageKey;
+    delete typerPageStore()[pk]; save();
+    restore = null;
+    results.filter(r => pageOf(queue[r.qi]) === pk).forEach(r => undoResult(r.qi));
+    // verses the resume skipped are back in play when this selection has them
+    const startAt = queue.findIndex(q => pageOf(q) === pk);
+    pageKey = null;
+    load(startAt >= 0 ? startAt : qi);
     inp.focus();
   };
   // ‹ stays clickable at the first verse (it restarts it) but says it is the end of the road.
-  const syncNav = () => { prev.style.opacity = qi === 0 ? '.45' : '1'; };
+  const syncNav = () => { prev.style.opacity = qi === 0 && !awaiting ? '.45' : '1'; };
   inp.oninput = () => {
     const v = inp.value.toLowerCase();
     inp.value = '';
@@ -17202,7 +17457,7 @@ function typerScreen(d, queue, qi0, results, intent = 'practice') {
   main().append(wrap);
   load(qi0);
   // The one focus() of the session, on first mount. Every later verse inherits focus because the
-  // element is never replaced — which is the entire point of the rework.
+  // element is never replaced — which is the entire point of the Aug 5 rework.
   setTimeout(() => inp.focus(), 100);
 }
 
@@ -18410,7 +18665,7 @@ function memorizedSheet(d, pending, done) {
   const isCreed = pending.length && pending[0].item.vn == null;
   const NOUN = isCreed ? 'Question' : 'Verse';
   openSheet('Memorized?', (body, close) => {
-    body.append(h(`<div class="muted" style="font-size:12.5px;line-height:1.6;margin:0 2px 10px">You typed ${pending.length === 1 ? 'this one' : 'these'} at ${TYPER_MEMORIZED_MIN}% or better. Tick the ${pending.length === 1 ? 'one' : 'ones'} you want marked memorized — untick anything you are not sure of.</div>`));
+    body.append(h(`<div class="muted" style="font-size:12.5px;line-height:1.6;margin:0 2px 10px">You typed ${pending.length === 1 ? 'this one' : 'these'} at ${typerMemorizedMin()}% or better. Tick the ${pending.length === 1 ? 'one' : 'ones'} you want marked memorized — untick anything you are not sure of.</div>`));
     pending.forEach(o => {
       const row = h(`<div class="row" style="gap:10px;padding:9px 0;align-items:center;border-top:1px solid var(--line);cursor:pointer">
           <span data-a="box" style="font-size:16px;line-height:1.2">☑</span>
@@ -23165,6 +23420,19 @@ function youProfile() {
       : 'Key cleared — scans use on-device OCR.';
   };
   wrap.append(visC);
+
+  // ⚑ C5 (17 Sep) — WHEN TYPING OFFERS "ARE THESE MEMORIZED?" His setting; 90% until he changes it.
+  const tyC = h(`<div class="card"><h3>Typing</h3>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">After First-Letter typing, verses you typed at this accuracy or better are offered to mark memorized. Nothing is marked without your tick.</div>
+    <div class="pillrow ty-min" style="flex-wrap:nowrap">${TYPER_MIN_CHOICES.map(v => `<button class="pill${typerMemorizedMin() === v ? ' on' : ''}" data-v="${v}">${v}%</button>`).join('')}</div>
+  </div>`).firstElementChild;
+  tyC.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
+    state.settings.typerMemorizedMin = Number(b.dataset.v);
+    save();
+    tyC.querySelectorAll('[data-v]').forEach(x => x.classList.toggle('on', x === b));
+    toast('Typing offers verses at ' + b.dataset.v + '% or better');
+  });
+  wrap.append(tyC);
 
   // Phase 5 — daily verse rotation editor
   const dvC = h(`<div class="card"><h3>Daily verse rotation</h3>
