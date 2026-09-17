@@ -461,6 +461,19 @@ header.topbar .avatar {
 .pw-empty { font-size: 12px; padding: 4px 6px 6px; }
 .pw-dragging { box-shadow: 0 6px 18px rgba(0,0,0,.18); opacity: .96; }
 .pw-ph { border: 1px dashed var(--gold); border-radius: 3px; margin: 5px 0; background: rgba(0,0,0,.02); }
+/* H1 (17 Sep) — automatic backup list in Settings: one row each, Restore on the right */
+.bk-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-top: 1px solid var(--line); flex-wrap: nowrap; }
+.bk-row:first-child { border-top: none; }
+.bk-txt { flex: 1; min-width: 0; }
+.bk-when { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bk-sub { font-size: 11.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bk-row .pill { flex: 0 0 auto; padding: 6px 12px; font-size: 12px; }
+/* F1 (17 Sep) — tappable proof texts; the verse opens in place under the text */
+.ref-link { color: var(--accent); text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 2px; cursor: pointer; }
+.ref-link.on { background: var(--accent-soft); border-radius: 2px; }
+.ref-panel { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--gold); border-radius: var(--radius); background: var(--bg); }
+.ref-panel .ref-text { margin-top: 6px; font-size: 14px; line-height: 1.6; }
+.ref-panel sup { font-size: 9px; font-weight: 700; color: var(--text-2); margin-right: 2px; }
 
 </style>
 </head>
@@ -1432,6 +1445,7 @@ function exportAll() {
   a.href = url;
   a.download = 'strive-backup-' + todayKey() + '.json';
   a.click();
+  try { localStorage.setItem('strive-last-export', String(Date.now())); } catch (e) { /* per-device note only */ }
   URL.revokeObjectURL(url);
 }
 
@@ -2064,6 +2078,94 @@ function scorecard(times) {
   return { current, previous, fastest, slowest, count: times.length };
 }
 
+// ==== F1 (17 Sep) — Bible references inside creed text and proof-text lists ====
+// "Rom. 3:19", "Matthew 22:37–40", "Nm 23:19; Deut 4:1-2; Ps 19:7-10; 119:89; 1 Pt 1:25".
+// Pure and exported so the parser is tested on its own. A reference that does not resolve to a book
+// is left as plain text — a wrong link is worse than none.
+const REF_ALIAS = {
+  gn: 'Genesis', ge: 'Genesis', gen: 'Genesis', ex: 'Exodus', exo: 'Exodus', exod: 'Exodus', lv: 'Leviticus', lev: 'Leviticus',
+  nm: 'Numbers', nu: 'Numbers', num: 'Numbers', dt: 'Deuteronomy', deut: 'Deuteronomy', deu: 'Deuteronomy',
+  jos: 'Joshua', josh: 'Joshua', jdg: 'Judges', judg: 'Judges', jg: 'Judges', ru: 'Ruth', rth: 'Ruth',
+  '1sm': '1 Samuel', '1sa': '1 Samuel', '1sam': '1 Samuel', '2sm': '2 Samuel', '2sa': '2 Samuel', '2sam': '2 Samuel',
+  '1kgs': '1 Kings', '1ki': '1 Kings', '1kg': '1 Kings', '2kgs': '2 Kings', '2ki': '2 Kings', '2kg': '2 Kings',
+  '1chr': '1 Chronicles', '1ch': '1 Chronicles', '1chron': '1 Chronicles', '2chr': '2 Chronicles', '2ch': '2 Chronicles', '2chron': '2 Chronicles',
+  ezr: 'Ezra', neh: 'Nehemiah', est: 'Esther', esth: 'Esther', jb: 'Job', ps: 'Psalms', psa: 'Psalms', psalm: 'Psalms', pss: 'Psalms',
+  pr: 'Proverbs', prv: 'Proverbs', prov: 'Proverbs', ec: 'Ecclesiastes', ecc: 'Ecclesiastes', eccl: 'Ecclesiastes', eccles: 'Ecclesiastes',
+  song: 'Song of Solomon', sos: 'Song of Solomon', sg: 'Song of Solomon', cant: 'Song of Solomon',
+  is: 'Isaiah', isa: 'Isaiah', jer: 'Jeremiah', je: 'Jeremiah', lam: 'Lamentations', la: 'Lamentations',
+  ezk: 'Ezekiel', eze: 'Ezekiel', ezek: 'Ezekiel', dn: 'Daniel', da: 'Daniel', dan: 'Daniel', hos: 'Hosea', ho: 'Hosea',
+  jl: 'Joel', am: 'Amos', ob: 'Obadiah', obad: 'Obadiah', jon: 'Jonah', jnh: 'Jonah', mic: 'Micah', mi: 'Micah', na: 'Nahum', nah: 'Nahum',
+  hab: 'Habakkuk', hb: 'Habakkuk', zep: 'Zephaniah', zeph: 'Zephaniah', hag: 'Haggai', hg: 'Haggai', zec: 'Zechariah', zech: 'Zechariah',
+  mal: 'Malachi', ml: 'Malachi', mt: 'Matthew', matt: 'Matthew', mat: 'Matthew', mk: 'Mark', mrk: 'Mark', mr: 'Mark',
+  lk: 'Luke', luk: 'Luke', jn: 'John', jhn: 'John', joh: 'John', ac: 'Acts', act: 'Acts',
+  ro: 'Romans', rom: 'Romans', rm: 'Romans', '1cor': '1 Corinthians', '1co': '1 Corinthians', '2cor': '2 Corinthians', '2co': '2 Corinthians',
+  gal: 'Galatians', ga: 'Galatians', eph: 'Ephesians', ephes: 'Ephesians', phil: 'Philippians', php: 'Philippians', pp: 'Philippians',
+  col: 'Colossians', '1th': '1 Thessalonians', '1thess': '1 Thessalonians', '1thes': '1 Thessalonians',
+  '2th': '2 Thessalonians', '2thess': '2 Thessalonians', '2thes': '2 Thessalonians',
+  '1tim': '1 Timothy', '1ti': '1 Timothy', '1tm': '1 Timothy', '2tim': '2 Timothy', '2ti': '2 Timothy', '2tm': '2 Timothy',
+  tit: 'Titus', ti: 'Titus', phlm: 'Philemon', phm: 'Philemon', philem: 'Philemon', heb: 'Hebrews', jas: 'James', jam: 'James', jm: 'James',
+  '1pt': '1 Peter', '1pe': '1 Peter', '1pet': '1 Peter', '2pt': '2 Peter', '2pe': '2 Peter', '2pet': '2 Peter',
+  '1jn': '1 John', '1jo': '1 John', '1john': '1 John', '2jn': '2 John', '2jo': '2 John', '2john': '2 John',
+  '3jn': '3 John', '3jo': '3 John', '3john': '3 John', jud: 'Jude', rv: 'Revelation', rev: 'Revelation', re: 'Revelation',
+};
+const ROMAN_PREFIX = { i: '1', ii: '2', iii: '3', first: '1', second: '2', third: '3' };
+function resolveBookName(raw) {
+  let t = String(raw || '').toLowerCase().replace(/\./g, '').trim();
+  const pm = t.match(/^(iii|ii|i|first|second|third)\s+(.*)$/);
+  if (pm) t = ROMAN_PREFIX[pm[1]] + ' ' + pm[2];
+  const key = t.replace(/\s+/g, '');
+  const exact = allBooks.find(b => b.name.toLowerCase().replace(/\s+/g, '') === key);
+  if (exact) return exact.name;
+  if (REF_ALIAS[key]) return REF_ALIAS[key];
+  if (key === 'psalms' || key === 'psalm') return 'Psalms';
+  if (key === 'revelations') return 'Revelation';
+  return null;
+}
+const refBook = name => allBooks.find(b => b.name === name) || null;
+// A reference, checked against the book: { book, ch, from, to } or null.
+function refOk(bookName, ch, from, to) {
+  const b = refBook(bookName);
+  if (!b || !(ch >= 1 && ch <= b.chapters)) return null;
+  // ⚑ The verse number is NOT checked against bible.js's verse counts: several books there are wrong
+  // (Matthew, Acts, Psalms, 1 Corinthians — found building this; see the work queue), and a real
+  // reference must not be refused because of it.
+  if (from != null && !(from >= 1 && from <= 200)) return null;
+  const hi = to != null && to >= (from || 1) ? to : from;
+  return { book: b.name, ch, from: from != null ? from : null, to: from != null ? hi : null };
+}
+const refLabel = r => r.book + ' ' + r.ch + (r.from ? ':' + r.from + (r.to && r.to !== r.from ? '–' + r.to : '') : '');
+// References written into running text: "Romans 1:20", "(Rom. 3:19)", "1 Pet. 2:9", "Matthew 22:37–40".
+function findRefs(text) {
+  const out = [];
+  const re = /\b((?:[1-3]|I{1,3})\s?[A-Z][a-z]+\.?|[A-Z][a-z]+\.?(?: of Solomon)?)\s(\d{1,3}):(\d{1,3})(?:\s?[-–]\s?(\d{1,3})(?!\d|:\d))?/g;
+  let m;
+  while ((m = re.exec(String(text || '')))) {
+    const book = resolveBookName(m[1]);
+    const r = book && refOk(book, Number(m[2]), Number(m[3]), m[4] ? Number(m[4]) : null);
+    if (r) out.push({ ...r, index: m.index, text: m[0] });
+  }
+  return out;
+}
+// A proof-text list: "Nm 23:19; Deut 4:1-2; Ps 19:7-10; 119:89; 1 Pt 1:25". A piece without a book
+// takes the one before it. Each piece keeps its place in the string so it can be linked in place.
+function parseRefList(str) {
+  const out = [];
+  const s = String(str || '');
+  let book = null, pos = 0;
+  for (const piece of s.split(';')) {
+    const lead = piece.length - piece.trimStart().length;
+    const body = piece.trim();
+    const m = body.match(/^(?:((?:[1-3]|I{1,3})\s?[A-Za-z][A-Za-z.]*|[A-Za-z][A-Za-z.]*(?: of Solomon)?)\s+)?(\d{1,3})(?::(\d{1,3})(?:\s*[-–]\s*(\d{1,3})(?!\d|\s*:\s*\d))?)?/);
+    if (m) {
+      if (m[1]) book = resolveBookName(m[1]);
+      const r = book && refOk(book, Number(m[2]), m[3] ? Number(m[3]) : null, m[4] ? Number(m[4]) : null);
+      if (r) out.push({ ...r, index: pos + lead, text: m[0] });
+    }
+    pos += piece.length + 1;
+  }
+  return out;
+}
+
 // Detect which book a pathway-step label refers to.
 // "Ephesians" → whole book; "Hebrews 1-7" → range; "Hebrews 3" → single chapter.
 function matchBook(label) {
@@ -2198,7 +2300,9 @@ function nextChapter(book) {
 // Verse = 4 XP. Completing a chapter adds a bonus equal to its verse count (+25%),
 // completing a book adds twice its verse count (+50%). Max XP per corpus = 7 × its verses,
 // so Level = floor(100 × xp / max): level 100 = everything memorized (and fresh), level 50 = half.
-const XP_VERSE = 4, XP_CHAPTER_FACTOR = 1, XP_BOOK_FACTOR = 2;
+const XP_VERSE = 4;
+const XP_CHAPTER_FACTOR = 1;
+const XP_BOOK_FACTOR = 2;
 
 function reviewIntervalDays(bookName) {
   return (S().reviewIntervals || {})[bookName] || 0;   // 0 = no requirement
@@ -2268,7 +2372,7 @@ const ABBR = { Genesis: 'Gen', Exodus: 'Ex', Leviticus: 'Lev', Numbers: 'Num', D
 function abbr(name) { return ABBR[name] || name.slice(0, 3); }
 
 
-const SC = {B8_SHIPPED,BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookMemorizedKeys,bookRuns,bookStats,bookTimes,bookXP,booksWithRuns,chapterStats,corpusStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,lastRun,lifetimeVersesMarked,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,normScope,openRun,parseDuration,parseScopeInput,passSince,removeCurrentItem,removeReviewTime,repairRuns,resetBook,resetCorpus,restoreBookProgress,reviewHistory,reviewIntervalDays,reviewSecsBetween,runAccrue,runComplete,runProgress,runSince,scopeLabel,scorecard,setChapter,setCurrentBook,setItemDue,setReviewInterval,startFreshPass,toggleVerse,totalVerses,unitLabel,unitTimes,unitTimesFor,verseDone,versesLeft,versesMarked,versesMarkedToday};
+const SC = {B8_SHIPPED,BIBLE,XP_BOOK_FACTOR,XP_CHAPTER_FACTOR,XP_VERSE,abbr,addCurrentItem,allBooks,bookMemorizedKeys,bookRuns,bookStats,bookTimes,bookXP,booksWithRuns,chapterStats,corpusStats,corpusXP,currentBook,currentItems,ensureKeys,findRefs,fmtSecs,globalStats,isStale,lastReviewTs,lastRun,lifetimeVersesMarked,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,normScope,openRun,parseDuration,parseRefList,parseScopeInput,passSince,refLabel,removeCurrentItem,removeReviewTime,repairRuns,resetBook,resetCorpus,resolveBookName,restoreBookProgress,reviewHistory,reviewIntervalDays,reviewSecsBetween,runAccrue,runComplete,runProgress,runSince,scopeLabel,scorecard,setChapter,setCurrentBook,setItemDue,setReviewInterval,startFreshPass,toggleVerse,totalVerses,unitLabel,unitTimes,unitTimesFor,verseDone,versesLeft,versesMarked,versesMarkedToday};
 // Strive — Modules (Phase 11 foundation, D-AB). A "Module" = one named chunk of ONE book,
 // stored at the VERSE level so coverage carries even if the book is later re-sliced.
 // Additive + sync-safe (whole-state blob).
@@ -9401,6 +9505,133 @@ function targetProgress(t, dk = todayKey()) {
 }
 
 const TG = {TARGET_DOMAINS,creedPaceInfo,dayPlan,daysUntil,domainAmount,domainLabelOf,hasNudges,memPaceInfo,paceNudges,periodWindow,readPaceInfo,scheduleDelta,targetAppliesOn,targetProgress,unitForDomain};
+// Strive — automatic on-device backups (H1, 17 Sep 2026).
+//
+// ⚑ WHY: the work queue calls a lost state "the only unrecoverable downside here". Sync is one
+// last-write-wins blob, so a bad write reaches every device; a file only exists if he
+// remembers to make one. This keeps copies on the device without him doing anything:
+//   · one a day — the first time the app opens that day (the state as the day began);
+//   · one before anything REPLACES his data — a sync pull, a restore, an import.
+// Kept: the last 10 days, then one a week for 8 more weeks, and the newest 3 of each "before" kind.
+//
+// ⚑ INDEXEDDB, NOT localStorage. The state is ~0.6 MB and Safari gives localStorage ~5 MB, which the
+// live state, the ESV cache and the pre-migration copy already share. Copies live on this device only
+// and never sync (a copy that synced would carry the bad write with it).
+// ⚑ Where IndexedDB is missing, every call is a quiet no-op; the app never depends on this.
+
+
+const DB_NAME = 'strive-backups', DATA = 'data', META = 'meta';
+const LAST_DAY_KEY = 'strive-bk-day';
+const KEEP_DAYS = 10;
+const KEEP_WEEKS = 8;
+const KEEP_EACH_EVENT = 3;
+const KIND_LABEL = { daily: 'Daily', 'before-sync': 'Before a sync', 'before-restore': 'Before a restore', 'before-import': 'Before an import' };
+
+const idb = () => { try { return (typeof indexedDB !== 'undefined' && indexedDB) || null; } catch (e) { return null; } };
+const supported = () => !!idb();
+let dbp = null;
+function openDb() {
+  if (dbp) return dbp;
+  dbp = new Promise((resolve, reject) => {
+    const req = idb().open(DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames || !db.objectStoreNames.contains || !db.objectStoreNames.contains(DATA)) db.createObjectStore(DATA, { keyPath: 'id' });
+      if (!db.objectStoreNames || !db.objectStoreNames.contains || !db.objectStoreNames.contains(META)) db.createObjectStore(META, { keyPath: 'id' });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => { dbp = null; reject(req.error); };
+  });
+  return dbp;
+}
+const asPromise = req => new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); });
+async function run(stores, mode, fn) {
+  const db = await openDb();
+  const tx = db.transaction(stores, mode);
+  // the completion listener goes on BEFORE any request, so it cannot miss the event
+  const done = new Promise((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error); });
+  const out = await fn(...stores.map(s => tx.objectStore(s)));
+  await done;
+  return out;
+}
+
+function verseCount(st) {
+  let n = 0;
+  const prog = (st.scripture && st.scripture.progress) || {};
+  for (const b in prog) for (const k in prog[b]) if (prog[b][k]) n++;
+  return n;
+}
+
+// ⚑ The copy is taken SYNCHRONOUSLY (the stringify happens before this returns), so a caller can
+// take it and replace the state on the very next line; only the write is asynchronous.
+function snapshot(kind = 'daily', now = Date.now()) {
+  if (!supported()) return Promise.resolve(null);
+  let data;
+  try { data = JSON.stringify({ app: 'strive', version: state.meta && state.meta.schema, exported: new Date(now).toISOString(), state }); }
+  catch (e) { return Promise.resolve(null); }
+  const day = todayKey();
+  const id = kind === 'daily' ? 'daily:' + day : kind + ':' + now;
+  const meta = { id, kind, ts: now, day, bytes: data.length, verses: verseCount(state) };
+  return run([DATA, META], 'readwrite', (d, m) => Promise.all([asPromise(d.put({ id, data })), asPromise(m.put(meta))]))
+    .then(() => prune())
+    .then(() => meta)
+    .catch(() => null);
+}
+// The first open of each day.
+function maybeDaily(now = Date.now()) {
+  if (!supported()) return Promise.resolve(null);
+  const day = todayKey();
+  let last = null;
+  try { last = localStorage.getItem(LAST_DAY_KEY); } catch (e) { /* storage blocked */ }
+  if (last === day) return Promise.resolve(null);
+  return snapshot('daily', now).then(meta => {
+    if (meta) { try { localStorage.setItem(LAST_DAY_KEY, day); } catch (e) { /* storage blocked */ } }
+    return meta;
+  });
+}
+function list() {
+  if (!supported()) return Promise.resolve([]);
+  return run([META], 'readonly', m => asPromise(m.getAll()))
+    .then(rows => (rows || []).sort((a, b) => b.ts - a.ts))
+    .catch(() => []);
+}
+// Which copies stay: the newest KEEP_DAYS dailies, then the newest daily in each of KEEP_WEEKS older
+// weeks; the newest KEEP_EACH_EVENT of each "before" kind. Pure, so it is tested directly.
+function keepIds(rows) {
+  const keep = new Set();
+  const daily = rows.filter(r => r.kind === 'daily').sort((a, b) => b.ts - a.ts);
+  daily.slice(0, KEEP_DAYS).forEach(r => keep.add(r.id));
+  const weeks = new Set();
+  for (const r of daily.slice(KEEP_DAYS)) {
+    const wk = weekStartKey(r.day);
+    if (weeks.has(wk) || weeks.size >= KEEP_WEEKS) continue;
+    weeks.add(wk); keep.add(r.id);
+  }
+  const byKind = {};
+  rows.filter(r => r.kind !== 'daily').sort((a, b) => b.ts - a.ts).forEach(r => {
+    byKind[r.kind] = (byKind[r.kind] || 0) + 1;
+    if (byKind[r.kind] <= KEEP_EACH_EVENT) keep.add(r.id);
+  });
+  return keep;
+}
+async function prune() {
+  const rows = await list();
+  const keep = keepIds(rows);
+  const drop = rows.filter(r => !keep.has(r.id)).map(r => r.id);
+  if (!drop.length) return 0;
+  await run([DATA, META], 'readwrite', (d, m) => Promise.all(drop.flatMap(id => [asPromise(d.delete(id)), asPromise(m.delete(id))])));
+  return drop.length;
+}
+// Put a copy back. What is on the device now is kept first, as a "before a restore" copy.
+async function restore(id) {
+  const rec = await run([DATA], 'readonly', d => asPromise(d.get(id)));
+  if (!rec || !rec.data) throw new Error('That copy is missing');
+  const obj = JSON.parse(rec.data);
+  await snapshot('before-restore');
+  return importData(obj);
+}
+
+const BK = {KEEP_DAYS,KEEP_EACH_EVENT,KEEP_WEEKS,KIND_LABEL,keepIds,list,maybeDaily,restore,snapshot,supported};
 // Strive — cross-device sync (Phase 2). Whole-state blob → Supabase, last-write-wins
 // with a conflict guard. Dependency-free: raw fetch against Supabase Auth + REST.
 // Because the entire state object syncs as one blob, later schema additions never
@@ -9411,6 +9642,7 @@ const TG = {TARGET_DOMAINS,creedPaceInfo,dayPlan,daysUntil,domainAmount,domainLa
 //   strive-sync-session {access_token, refresh_token, expiresAt, userId, email}
 //   strive-sync-meta    {lastRemoteTs, dirty}
 //   strive-device-id    random id, tags pushes for the conflict prompt
+
 
 
 const CFG_KEY = 'strive-sync-cfg';
@@ -9670,6 +9902,8 @@ function mergeReviewEvidence(into, from) {
 let lastMerge = null;
 
 function applyRemote(row) {
+  // ⚑ H1 — what is here is copied before a pull replaces it (a last-write-wins blob can carry a bad write).
+  if (!looksEmpty()) BK.snapshot('before-sync');
   applying = true;
   try { applyRemoteState(row.data); } finally { applying = false; }
   setMeta({ lastRemoteTs: row.ts, dirty: false });
@@ -9972,6 +10206,7 @@ const VIS = {setVisionKey,visionKey,visionReady,visionScanToc};
 
 
 
+
 load();
 SC.ensureKeys();
 
@@ -9979,7 +10214,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260916-2144'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260916-2144';
+const BUILD_ID = '20260916-2238'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260916-2238';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -14747,8 +14982,9 @@ function practiceScope(b, intent = 'practice') {
   main().append(wrap);
 }
 
-function chapterScreen(b, ci) {
-  setHeader(b.name + ' ' + (ci + 1), { back: () => bookScreen(b) });
+function chapterScreen(b, ci, opts = {}) {
+  // ⚑ F1 — opened from a creed's proof text, Back returns to the creed rather than climbing to the book.
+  setHeader(b.name + ' ' + (ci + 1), { back: opts.returnBack ? true : () => bookScreen(b) });
   const wrap = document.createElement('div');
 
   // SM4 — next/previous chapter navigation (one at a time, both directions)
@@ -14758,7 +14994,7 @@ function chapterScreen(b, ci) {
       <button class="btn secondary" data-a="prev" style="margin-top:0;flex:1;${ci === 0 ? 'visibility:hidden' : ''}">‹ ${SC.abbr(b.name)} ${ci}</button>
       <button class="btn secondary" data-a="next" style="margin-top:0;flex:1;${ci === lastCi ? 'visibility:hidden' : ''}">${SC.abbr(b.name)} ${ci + 2} ›</button>
     </div>`).firstElementChild;
-    const go = to => { const s = () => chapterScreen(b, to); stack[stack.length - 1] = s; render(s, false); };
+    const go = to => { const s = () => chapterScreen(b, to, opts); stack[stack.length - 1] = s; render(s, false); };
     nav.querySelector('[data-a=prev]').onclick = () => go(ci - 1);
     nav.querySelector('[data-a=next]').onclick = () => go(ci + 1);
     wrap.append(nav);
@@ -14767,7 +15003,7 @@ function chapterScreen(b, ci) {
   const c = SC.chapterStats(b, ci);
   const allDone = c.done === c.total;
   const toggleAll = h(`<button class="btn ${allDone ? 'secondary' : ''}" style="margin-bottom:12px">${allDone ? 'Unmark all verses' : 'Mark whole chapter memorized'}</button>`);
-  toggleAll.firstChild.onclick = () => { SC.setChapter(b, ci, !allDone); render(() => chapterScreen(b, ci), false); };
+  toggleAll.firstChild.onclick = () => { SC.setChapter(b, ci, !allDone); render(() => chapterScreen(b, ci, opts), false); };
   wrap.append(toggleAll);
 
   // SM2 — declare this chapter a standalone memorization item (gets its own review graph)
@@ -14782,7 +15018,7 @@ function chapterScreen(b, ci) {
       SC.addCurrentItem(b.name, ci + 1);
       toast(b.name + ' ' + (ci + 1) + ' is now a standalone item');
     }
-    render(() => chapterScreen(b, ci), false);
+    render(() => chapterScreen(b, ci, opts), false);
   };
   wrap.append(saBtn);
 
@@ -14798,7 +15034,7 @@ function chapterScreen(b, ci) {
     wrap.append(dueControl({
       label: 'Finish memorizing by',
       value: it.due, unit: 'verses', info: TG.memPaceInfo(it),
-      onSet: v => { SC.setItemDue(it.id, v); render(() => chapterScreen(b, ci), false); }
+      onSet: v => { SC.setItemDue(it.id, v); render(() => chapterScreen(b, ci, opts), false); }
     }));
   }
 
@@ -16541,14 +16777,76 @@ function creedGrid(d, sections) {
 }
 
 // Single section — the question (catechism) or article shown in a sheet, with a done toggle.
+// ===== F1 (17 Sep) — a proof text opens its verse in place, and closes again =====
+// His ask (C3): "jump from a proof text to that verse and back easily". Tapping a reference opens the
+// verse right under the text — nothing navigates, so "back" is one more tap. "Open <chapter> ›" goes
+// to the chapter for context, and its Back comes straight back here.
+function refLinkHtml(r, shown) {
+  return `<span class="ref-link" data-b="${esc(r.book)}" data-c="${r.ch}" data-f="${r.from || ''}" data-t="${r.to || ''}">${esc(shown)}</span>`;
+}
+function linkRefs(text, found) {
+  let out = '', at = 0;
+  found.forEach(r => { if (r.index < at) return; out += esc(text.slice(at, r.index)) + refLinkHtml(r, text.slice(r.index, r.index + r.text.length)); at = r.index + r.text.length; });
+  return out + esc(text.slice(at));
+}
+const linkifyText = text => linkRefs(String(text || ''), SC.findRefs(text));
+const linkifyRefList = refs => linkRefs(String(refs || ''), SC.parseRefList(refs));
+function wireRefLinks(host) {
+  const panel = document.createElement('div');
+  panel.className = 'ref-panel';
+  panel.style.display = 'none';
+  host.append(panel);
+  let openKey = null;
+  host.querySelectorAll('.ref-link').forEach(el => el.onclick = e => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    const r = { book: el.dataset.b, ch: Number(el.dataset.c), from: el.dataset.f ? Number(el.dataset.f) : null, to: el.dataset.t ? Number(el.dataset.t) : null };
+    const key = SC.refLabel(r);
+    host.querySelectorAll('.ref-link.on').forEach(x => x.classList.remove('on'));
+    if (openKey === key) { openKey = null; panel.style.display = 'none'; return; }
+    openKey = key;
+    el.classList.add('on');
+    showRefPanel(panel, r);
+  });
+}
+function showRefPanel(panel, r) {
+  const b = allBooks.find(x => x.name === r.book);
+  panel.style.display = '';
+  panel.innerHTML = '';
+  const head = h(`<div class="row ref-head" style="flex-wrap:nowrap;gap:8px">
+      <div class="grow" style="min-width:0;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(SC.refLabel(r))} <span class="muted" style="font-weight:400;font-size:11px">ESV</span></div>
+      <button class="pill" data-a="open" style="padding:5px 10px;font-size:12px;flex:0 0 auto">Open ${esc(r.book)} ${r.ch} ›</button>
+    </div>`).firstElementChild;
+  head.querySelector('[data-a=open]').onclick = () => {
+    closeSheets();
+    if (b) render(() => chapterScreen(b, r.ch - 1, { returnBack: true }));
+  };
+  panel.append(head);
+  const body = h(`<div class="ref-text"></div>`).firstElementChild;
+  panel.append(body);
+  const fill = entry => {
+    const vv = [];
+    const lo = r.from || 1, hi = r.from ? (r.to || r.from) : Math.max(...Object.keys(entry.verses).map(Number));
+    for (let v = lo; v <= hi; v++) if (entry.verses[v]) vv.push(`<sup>${v}</sup>${esc(entry.verses[v])}`);
+    body.innerHTML = vv.length ? vv.join(' ') : '<span class="muted">That verse isn\'t in the ESV text for this chapter.</span>';
+  };
+  const cached = esvChapterCached(r.book, r.ch);
+  if (cached) { fill(cached); return; }
+  if (!esvKey()) { body.innerHTML = '<span class="muted">Add your ESV key in Settings to read the verse here.</span>'; return; }
+  body.innerHTML = '<span class="muted">Fetching…</span>';
+  esvFetchChapter(r.book, r.ch).then(fill).catch(() => { body.innerHTML = '<span class="muted">Couldn\'t load the verse — check your connection.</span>'; });
+}
+
 function creedSectionSheet(d, s) {
   const isCat = d.group === 'catechisms';
   openSheet(isCat ? 'Q' + s.n : CR.sectionLabel(d, s), (body, close) => {
     const fill = () => {
       body.innerHTML = '';
       if (isCat && s.label) body.append(h(`<div style="font-size:15px;font-weight:700;line-height:1.5;margin-bottom:10px">${esc(s.label)}</div>`));
-      body.append(h(`<div style="font-size:15px;line-height:1.65;white-space:pre-line">${esc(s.text)}</div>`));
-      if (s.refs) body.append(h(`<div class="muted" style="font-size:12px;line-height:1.5;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">${esc(s.refs)}</div>`));
+      const host = document.createElement('div');
+      host.append(h(`<div style="font-size:15px;line-height:1.65;white-space:pre-line">${linkifyText(s.text)}</div>`));
+      if (s.refs) host.append(h(`<div class="muted ref-list" style="font-size:12px;line-height:1.7;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">${linkifyRefList(s.refs)}</div>`));
+      body.append(host);
+      wireRefLinks(host);
       const done = CR.isDone(d.id, s.n);
       const tog = h(`<button class="btn ${done ? 'secondary' : ''}" style="margin-top:16px">${done ? '✓ Done — tap to unmark' : 'Mark done'}</button>`);
       tog.firstChild.onclick = () => { CR.toggleSection(d.id, s.n); fill(); rerender(); };
@@ -16579,9 +16877,10 @@ function creedGroupScreen(d, ld) {
           <div class="check ${done ? 'on' : ''}">✓</div>
           <div class="grow"><div style="font-size:14px;font-weight:700">${d.group === 'catechisms' ? 'Q' + s.n + '. ' : ''}${esc(s.label || CR.sectionLabel(d, s))}</div></div>
         </div>
-        <div style="font-size:14px;line-height:1.65;margin-top:10px;white-space:pre-line">${esc(s.text)}</div>
-        ${s.refs ? `<div class="muted" style="font-size:11.5px;line-height:1.5;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">${esc(s.refs)}</div>` : ''}
+        <div style="font-size:14px;line-height:1.65;margin-top:10px;white-space:pre-line">${linkifyText(s.text)}</div>
+        ${s.refs ? `<div class="muted ref-list" style="font-size:11.5px;line-height:1.7;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">${linkifyRefList(s.refs)}</div>` : ''}
       </div>`).firstElementChild;
+    wireRefLinks(el);
     el.querySelector('.check').onclick = () => { CR.toggleSection(d.id, s.n); render(() => creedGroupScreen(d, ld), false); };
     wrap.append(el);
   });
@@ -18834,7 +19133,6 @@ function ftHub(body) {
   card.firstElementChild.onclick = () => ftGo('level');
   body.append(card);
   body.append(ftTodayCard());
-  body.append(ftStreakCard());
 
   // ⚑ THE SPLIT IS DERIVED FROM `FT_GROUPS`, NOT FROM AN INDEX, AND THAT WAS A LIVE BUG.
   // This read `FT_HUB.slice(0, 4)` / `.slice(4)` — a hardcoded boundary that was correct when
@@ -18962,54 +19260,9 @@ function fitnessHome() {
   ({ hub: ftHub, log: ftLogbook, level: ftLevel, workouts: ftWorkouts, movements: ftMovements, stats: ftStatsScreen, weight: ftWeight, water: ftWater, diet: ftDiet, sleep: ftSleep, timers: ftTimers })[ftMode](body);
 }
 
-// ⚑ THE TRAINING STREAK (open-threads §3). Weeks, not days — his constraint was that he
-// trains a number of times a WEEK and a daily streak is simply the wrong unit. 3.2: the
-// best-ever is shown alongside, so a break costs you the run and not the record.
-// The rule is written on the sheet rather than left implicit, because one half of it
-// (grace holds but does not extend) was my judgement, not his instruction.
-function ftStreakCard() {
-  const s = FT.trainingStreak();
-  const line = s.weeks > 0
-    ? `<b>${s.weeks} week${s.weeks === 1 ? '' : 's'}</b> at ${s.weeklyTarget}+ sessions`
-    : (s.daysSinceLast != null && s.daysSinceLast < 30
-        ? `<b>No streak yet</b> — ${s.thisWeek} of ${s.weeklyTarget} this week`
-        : `<b>No streak</b> — nothing logged in ${s.daysSinceLast} days`);
-  const right = s.best > 0 ? `best ${s.best}` : '';
-  const card = h(`<div class="card" style="padding:12px 14px;cursor:pointer">
-      <div class="row" style="justify-content:space-between;align-items:center">
-        <div style="font-size:13px">${line}${s.grace ? ' <span class="muted" style="font-size:11px">· grace week</span>' : ''}</div>
-        <div class="muted" style="font-size:12px">${right}</div>
-      </div>
-      <div class="muted" style="font-size:11px;margin-top:4px">${s.thisWeek} this week${s.inProgress && s.weeks > 0 ? ' · in progress, nothing at risk yet' : ''}</div>
-    </div>`).firstElementChild;
-  card.onclick = () => openSheet('Training streak', b => {
-    b.append(h(`<div class="muted" style="font-size:12.5px;line-height:1.65">Counted in <b>weeks</b>, not days — you train a number of times a week, and a streak you break every week is worse than none.<br><br>
-      Hit <b>${s.weeklyTarget} sessions</b> in a week and it extends. Fall short but still show up, never going more than <b>${s.gapDays} days</b> without training, and it <b>holds</b> — once. Two short weeks running, or a week with nothing at all, and it breaks.<br><br>
-      Anything you log counts; a ten-minute bike is a session. Your best run was <b>${s.best} week${s.best === 1 ? '' : 's'}</b> and a break never takes that away.</div>`));
-    const row = h(`<div class="row" style="gap:8px;margin-top:14px;align-items:center">
-        <span class="muted" style="font-size:12px">Target/week</span>
-        <input data-s="t" inputmode="numeric" value="${s.weeklyTarget}" style="width:64px;${FIN};text-align:center">
-        <span class="muted" style="font-size:12px">Gap days</span>
-        <input data-s="g" inputmode="numeric" value="${s.gapDays}" style="width:64px;${FIN};text-align:center">
-      </div>`);
-    // ⚑ SAME FRAGMENT DEFECT AS ftLevel, found by the same scan. `row` is emptied by the append
-    // below, so reading it inside the Save handler threw and the streak settings could not be
-    // changed at all — the one thing the sheet exists to do. Capture the element first.
-    const rowEl = row.firstElementChild;
-    b.append(row);
-    const btn = h(`<button class="btn" style="margin-top:10px">Save</button>`);
-    btn.firstChild.onclick = () => {
-      FT.setStreakSettings({
-        weeklyTarget: Number(rowEl.querySelector('[data-s=t]').value) || FT.STREAK_DEFAULTS.weeklyTarget,
-        gapDays: Number(rowEl.querySelector('[data-s=g]').value) || FT.STREAK_DEFAULTS.gapDays,
-      });
-      [...document.querySelectorAll('[data-a=x]')].forEach(x => x.onclick && x.onclick());
-      rerender();
-    };
-    b.append(btn);
-  });
-  return card;
-}
+// ⚑ G2 (17 Sep) — THE TRAINING STREAK CARD IS GONE. His ruling (F27): "No fitness streak. Cut it."
+// The card and its settings sheet were on the Fitness hub and the Level screen. FT.trainingStreak()
+// stays in fitness.js as the day-counting rule other screens are checked against; nothing shows it.
 
 // ---- assessment / Level view ----
 let ftLevelWindow = 'live';   // default Live; locked/empty is fine — a motivator to log fresh (Baruch)
@@ -19152,7 +19405,6 @@ function ftLevel(body) {
   // ever rendered this screen in the one state that reaches the bug.
   const overallEl = overallCard.firstElementChild;
   body.append(overallCard);
-  body.append(ftStreakCard());
 
   if (view.overall != null) overallEl.onclick = () => openSheet('How solid is this number?', b2 => {
     const mixOrder = ['A1', "A1'", 'A2', "A2'", 'B', 'C', 'E'];
@@ -23018,9 +23270,55 @@ function toneDataUri(freq, ms, vol) {
   return uri;
 }
 
+// ⚑⚑ G1 (17 Sep) — THE BEEPS STOPPED HIS MUSIC, AND THAT IS THE OTHER SIDE OF THE NOTE ABOVE.
+// Media played through <audio> takes iOS's "playback" audio session, which is exclusive: it pauses
+// whatever else is playing (his music) — the reason he never used the timer. A session that MIXES
+// with other audio is an "ambient" one, and iOS's silent switch mutes those. There is no web setting
+// that is both, so it is his choice, on the timer screen:
+//   · mix  (default) — Web Audio tones, and `navigator.audioSession.type = 'transient'` where Safari
+//                      supports it (plays over music, may briefly lower it). Silent switch mutes it.
+//   · loud           — the <audio> path above, session 'playback'. Plays on silent; pauses music.
+const timerSoundMode = () => ((state.fitness && state.fitness.timerSound) === 'loud' ? 'loud' : 'mix');
+function applyAudioSession() {
+  try { if (navigator.audioSession) navigator.audioSession.type = timerSoundMode() === 'loud' ? 'playback' : 'transient'; } catch (e) {}
+}
+let _actx = null;
+function timerAudioCtx() {
+  const C = (typeof window !== 'undefined') && (window.AudioContext || window.webkitAudioContext);
+  if (!C) return null;
+  try { if (!_actx) _actx = new C(); } catch (e) { return null; }
+  return _actx;
+}
+function beepMix(freq, ms, vol) {
+  const ctx = timerAudioCtx();
+  if (!ctx) return false;
+  try {
+    if (ctx.state === 'suspended' && ctx.resume) ctx.resume();
+    const t = ctx.currentTime, end = t + ms / 1000, fade = Math.min(ms / 4, 8) / 1000;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.value = freq;
+    // the same click-free envelope the WAV path bakes in
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + fade);
+    g.gain.setValueAtTime(vol, end - fade);
+    g.gain.linearRampToValueAtTime(0, end);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(t); o.stop(end + 0.02);
+    return true;
+  } catch (e) { return false; }
+}
+// When the timer screen goes, give the audio back so nothing keeps a session open.
+function timerAudioIdle() {
+  try { if (_actx && _actx.state === 'running' && _actx.suspend) _actx.suspend(); } catch (e) {}
+  try { if (navigator.audioSession) navigator.audioSession.type = 'auto'; } catch (e) {}
+}
+
 // A small pool, because a cue can land while the previous one is still sounding.
 let _pool = null, _poolAt = 0;
 function beep(freq = 880, ms = 160, vol = 0.25) {
+  applyAudioSession();
+  if (timerSoundMode() === 'mix' && beepMix(freq, ms, vol)) return;
   try {
     if (!_pool) _pool = Array.from({ length: 4 }, () => new Audio());
     const a = _pool[_poolAt++ % _pool.length];
@@ -23034,6 +23332,15 @@ function beep(freq = 880, ms = 160, vol = 0.25) {
 // Called from the play tap. iOS will not let audio start without a gesture, so the pool is
 // primed with silence there — otherwise the first count-in is always mute.
 function unlockAudio() {
+  applyAudioSession();
+  if (timerSoundMode() === 'mix') {
+    const ctx = timerAudioCtx();
+    if (ctx) {
+      try { if (ctx.resume) ctx.resume(); beepMix(440, 12, 0.0001); } catch (e) {}
+      try { if (window.speechSynthesis) window.speechSynthesis.getVoices(); } catch (e) {}
+      return;
+    }
+  }
   try {
     if (!_pool) _pool = Array.from({ length: 4 }, () => new Audio());
     _pool.forEach(a => { a.src = toneDataUri(440, 12, 0.0001); const p = a.play(); if (p && p.catch) p.catch(() => {}); });
@@ -23103,6 +23410,11 @@ function timerRun(cfg, w) {
         </div>
       </div>
       <div class="muted" id="tm-sub" style="margin-top:2px"></div>
+      <div class="pillrow tm-sound" style="justify-content:center;flex-wrap:nowrap;margin-top:10px">
+        <button class="pill" data-snd="mix" style="padding:5px 10px;font-size:12px">With my music</button>
+        <button class="pill" data-snd="loud" style="padding:5px 10px;font-size:12px">Loud on silent</button>
+      </div>
+      <div class="muted" id="tm-sndnote" style="font-size:11.5px;margin-top:4px"></div>
       <div id="tm-reps" style="display:none;margin-top:8px;font-weight:700;letter-spacing:.04em;color:${COLOR}"></div>
       <button class="btn" id="tm-tap" style="margin-top:16px;background:${COLOR}">Round done</button>
       <div class="row" style="gap:8px;margin-top:8px">
@@ -23113,6 +23425,21 @@ function timerRun(cfg, w) {
       <div class="muted" id="tm-splits" style="margin-top:10px;font-size:12px;line-height:1.7"></div>
     </div>`).firstElementChild;
   const el = document.createElement('div'); el.append(wrap);
+  // ⚑ G1 — his choice, remembered; the note says plainly what each one costs.
+  const syncSound = () => {
+    const m = timerSoundMode();
+    wrap.querySelectorAll('[data-snd]').forEach(b => b.classList.toggle('on', b.dataset.snd === m));
+    wrap.querySelector('#tm-sndnote').textContent = m === 'mix'
+      ? 'Beeps play over your music. The silent switch mutes them.'
+      : 'Beeps play even on silent, but pause your music.';
+  };
+  wrap.querySelectorAll('[data-snd]').forEach(b => b.onclick = () => {
+    F.timerSound = b.dataset.snd; save();
+    syncSound();
+    applyAudioSession();
+    beep(880, 120);   // a sample, and on iOS the tap is the gesture that lets it sound
+  });
+  syncSound();
   if (w) el.append(h(`<div class="muted" style="text-align:center;margin-top:10px;font-size:13px;white-space:pre-line">${esc(w.name)}${w.movements ? '\n' + esc(w.movements) : ''}</div>`));
   main().append(el);
 
@@ -23131,7 +23458,7 @@ function timerRun(cfg, w) {
     // no longer resolving to this node — both true after navigation, neither true in the shim.
     const gone = !clock || clock.isConnected === false
       || (document.getElementById && document.getElementById('tm-clock') !== clock);
-    if (gone) { clearInterval(iv); document.removeEventListener('visibilitychange', wake); return; }
+    if (gone) { clearInterval(iv); document.removeEventListener('visibilitychange', wake); timerAudioIdle(); return; }
     const q = s => wrap.querySelector(s);
     // Idle: the dial is up, nothing is running, and the piece has not begun.
     if (!session) {
@@ -23259,6 +23586,7 @@ function timerRun(cfg, w) {
     clearInterval(iv);
     document.removeEventListener('visibilitychange', wake);
     beep(440, 700);
+    setTimeout(timerAudioIdle, 900);   // after the end tone has sounded
     F.timerSession = null; save();
     const r = TM.deathByResult(cfg, session);
     if (!w) { view(false); toast(`${r.rounds} rounds · ${r.reps} reps`); return; }
@@ -23276,6 +23604,7 @@ function timerRun(cfg, w) {
   wrap.querySelector('#tm-done').onclick = () => {
     clearInterval(iv);
     document.removeEventListener('visibilitychange', wake);
+    timerAudioIdle();
     const now = Date.now();
     // Backing out before ever tapping play must not open a log form for a workout that did
     // not happen, and must not write a zero result.
@@ -23359,12 +23688,47 @@ function youProfile() {
   };
   wrap.append(rst);
 
+  // ⚑ H1 (17 Sep) — AUTOMATIC COPIES ON THIS DEVICE, listed here with a Restore each.
+  const lastExp = (() => { try { return Number(localStorage.getItem('strive-last-export')) || 0; } catch (e) { return 0; } })();
+  const expDays = lastExp ? Math.floor((Date.now() - lastExp) / 86400000) : null;
   const exp = h(`<div class="card"><h3>Backup</h3>
+    <div class="muted" style="font-size:12px;margin-bottom:8px;line-height:1.55">${BK.supported()
+      ? `Strive keeps copies on this device by itself: one a day (the last ${BK.KEEP_DAYS} days, then one a week for ${BK.KEEP_WEEKS} weeks), and one before a sync, restore or import replaces your data. They stay on this device — use Export all data now and then for a copy somewhere else.`
+      : 'Automatic copies aren\'t available in this browser — use Export all data to keep a copy.'}</div>
+    <div class="bk-list" id="s-bk-list"></div>
+    <div class="muted" id="s-bk-last" style="font-size:12px;margin:8px 2px 0">Last exported file on this device: ${lastExp ? esc(new Date(lastExp).toLocaleDateString()) + (expDays === 0 ? ' (today)' : expDays === 1 ? ' (yesterday)' : ' (' + expDays + ' days ago)') : 'never'}</div>
     <button class="btn secondary" id="s-export">Export all data</button>
     <button class="btn secondary" id="s-import">Import backup / old app export</button>
     <input type="file" id="s-file" accept=".json" style="display:none">
   </div>`);
-  exp.querySelector('#s-export').onclick = exportAll;
+  const bkList = exp.querySelector('#s-bk-list');
+  const drawBackups = rows => {
+    bkList.innerHTML = '';
+    if (!BK.supported()) return;
+    if (!rows.length) { bkList.append(h(`<div class="muted" style="font-size:12px">No copies yet — the first is made today.</div>`)); return; }
+    const today = todayKey();
+    rows.forEach(r => {
+      const d = new Date(r.ts);
+      const when = (r.day === today ? 'Today' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })) + ', ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      const row = h(`<div class="bk-row">
+        <div class="bk-txt"><div class="bk-when">${esc(when)}</div>
+          <div class="bk-sub">${esc(BK.KIND_LABEL[r.kind] || r.kind)} · ${Number(r.verses || 0).toLocaleString()} verses · ${(r.bytes / 1048576).toFixed(1)} MB</div></div>
+        <button class="pill" data-a="restore">Restore</button>
+      </div>`).firstElementChild;
+      row.querySelector('[data-a=restore]').onclick = async () => {
+        if (!confirm(`Replace everything on this device with the copy from ${when}? What is here now is kept as a copy first. If sync is on, your other devices get this copy at the next sync.`)) return;
+        try {
+          await BK.restore(r.id);
+          SC.ensureKeys();
+          toast('Restored the copy from ' + when);
+          rerender();
+        } catch (err) { toast('Could not restore that copy'); }
+      };
+      bkList.append(row);
+    });
+  };
+  BK.list().then(drawBackups);
+  exp.querySelector('#s-export').onclick = () => { exportAll(); const l = exp.querySelector('#s-bk-last'); if (l) l.textContent = 'Last exported file on this device: ' + new Date().toLocaleDateString() + ' (today)'; };
   exp.querySelector('#s-import').onclick = () => document.getElementById('s-file').click();
   exp.querySelector('#s-file').onchange = (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -23376,6 +23740,7 @@ function youProfile() {
             !confirm('Restore this backup? It REPLACES all current data with the backup' +
                      (obj.exported ? ' from ' + new Date(obj.exported).toLocaleDateString() : '') +
                      '. A safety copy of the current data is kept on this device.')) return;
+        BK.snapshot('before-import');   // ⚑ H1 — the copy is taken before the import replaces anything
         const kind = importData(obj);
         SC.ensureKeys();
         toast(kind === 'old-app' ? 'Old app data migrated in' : 'Backup restored');
@@ -24223,6 +24588,10 @@ document.addEventListener('DOMContentLoaded', () => {
     rerender();
   });
   SY.init();
+  // ⚑ H1 — the day's automatic copy: now, when he comes back to the app, and hourly while it stays open.
+  BK.maybeDaily();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) BK.maybeDaily(); });
+  setInterval(() => BK.maybeDaily(), 60 * 60 * 1000);
   
 });
 
