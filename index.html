@@ -401,6 +401,20 @@ header.topbar .avatar {
 .pw-revealed { color: var(--text); }
 
 .statgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+/* D (17 Sep) — scorecards: Current · Fastest · Slowest on one row; chapter/unit rows as a tight table */
+.statgrid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.statgrid.three .stat { padding: 10px 8px; min-width: 0; }
+.statgrid.three .stat .v { font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sc-urow { display: grid; grid-template-columns: minmax(0, 1.2fr) repeat(3, minmax(0, 1fr)) 12px; gap: 6px; align-items: center;
+  padding: 9px 2px; border-top: 1px solid var(--line); font-size: 13.5px; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; }
+.sc-urow > span { overflow: hidden; text-overflow: ellipsis; }
+.sc-urow .sc-ulabel { font-weight: 600; }
+.sc-urow.sc-uhead { cursor: default; border-top: none; padding: 0 2px 4px; font-family: var(--serif-display); font-size: 8.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-2); font-weight: 700; }
+.sc-trow { display: flex; align-items: baseline; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); white-space: nowrap; }
+.sc-trow:first-child { border-top: none; }
+.sc-trow .sc-tsecs { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 58px; }
+.sc-trow .sc-tmeta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; color: var(--text-2); }
+.sc-trow .sc-tdelta { font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .stat { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; }
 .stat .v { font-family: var(--serif-display); font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .stat .l { font-family: var(--serif-display); font-size: 8.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--text-2); font-weight: 700; margin-top: 3px; }
@@ -1379,6 +1393,10 @@ function ensureShapes() {
       : (prc && typeof prc === 'object' && prc.mode) ? prc : null;
     if (legacy) SL.scopeLaunch.train = { mode: legacy.mode, scope: legacy.scope || 'cycle' };
   }
+  // ⚑ B7 (17 Sep) — THE REVIEW TIMER IS RETIRED. A remembered one-tap mode of 'timer' would now launch
+  // nothing of its own, so it becomes flashcards — the review tool that replaced it — keeping his
+  // cycle/whole choice. Idempotent: once rewritten there is no 'timer' left to find.
+  if (SL.scopeLaunch.train.mode === 'timer') SL.scopeLaunch.train.mode = 'flash';
 }
 
 // ---- Export / Import ----
@@ -1657,7 +1675,8 @@ function setChapter(book, ci, val) {
 // ⚑ A RUN ACCRUES ONLY WHAT HE FILED. His standing ruling (Aug 25): "it runs always but not always
 // counting towards review times — I have to submit it for that." A run is the sum of submitted
 // times, so there is never a second, larger total sitting beside the one he vouched for.
-const RUN_HISTORY_MAX = 12;
+// ⚑ D (17 Sep) — NO CAP. This kept the last 12 passes; he wants every logged time on his graphs, and a
+// pass is a few numbers, so the history is kept whole.
 function runsStore() {
   if (!S().runs || typeof S().runs !== 'object') S().runs = {};
   return S().runs;
@@ -1715,7 +1734,6 @@ function settleRun(bookName, r) {
   if (!run || !runComplete(bookName, run)) return false;
   run.closedAt = Math.max(completionTs(bookName, runSince(run)), runSince(run));
   r.past.push(run);
-  if (r.past.length > RUN_HISTORY_MAX) r.past = r.past.slice(-RUN_HISTORY_MAX);
   r.open = null;
   r.since = run.closedAt + 1;   // the verse that finished this pass must not also count toward the next
   return true;
@@ -1792,7 +1810,9 @@ function runUnaccrue(bookName, e) {
 function runProgress(bookName, run) {
   const book = allBooks.find(b => b.name === bookName);
   const prog = S().progress[bookName] || {};
-  const since = run ? run.startedAt : Date.now();
+  // ⚑ D5 (17 Sep) — the pass's ONE watermark (A12), not the first filing's timestamp: verses covered
+  // before the first time was logged still count toward this pass, exactly as they do for completion.
+  const since = run ? runSince(run) : Date.now();
   let chTotal = 0, chDone = 0, vTotal = 0, vDone = 0;
   if (!book) return { chDone, chTotal, vDone, vTotal };
   for (let ci = 0; ci < book.verses.length; ci++) {
@@ -1961,6 +1981,64 @@ function repairRuns() {
   return out;
 }
 registerRepair('A6-runs', repairRuns);
+
+// ==== D (17 Sep) — SCORECARDS: every logged time for a book, a chapter, or a unit ====
+// His rulings: "pass" stays the word; Current = the most recently FINISHED time; Fastest and Slowest
+// across all of them; the graph shows EVERY logged time, not just those three.
+//
+// A BOOK TIME is a finished pass — the sum of what he logged across its sittings — plus any
+// whole-book entry that belongs to no pass (review times older than passes are left untied by A6).
+// An entry inside a pass is already in that pass's total, so it is never counted twice.
+//
+// A CHAPTER (or UNIT — a range such as Hebrews 1–7) TIME is one logged entry for that scope.
+// ⚑ D6 — ONE EXCEPTION, NARROW ON PURPOSE. Before B8 (build 20260916-1506) a chapter stopped halfway
+// could be logged in two pieces. Entries for the same scope, in the same pass, both filed before B8
+// shipped, are read as ONE time (added together, "2 sittings"). After B8 a chapter logs once when it
+// is finished, so two entries for it in one pass are two real reviews and stay two.
+const B8_SHIPPED = Date.UTC(2026, 8, 16, 20, 6);
+function bookTimes(bookName) {
+  const r = bookRuns(bookName);
+  const runs = r.past.concat(r.open ? [r.open] : []);
+  const ids = new Set(runs.map(x => x.startedAt));
+  const out = r.past.filter(p => p.closedAt != null && p.sittings > 0)
+    .map(p => ({ ts: p.closedAt, from: p.startedAt, secs: p.secs || 0, sittings: p.sittings || 0, pass: true }));
+  for (const e of (S().reviewTimes[bookName] || [])) {
+    if (!e || e.scope) continue;
+    if (e.run != null && ids.has(e.run)) continue;
+    if (e.run == null && runs.some(x => e.ts >= x.startedAt && (x.closedAt == null || e.ts <= x.closedAt))) continue;
+    out.push({ ts: e.ts, from: e.ts, secs: e.secs || 0, sittings: 1, pass: false });
+  }
+  return out.sort((a, b) => a.ts - b.ts);
+}
+const unitKey = sc => sc.kind === 'chapter' ? 'ch:' + sc.ch : 'r:' + sc.from + '-' + sc.to;
+function unitLabel(bookName, sc) {
+  return sc.kind === 'chapter' ? bookName + ' ' + sc.ch : bookName + ' ' + sc.from + '–' + sc.to;
+}
+// Every chapter and unit with at least one time, in book order (a range sits after its first chapter).
+function unitTimes(bookName) {
+  const groups = new Map();
+  const list = [...(S().reviewTimes[bookName] || [])].filter(e => e && e.scope).sort((a, b) => a.ts - b.ts);
+  for (const e of list) {
+    const key = unitKey(e.scope);
+    if (!groups.has(key)) groups.set(key, { key, scope: { ...e.scope }, label: unitLabel(bookName, e.scope), order: e.scope.kind === 'chapter' ? e.scope.ch : e.scope.from + 0.5, times: [] });
+    const g = groups.get(key);
+    const legacy = e.ts < B8_SHIPPED;
+    const piece = legacy && e.run != null ? g.times.find(t => t.legacy && t.run === e.run) : null;
+    if (piece) { piece.secs += e.secs || 0; piece.sittings += 1; piece.ts = Math.max(piece.ts, e.ts); }
+    else g.times.push({ ts: e.ts, from: e.ts, secs: e.secs || 0, sittings: 1, run: e.run, legacy });
+  }
+  return [...groups.values()].map(g => ({ ...g, times: g.times.sort((a, b) => a.ts - b.ts) })).sort((a, b) => a.order - b.order);
+}
+function unitTimesFor(bookName, key) { return unitTimes(bookName).find(g => g.key === key) || null; }
+// Current = the latest finished time; Fastest / Slowest over all of them. Null when there are none.
+function scorecard(times) {
+  if (!times || !times.length) return null;
+  let fastest = times[0], slowest = times[0];
+  for (const t of times) { if (t.secs < fastest.secs) fastest = t; if (t.secs > slowest.secs) slowest = t; }
+  const current = times[times.length - 1];
+  const previous = times.length > 1 ? times[times.length - 2] : null;
+  return { current, previous, fastest, slowest, count: times.length };
+}
 
 // Detect which book a pathway-step label refers to.
 // "Ephesians" → whole book; "Hebrews 1-7" → range; "Hebrews 3" → single chapter.
@@ -2166,7 +2244,7 @@ const ABBR = { Genesis: 'Gen', Exodus: 'Ex', Leviticus: 'Lev', Numbers: 'Num', D
 function abbr(name) { return ABBR[name] || name.slice(0, 3); }
 
 
-const SC = {BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookMemorizedKeys,bookRuns,bookStats,bookXP,booksWithRuns,chapterStats,corpusStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,lastRun,lifetimeVersesMarked,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,normScope,openRun,parseDuration,parseScopeInput,passSince,removeCurrentItem,removeReviewTime,repairRuns,resetBook,resetCorpus,restoreBookProgress,reviewHistory,reviewIntervalDays,reviewSecsBetween,runAccrue,runComplete,runProgress,runSince,scopeLabel,setChapter,setCurrentBook,setItemDue,setReviewInterval,startFreshPass,toggleVerse,totalVerses,verseDone,versesLeft,versesMarked,versesMarkedToday};
+const SC = {B8_SHIPPED,BIBLE,XP_VERSE,abbr,addCurrentItem,allBooks,bookMemorizedKeys,bookRuns,bookStats,bookTimes,bookXP,booksWithRuns,chapterStats,corpusStats,corpusXP,currentBook,currentItems,ensureKeys,fmtSecs,globalStats,isStale,lastReviewTs,lastRun,lifetimeVersesMarked,logReviewTime,markBookMemorized,matchBook,memorizedBooks,nextChapter,normScope,openRun,parseDuration,parseScopeInput,passSince,removeCurrentItem,removeReviewTime,repairRuns,resetBook,resetCorpus,restoreBookProgress,reviewHistory,reviewIntervalDays,reviewSecsBetween,runAccrue,runComplete,runProgress,runSince,scopeLabel,scorecard,setChapter,setCurrentBook,setItemDue,setReviewInterval,startFreshPass,toggleVerse,totalVerses,unitLabel,unitTimes,unitTimesFor,verseDone,versesLeft,versesMarked,versesMarkedToday};
 // Strive — Modules (Phase 11 foundation, D-AB). A "Module" = one named chunk of ONE book,
 // stored at the VERSE level so coverage carries even if the book is later re-sliced.
 // Additive + sync-safe (whole-state blob).
@@ -9877,7 +9955,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260916-2056'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260916-2056';
+const BUILD_ID = '20260916-2127'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260916-2127';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -10467,6 +10545,7 @@ function dashboard() {
         <div class="stat"><div class="v">${g.chaptersComplete}</div><div class="l">Chapters complete</div></div>
       </div>
       ${currentBookSection()}
+      ${openPassesSection()}
       <div class="row" id="d-sc-review" style="cursor:pointer;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
         <div class="grow muted" style="font-size:12px">⏱ Scripture Review — times, trends &amp; logs</div><span class="chev">›</span>
       </div>
@@ -10601,6 +10680,10 @@ function dashboard() {
   });
   main().querySelector('#d-pathways').onclick = () => render(pathwaysHome);
   main().querySelector('#d-plans').onclick = () => render(plansScreen);
+  main().querySelectorAll('.d-pass-row').forEach(r => r.onclick = () => {
+    const b = allBooks.find(x => x.name === r.dataset.book);
+    if (b) render(() => bookScreen(b));
+  });
   const dcur = main().querySelector('#d-current');   // absent when no projects (SM2)
   if (dcur) {
     const items = SC.currentItems();
@@ -10655,7 +10738,7 @@ function statsScreen() {
   wrap.append(modeRow);
 
   if (!ST.allSessions().length) {
-    wrap.append(h(`<div class="empty">No sessions recorded yet.<br>Finish a flashcard, typing, fade, scramble or timed review<br>and it will appear here with its per-question results.</div>`));
+    wrap.append(h(`<div class="empty">No sessions recorded yet.<br>Finish a flashcard, typing, fade or scramble session<br>and it will appear here with its per-question results.</div>`));
     wrap.append(statsReviewTimesEntry());
     main().append(wrap);
     return;
@@ -12572,7 +12655,7 @@ function bookScreen(b) {
   // (Review kept as prominent as Practice; its modes expand in upcoming phases)
   const actions = h(`<div class="row" style="margin-top:12px">
     <button class="btn" data-a="practice" style="margin-top:0;flex:1">Practice — ESV</button>
-    <button class="btn" data-a="review" style="margin-top:0;flex:1">Review ⏱</button>
+    <button class="btn" data-a="review" style="margin-top:0;flex:1">Review</button>
   </div>`).firstElementChild;
   actions.querySelector('[data-a=practice]').onclick = () => render(() => practiceScope(b));
   actions.querySelector('[data-a=review]').onclick = () => render(() => practiceScope(b, 'review'));
@@ -12625,6 +12708,11 @@ function bookScreen(b) {
   pills.querySelector('[data-s=memorized]').onclick = () => memMemorizedSheet(b);
   wrap.append(pills);
 
+  // ⚑ D (17 Sep) — THE BOOK'S OWN SCORECARD, the same card Review times shows.
+  wrap.append(sectionTitle('Review times'));
+  const scCard = scorecardCard(b.name, { showTitle: false });
+  wrap.append(scCard || h(`<div class="muted" style="font-size:12.5px;margin:0 4px">No review times yet — finish a chapter in flashcards and log it, or add one on Review times.</div>`).firstElementChild);
+
   main().append(wrap);
 }
 let bookUndoSnap = null;   // {book, snap} — survives within the session only
@@ -12675,7 +12763,7 @@ function memIntervalSheet(b) {
         ${INTERVALS.map(([d, l]) => `<button class="pill ${days === d ? 'on' : ''}" data-d="${d}">${l}</button>`).join('')}
       </div>
       <div class="muted" style="font-size:12px">${days
-        ? `Must be reviewed every ${days} days or this book's XP is voided until reviewed. ${last ? 'Last review: ' + new Date(last).toLocaleDateString() : 'No timed review logged yet.'}`
+        ? `Must be reviewed every ${days} days or this book's XP is voided until reviewed. ${last ? 'Last review: ' + new Date(last).toLocaleDateString() : 'No review time logged yet.'}`
         : 'No requirement — this book never goes stale.'}</div>
     </div>`).firstElementChild;
     card.querySelectorAll('[data-d]').forEach(btn => btn.onclick = () => {
@@ -13524,6 +13612,10 @@ async function fetchScopeDoc(b, keys) {
 // as it goes, and still marks MEMORIZED at the thresholds (a rank-5, or a typing pass he
 // confirms). t = { kind, book, mod?, a?, keys, title }.
 async function launchScopeMode(t, mode, scope, intent, btn, order, { noRelated = false } = {}) {
+  // ⚑ B7 (17 Sep) — THE REVIEW TIMER IS RETIRED ("we don't need the review timer"). Flashcards are the
+  // review tool now and carry their own clock. A stale 'timer' from an old step or preference is read
+  // as flashcards rather than launching nothing (ensureShapes also rewrites the stored preference).
+  if (mode === 'timer') mode = 'flash';
   // Remember this pick as the one-tap default. ⚑ Stored under TRAIN now; the old per-intent
   // preferences are simply not read, which is the cheapest possible migration for a preference.
   {
@@ -13532,13 +13624,6 @@ async function launchScopeMode(t, mode, scope, intent, btn, order, { noRelated =
     if (scope) pref.scope = scope;
     if (order) pref.order = order;
     save();
-  }
-  // The review TIMER is scripture-only — reviewTimer files into scripture.reviewTimes, which is keyed
-  // by book name and has no creed equivalent. Rather than silently doing nothing, say so.
-  if (mode === 'timer') {
-    if (t.creed) { toast('The review timer is for Scripture — use Cards or Typing here'); return; }
-    render(() => reviewTimer(t.book, (t.kind === 'module' && t.mod) ? MOD.moduleReviewScope(t.mod) : null, t.title));
-    return;
   }
   // ⚑⚑ A12 (16 Sep) — ONE WATERMARK. With no schedule `t.a.cycleStart` was 0, so every verse EVER
   // stamped counted as covered; Ephesians (no schedule since the reset) came back "nothing left",
@@ -13697,7 +13782,7 @@ function scopeModeControls(t, intent) {
   const savedOrder = scopePref(intent).order;
   let order = RV.FLASH_ORDERS.includes(savedOrder) ? savedOrder : 'inorder';
   const wholeLbl = t.kind === 'module' ? 'module' : t.kind === 'chapter' ? 'chapter' : t.kind === 'verse' ? 'verse' : 'book';
-  const modes = [['flash', 'Cards 1–5'], ['typer', 'Typing'], ['fade', 'Fade'], ['timer', 'Timer']];
+  const modes = [['flash', 'Cards 1–5'], ['typer', 'Typing'], ['fade', 'Fade']];   // B7 — no Timer
   const wrap = document.createElement('div');
   {
     const sc = h(`<div class="pillrow" style="margin-bottom:6px">
@@ -13839,7 +13924,7 @@ function stepScopeTarget(s) {
   return sc ? scopeLaunchTarget(sc, s.ref.key, s.ref.intent, s.label) : null;
 }
 // One-tap launch: mode labels + the remembered preference per intent (D-AG one-tap scoped launch).
-const MODE_LABEL = { flash: 'Cards 1–5', typer: 'Typing', timer: 'Timer', fade: 'Fade', binary: 'Cards ✓ (retired)' };
+const MODE_LABEL = { flash: 'Cards 1–5', typer: 'Typing', fade: 'Fade', binary: 'Cards ✓ (retired)' };
 // ⚑⚑ ONE REMEMBERED MODE, WHATEVER INTENT THE CALLER NAMES. This used to key off the intent, so a
 // pathway step carrying the legacy `review` or `practice` looked up `scopeLaunch.review` — a slot
 // `ensureShapes` folds into `.train` and then leaves empty. The mode sheet therefore opened on EVERY
@@ -14432,20 +14517,15 @@ function moduleScreen(b, mod) {
     save();
   });
   wrap.append(ordRow);
+  // ⚑ B7 — Recite ⏱ is gone with the review timer; the three modes sit on one row.
   const modes = h(`<div>
     <div class="row" style="gap:8px">
       <button class="btn" data-m="flash" style="margin-top:0;flex:1">Flashcards</button>
       <button class="btn secondary" data-m="typer" style="margin-top:0;flex:1">First-Letter</button>
-    </div>
-    <div class="row" style="gap:8px;margin-top:8px">
       <button class="btn secondary" data-m="fade" style="margin-top:0;flex:1">Fade</button>
-      <button class="btn secondary" data-m="recite" style="margin-top:0;flex:1">Recite ⏱</button>
     </div>
   </div>`).firstElementChild;
-  modes.querySelectorAll('[data-m]').forEach(btn => btn.onclick = () => {
-    if (btn.dataset.m === 'recite') render(() => reviewTimer(b, MOD.moduleReviewScope(mod), title));   // speak it aloud, log the time
-    else moduleLaunch(b, mod, btn.dataset.m, btn, modOrder);
-  });
+  modes.querySelectorAll('[data-m]').forEach(btn => btn.onclick = () => moduleLaunch(b, mod, btn.dataset.m, btn, modOrder));
   wrap.append(modes);
 
   const edit = h(`<button class="btn secondary" style="margin-top:16px">Edit module</button>`);
@@ -14747,114 +14827,7 @@ function chapterScreen(b, ci) {
   main().append(wrap);
 }
 
-function reviewTimer(b, presetScope = null, scopeName = null) {
-  setHeader('Review · ' + b.name, { back: true });
-  const wrap = h(`
-    <div class="card" style="text-align:center;padding:30px 14px">
-      <div class="big" id="rt-clock" style="font-size:52px">0:00</div>
-      <div class="muted" style="margin-top:4px">reviewing ${esc(b.name)}${(scopeName || presetScope) ? ' · ' + esc(scopeName || SC.scopeLabel(presetScope)) : ''}</div>
-      ${presetScope ? '' : `<input id="rt-scope" placeholder="chapters — e.g. 5 or 1–7 · empty = whole book" style="width:100%;margin-top:14px;padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">`}
-      <button class="btn" id="rt-done" style="margin-top:22px">Finish &amp; log</button>
-      <button class="btn secondary" id="rt-peek" style="margin-top:10px">📖 View text — keeps timing</button>
-      <div class="row" style="margin-top:10px;gap:8px">
-        <input id="rt-manual" placeholder="or enter time — mm:ss" inputmode="numeric" style="flex:1;padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px;text-align:center">
-        <button class="pill" id="rt-log" style="padding:11px 14px">Log</button>
-      </div>
-      <button class="btn secondary" id="rt-cancel">Cancel</button>
-    </div>`);
-  const el = document.createElement('div'); el.append(wrap);
-  const sw = startStopwatch(() => el.querySelector('#rt-clock'));
-  const logIt = (theSecs) => {
-    let scope = presetScope;
-    if (!scope) {
-      const sc = SC.parseScopeInput(el.querySelector('#rt-scope') ? el.querySelector('#rt-scope').value : '', b);
-      if (!sc.ok) { toast('Scope must be a chapter (5) or range (1–7) within ' + b.name); return; }
-      scope = sc.scope;
-    }
-    sw.stop();
-    SC.logReviewTime(b.name, theSecs, { scope, ts: Date.now() - theSecs * 1000 });   // sitting start
-    // a timed recitation is a sitting too — it belongs in Stats beside the card modes (D-AB).
-    // No score: the timer measures duration, not accuracy (D-AE keeps it out of the ring for the
-    // same reason), so it contributes to counts and time but never to the average score.
-    ST.logSession({
-      id: ST.sessionId('timer', 'bible:' + b.name, Date.now() - theSecs * 1000),
-      mode: 'timer', intent: 'review', title: scopeName || b.name, docId: 'bible:' + b.name,
-      ts: Date.now() - theSecs * 1000, secs: theSecs, total: 1, done: 1, score: null,
-      items: [{ n: 1, label: scopeName || (scope ? SC.scopeLabel(scope) : b.name), val: SC.fmtSecs(theSecs), tag: 'time' }]
-    });
-    toast('Review logged — ' + SC.fmtSecs(theSecs) + (scope ? ' · ' + SC.scopeLabel(scope) : ''));
-    goBack();
-  };
-  el.querySelector('#rt-done').onclick = () => logIt(sw.elapsed());
-  el.querySelector('#rt-log').onclick = () => {
-    const m = SC.parseDuration(el.querySelector('#rt-manual').value);
-    if (m == null) { toast('Enter a time like 12:34 or 1:05:30'); return; }
-    logIt(m);
-  };
-  // Phase 7.2 — peek at the text as a memory prompt without stopping the clock.
-  // Opens as an overlay above this screen (not a navigation), so the timer node
-  // stays mounted and the stopwatch keeps painting underneath.
-  el.querySelector('#rt-peek').onclick = () => {
-    let startCh = 1;
-    if (presetScope) startCh = presetScope.kind === 'chapter' ? presetScope.ch : presetScope.from;
-    else {
-      const inp = el.querySelector('#rt-scope');
-      const sc = inp ? SC.parseScopeInput(inp.value, b) : { ok: true, scope: null };
-      if (sc.ok && sc.scope) startCh = sc.scope.kind === 'chapter' ? sc.scope.ch : sc.scope.from;
-    }
-    peekTextOverlay(b, Math.min(Math.max(1, startCh), b.chapters || 1));
-  };
-  el.querySelector('#rt-cancel').onclick = () => { sw.stop(); goBack(); };
-  main().append(el);
-}
 
-// Phase 7.2 — full-screen text overlay for quick reference during a running review.
-// Appended to <body>, so it floats above whatever timer screen invoked it without
-// disturbing it. Chapter prev/next lets Baruch flip to whatever he needs as a prompt.
-function peekTextOverlay(b, startCh) {
-  const ov = h(`
-    <div style="position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column">
-      <div style="display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--card)">
-        <button class="pill" id="pk-prev" style="padding:9px 13px">‹</button>
-        <div class="grow" style="text-align:center;font-family:var(--serif-display);font-size:13px;letter-spacing:.06em" id="pk-title">${esc(b.name)}</div>
-        <button class="pill" id="pk-next" style="padding:9px 13px">›</button>
-        <button class="pill" id="pk-close" style="padding:9px 13px">Close</button>
-      </div>
-      <div id="pk-body" style="flex:1;overflow:auto;padding:18px 18px 44px"></div>
-    </div>`).firstElementChild;
-  document.body.append(ov);
-  const body = ov.querySelector('#pk-body');
-  const title = ov.querySelector('#pk-title');
-  const prev = ov.querySelector('#pk-prev');
-  const next = ov.querySelector('#pk-next');
-  const maxCh = b.chapters || 1;
-  let cur = startCh;
-  const load = async () => {
-    title.textContent = b.name + ' ' + cur;
-    prev.style.visibility = cur > 1 ? '' : 'hidden';
-    next.style.visibility = cur < maxCh ? '' : 'hidden';
-    body.innerHTML = '<div class="muted" style="text-align:center;margin-top:36px">Loading…</div>';
-    try {
-      const entry = await esvFetchChapter(b.name, cur);
-      const vs = entry.verses;
-      body.innerHTML = '';
-      body.append(h(`<div style="font-family:var(--serif-body);font-size:19px;line-height:1.7;color:var(--text)">${
-        Object.keys(vs).map(Number).sort((x, y) => x - y)
-          .map(v => `<sup style="color:var(--gold);font-size:10px;font-family:var(--serif-body)">${v}</sup> ${esc(vs[v])}`).join(' ')
-      }</div>`));
-    } catch (e) {
-      body.innerHTML = '';
-      const msg = e.message === 'no-key' ? 'Add your ESV key in Settings to view text here.'
-        : e.message === 'network' ? 'Offline — this chapter isn’t cached yet.'
-        : 'Could not load the text.';
-      body.append(h(`<div class="muted" style="text-align:center;margin-top:36px">${msg}</div>`));
-    }
-  };
-  prev.onclick = () => { if (cur > 1) { cur--; load(); } };
-  next.onclick = () => { if (cur < maxCh) { cur++; load(); } };
-  ov.querySelector('#pk-close').onclick = () => ov.remove();
-  load();
-}
 
 // B7 fix — `fmt` formats the corner labels, `hiLabel`/`loLabel` name them.
 // Defaults keep the review-time behaviour; the weight chart passes its own so
@@ -14920,50 +14893,193 @@ function reviewArea() {
   renderTimes(wrap);
 }
 
-// A run card per book: the pass in progress, then the last one finished, with the delta between
-// the last two so he has something to beat.
+// ⛑⛑ D (17 Sep) — A SCORECARD PER BOOK, AND PER CHAPTER AND UNIT INSIDE IT. His rulings: "pass" stays;
+// Current = the most recently finished time; Fastest and Slowest beside it; tapping opens a graph of
+// EVERY logged time. The same card sits on Review times and on the book's own screen.
 // ⚑ NO PROJECTION, NO PACE, NO ESTIMATE. He asked to see what a pass cost him and what the previous
 // one cost him. A predicted finish time would be this project inventing a number again.
-function runsSection(container) {
-  const books = SC.booksWithRuns();
-  if (!books.length) return;
-  const openFirst = books.slice().sort((a, b) => {
-    const oa = SC.openRun(a) ? 0 : 1, ob = SC.openRun(b) ? 0 : 1;
-    if (oa !== ob) return oa - ob;
-    const la = SC.lastRun(a), lb = SC.lastRun(b);
-    return ((lb && lb.closedAt) || 0) - ((la && la.closedAt) || 0);
-  });
-  container.append(sectionTitle('Passes through a book'));
-  const dayOf = ms => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  openFirst.forEach(name => {
-    const open = SC.openRun(name), last = SC.lastRun(name);
-    const past = SC.bookRuns(name).past;
-    const prev = past.length > 1 ? past[past.length - 2] : null;
-    const wrap = h(`<div class="card"><div class="title" style="font-size:15px;font-weight:600">${esc(name)}</div></div>`).firstElementChild;
-    if (open) {
-      const pr = SC.runProgress(name, open);
-      wrap.append(h(`<div class="statgrid" style="margin-top:10px">
+const scDay = ms => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+const scSpan = t => (t.from && scDay(t.from) !== scDay(t.ts) ? scDay(t.from) + '–' + scDay(t.ts) : scDay(t.ts));
+const scShort = g => g.scope.kind === 'chapter' ? 'Ch ' + g.scope.ch : 'Chs ' + g.scope.from + '–' + g.scope.to;
+function scorecardStats(card) {
+  return `<div class="statgrid three sc-stats">
+    <div class="stat"><div class="v">${SC.fmtSecs(card.current.secs)}</div><div class="l">Current</div></div>
+    <div class="stat"><div class="v">${SC.fmtSecs(card.fastest.secs)}</div><div class="l">Fastest</div></div>
+    <div class="stat"><div class="v">${SC.fmtSecs(card.slowest.secs)}</div><div class="l">Slowest</div></div>
+  </div>`;
+}
+// Returns null when the book has nothing to show (no time and no pass under way).
+function scorecardCard(name, { showTitle = true } = {}) {
+  const times = SC.bookTimes(name);
+  const units = SC.unitTimes(name);
+  const open = SC.openRun(name);
+  if (!times.length && !units.length && !open) return null;
+  const card = SC.scorecard(times);
+  const wrap = h(`<div class="card sc-card"></div>`).firstElementChild;
+  const nPass = times.length;
+  const head = h(`<div class="row sc-head" style="flex-wrap:nowrap;${nPass ? 'cursor:pointer' : ''}">
+      ${showTitle ? `<div class="grow title" style="font-size:15px;font-weight:600;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)}</div>` : `<div class="grow" style="font-size:13px;font-weight:600">Whole book</div>`}
+      <div class="muted" style="font-size:12px;white-space:nowrap">${nPass ? nPass + ' pass' + (nPass === 1 ? '' : 'es') : 'no finished pass yet'}</div>
+      ${nPass ? '<span class="chev">›</span>' : ''}
+    </div>`).firstElementChild;
+  if (nPass) head.onclick = () => render(() => timesScreen(name, null));
+  wrap.append(head);
+  if (card) {
+    const stats = h(scorecardStats(card)).firstElementChild;
+    stats.style.marginTop = '10px';
+    stats.style.cursor = 'pointer';
+    stats.onclick = () => render(() => timesScreen(name, null));
+    wrap.append(stats);
+    // ⚑ THE DELTA IS ONLY DRAWN WHEN THERE ARE TWO TIMES TO COMPARE. One pass and a "0:00 faster"
+    // line would be a comparison against nothing, dressed as a result.
+    const d = card.previous ? card.previous.secs - card.current.secs : null;
+    const dTxt = d == null ? 'no earlier pass' : d === 0 ? 'the same as before' : `${d > 0 ? '−' : '+'}${SC.fmtSecs(Math.abs(d))} ${d > 0 ? 'faster than before' : 'slower than before'}`;
+    wrap.append(h(`<div class="muted" style="font-size:12px;margin-top:8px">${esc(dTxt)} · ${esc(scSpan(card.current))} · ${card.current.sittings} sitting${card.current.sittings === 1 ? '' : 's'}</div>`));
+  }
+  if (open) {
+    const pr = SC.runProgress(name, open);
+    const last = card ? card.current : null;
+    wrap.append(h(`<div class="sc-open" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
+      <div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)">Pass in progress</div>
+      <div class="statgrid" style="margin-top:8px">
         <div class="stat"><div class="v">${SC.fmtSecs(open.secs)}</div><div class="l">So far</div></div>
         <div class="stat"><div class="v">${pr.chDone} / ${pr.chTotal}</div><div class="l">Chapters · ${open.sittings} sitting${open.sittings === 1 ? '' : 's'}</div></div>
-      </div>`));
-      wrap.append(h(`<div class="muted" style="font-size:12px;margin-top:8px">Started ${esc(dayOf(open.startedAt))}${last ? ' · last pass took ' + esc(SC.fmtSecs(last.secs)) : ''}</div>`));
-      const chs = Object.keys(open.chapters).map(Number).sort((a, b) => a - b);
-      if (chs.length) {
-        wrap.append(h(`<div class="muted" style="font-size:12px;margin-top:6px;line-height:1.7">${
-          chs.map(c => `${esc(name)} ${c} — ${esc(SC.fmtSecs(open.chapters[c]))}`).join(' · ')}</div>`));
-      }
-    } else if (last) {
-      // ⚑ THE DELTA IS ONLY DRAWN WHEN THERE ARE TWO PASSES TO COMPARE. One pass and a "0:00
-      // faster" line would be a comparison against nothing, dressed as a result.
-      const d = prev ? prev.secs - last.secs : null;
-      wrap.append(h(`<div class="statgrid" style="margin-top:10px">
-        <div class="stat"><div class="v">${SC.fmtSecs(last.secs)}</div><div class="l">Last pass</div></div>
-        <div class="stat"><div class="v">${d == null ? '—' : (d > 0 ? '−' : '+') + SC.fmtSecs(Math.abs(d))}</div><div class="l">${d == null ? 'no earlier pass' : d > 0 ? 'faster than before' : 'slower than before'}</div></div>
-      </div>`));
-      wrap.append(h(`<div class="muted" style="font-size:12px;margin-top:8px">${esc(dayOf(last.startedAt))}–${esc(dayOf(last.closedAt))} · ${last.sittings} sitting${last.sittings === 1 ? '' : 's'} · ${past.length} pass${past.length === 1 ? '' : 'es'} on record</div>`));
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:8px">Started ${esc(scDay(open.startedAt))}${last ? ' · last pass took ' + esc(SC.fmtSecs(last.secs)) : ''}</div>
+    </div>`).firstElementChild);
+    const chs = Object.keys(open.chapters).map(Number).sort((a, b) => a - b);
+    if (chs.length) {
+      wrap.lastElementChild.append(h(`<div class="muted" style="font-size:12px;margin-top:6px;line-height:1.7">${
+        chs.map(c => `${esc(name)} ${c} — ${esc(SC.fmtSecs(open.chapters[c]))}`).join(' · ')}</div>`));
     }
-    container.append(wrap);
+  }
+  if (units.length) {
+    const tbl = h(`<div class="sc-units" style="margin-top:12px">
+      <div class="sc-urow sc-uhead"><span>Chapters</span><span>Current</span><span>Fastest</span><span>Slowest</span><span></span></div>
+    </div>`).firstElementChild;
+    units.forEach(g => {
+      const c = SC.scorecard(g.times);
+      const row = h(`<div class="sc-urow" data-k="${esc(g.key)}">
+        <span class="sc-ulabel">${esc(scShort(g))}</span>
+        <span>${SC.fmtSecs(c.current.secs)}</span><span>${SC.fmtSecs(c.fastest.secs)}</span><span>${SC.fmtSecs(c.slowest.secs)}</span>
+        <span class="chev">›</span></div>`).firstElementChild;
+      row.onclick = () => render(() => timesScreen(name, g.key));
+      tbl.append(row);
+    });
+    wrap.append(tbl);
+  }
+  return wrap;
+}
+function scorecardBooks() {
+  const names = new Set(SC.booksWithRuns());
+  Object.keys(state.scripture.reviewTimes || {}).forEach(n => { if ((state.scripture.reviewTimes[n] || []).length) names.add(n); });
+  const latest = n => { const t = SC.bookTimes(n); const u = SC.unitTimes(n).flatMap(g => g.times); return Math.max(0, ...t.concat(u).map(x => x.ts)); };
+  return [...names].filter(n => allBooks.some(b => b.name === n)).sort((a, b) => {
+    const oa = SC.openRun(a) ? 0 : 1, ob = SC.openRun(b) ? 0 : 1;
+    if (oa !== ob) return oa - ob;
+    return latest(b) - latest(a);
   });
+}
+function runsSection(container) {
+  const books = scorecardBooks();
+  const cards = books.map(n => scorecardCard(n)).filter(Boolean);
+  if (!cards.length) return;
+  container.append(sectionTitle('Passes through a book'));
+  container.append(h(`<div class="muted" style="font-size:11.5px;margin:-4px 4px 8px">Current is your most recent finished time. Tap a book or a chapter for every time you've logged.</div>`));
+  cards.forEach(c => container.append(c));
+}
+
+// ⚑ D4 — EVERY LOGGED TIME, in the order he logged them, with Fastest, Slowest and Current marked.
+// Points are spaced evenly (one per time) so two sittings a day apart stay readable beside a gap of
+// a month; the first and last dates sit under the axis.
+function scoreGraph(times, card) {
+  if (!times.length) return '';
+  const W = 320, H = 160, L = 44, R = 12, T = 14, B = 26;
+  const secs = times.map(t => t.secs);
+  let lo = Math.min(...secs), hi = Math.max(...secs);
+  if (lo === hi) { lo = Math.max(0, lo - 30); hi = hi + 30; }
+  const padY = (hi - lo) * 0.08;
+  lo = Math.max(0, lo - padY); hi = hi + padY;
+  const x = i => times.length === 1 ? (L + W - R) / 2 : L + i * (W - L - R) / (times.length - 1);
+  const y = v => T + (hi - v) * (H - T - B) / (hi - lo);
+  const f = n => n.toFixed(1);
+  const fast = card.fastest.secs, slow = card.slowest.secs;
+  const guides = [[slow, 'var(--danger)'], [fast, 'var(--forest)']].map(([v, col]) =>
+    `<line x1="${L}" x2="${W - R}" y1="${f(y(v))}" y2="${f(y(v))}" stroke="${col}" stroke-width="1" stroke-dasharray="3 3" opacity=".55"/>
+     <text x="${L - 6}" y="${f(y(v) + 3)}" font-size="9.5" text-anchor="end" fill="${col}">${SC.fmtSecs(v)}</text>`).join('');
+  const line = times.length > 1 ? `<polyline points="${times.map((t, i) => f(x(i)) + ',' + f(y(t.secs))).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>` : '';
+  const dots = times.map((t, i) => {
+    const col = t.secs === fast ? 'var(--forest)' : t.secs === slow ? 'var(--danger)' : 'var(--accent)';
+    const big = t.secs === fast || t.secs === slow;
+    const cur = i === times.length - 1 ? `<circle cx="${f(x(i))}" cy="${f(y(t.secs))}" r="8" fill="none" stroke="var(--text)" stroke-width="1.4"/>` : '';
+    return `${cur}<circle class="sg-dot" cx="${f(x(i))}" cy="${f(y(t.secs))}" r="${big ? 5 : 3.6}" fill="${col}"/>`;
+  }).join('');
+  const d0 = scDay(times[0].ts), d1 = scDay(times[times.length - 1].ts);
+  return `<svg class="score-graph" viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="${times.length} logged times">
+    <line x1="${L}" x2="${L}" y1="${T}" y2="${H - B}" stroke="var(--line)"/>
+    <line x1="${L}" x2="${W - R}" y1="${H - B}" y2="${H - B}" stroke="var(--line)"/>
+    ${guides}${line}${dots}
+    <text x="${L}" y="${H - 8}" font-size="9.5" fill="var(--text-2)">${esc(d0)}</text>
+    ${times.length > 1 ? `<text x="${W - R}" y="${H - 8}" font-size="9.5" text-anchor="end" fill="var(--text-2)">${esc(d1)}</text>` : ''}
+  </svg>
+  <div class="row" style="gap:14px;margin-top:8px;font-size:11.5px;color:var(--text-2);flex-wrap:nowrap">
+    <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:9px;height:9px;border-radius:50%;background:var(--forest);display:inline-block"></span>Fastest</span>
+    <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:9px;height:9px;border-radius:50%;background:var(--danger);display:inline-block"></span>Slowest</span>
+    <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:11px;height:11px;border-radius:50%;border:1.4px solid var(--text);display:inline-block"></span>Current</span>
+  </div>`;
+}
+function timesScreen(name, key = null) {
+  const g = key ? SC.unitTimesFor(name, key) : null;
+  const times = key ? (g ? g.times : []) : SC.bookTimes(name);
+  const label = key ? (g ? g.label : name) : name;
+  setHeader(label + ' · times', { back: true });
+  const wrap = document.createElement('div');
+  const card = SC.scorecard(times);
+  if (!card) {
+    wrap.append(h(`<div class="empty">No ${key ? 'times' : 'finished passes'} logged for ${esc(label)} yet.</div>`));
+    main().append(wrap);
+    return;
+  }
+  wrap.append(h(scorecardStats(card)).firstElementChild);
+  const gc = h(`<div class="card" style="margin-top:12px">${scoreGraph(times, card)}</div>`).firstElementChild;
+  wrap.append(gc);
+  wrap.append(sectionTitle((key ? 'Every logged time' : 'Every finished pass') + ' · ' + times.length));
+  const list = h(`<div class="card sc-list" style="padding-top:4px;padding-bottom:4px"></div>`).firstElementChild;
+  times.map((t, i) => ({ t, prev: i ? times[i - 1] : null, i })).reverse().forEach(({ t, prev, i }) => {
+    const d = prev ? prev.secs - t.secs : null;
+    const tag = i === times.length - 1 ? 'Current' : t === card.fastest ? 'Fastest' : t === card.slowest ? 'Slowest' : '';
+    list.append(h(`<div class="sc-trow">
+      <span class="sc-tsecs">${SC.fmtSecs(t.secs)}</span>
+      <span class="sc-tmeta">${esc(scSpan(t))} · ${t.sittings} sitting${t.sittings === 1 ? '' : 's'}${tag ? ' · <b>' + tag + '</b>' : ''}</span>
+      <span class="sc-tdelta" style="color:${d == null ? 'var(--text-2)' : d > 0 ? 'var(--forest)' : d < 0 ? 'var(--danger)' : 'var(--text-2)'}">${d == null ? '—' : d === 0 ? '±0:00' : (d > 0 ? '−' : '+') + SC.fmtSecs(Math.abs(d))}</span>
+    </div>`).firstElementChild);
+  });
+  wrap.append(list);
+  if (key && times.some(t => t.legacy && t.sittings > 1)) {
+    wrap.append(h(`<div class="muted" style="font-size:11.5px;margin:8px 4px 0;line-height:1.6">A chapter logged in pieces before 16 Sep is shown as one time.</div>`));
+  }
+  main().append(wrap);
+}
+
+// ⚑ D5 — AN OPEN PASS SITS ON THE DASHBOARD, UNDER THE BOOKS HE IS MEMORIZING.
+function openPassesSection() {
+  const names = SC.booksWithRuns().filter(n => SC.openRun(n) && allBooks.some(b => b.name === n));
+  if (!names.length) return '';
+  return `<div id="d-passes" style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
+    <h3 style="margin-bottom:8px">Passes in progress</h3>
+    ${names.map(n => {
+      const run = SC.openRun(n), pr = SC.runProgress(n, run);
+      const pct = pr.vTotal ? Math.round(pr.vDone / pr.vTotal * 100) : 0;
+      return `<div class="d-pass-row" data-book="${esc(n)}" style="cursor:pointer;margin-bottom:9px">
+        <div class="row" style="flex-wrap:nowrap">
+          <div class="grow" style="min-width:0;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(n)}</div>
+          <div class="muted" style="font-size:12px;white-space:nowrap">${pr.chDone}/${pr.chTotal} ch · ${SC.fmtSecs(run.secs)}</div>
+          <span class="chev">›</span>
+        </div>
+        <div class="progressbar" style="margin-top:4px"><div style="width:${pct}%"></div></div>
+      </div>`;
+    }).join('')}
+  </div>`;
 }
 
 function renderTimes(container) {
@@ -15044,7 +15160,7 @@ function renderTimes(container) {
   projectSet.forEach(name => { if (!bookGraphs[name]) bookGraphs[name] = []; });
 
   if (!Object.keys(corpus.ot).length && !Object.keys(corpus.nt).length && !Object.keys(bookGraphs).length && !Object.keys(chSeries).length) {
-    container.append(h(`<div class="empty">Nothing to review yet.<br>Log one above, use a book's review timer,<br>or time a pathway step.</div>`));
+    container.append(h(`<div class="empty">Nothing to review yet.<br>Log one above, log a chapter from flashcards,<br>or time a pathway step.</div>`));
     return;
   }
 
@@ -16584,23 +16700,13 @@ function masteryTileStyle(m) {
   return `background:hsl(40,8%,${L}%);color:${txt};border:1px solid var(--line)`;
 }
 
-// Phase 7.5 — the chapter/range this practice doc reviews, for timed Review mode.
-// bibleDoc carries a single ci; bibleMultiDoc carries per-section ci.
-function reviewScopeFromDoc(d) {
-  if (!d.bible) return null;
-  if (!d.bible.multi && d.bible.ci != null) return { kind: 'chapter', ch: d.bible.ci + 1 };
-  const chs = [...new Set(d.sections.map(sec => (sec.ci != null ? sec.ci : d.bible.ci) + 1))].sort((a, b) => a - b);
-  if (chs.length === 1) return { kind: 'chapter', ch: chs[0] };
-  const contiguous = chs.every((c, i) => i === 0 || c === chs[i - 1] + 1);
-  return contiguous ? { kind: 'range', from: chs[0], to: chs[chs.length - 1] } : null;
-}
 
 function practiceSetup(d, intent = 'practice') {
   setHeader('Review', { back: true });
   const wrap = document.createElement('div');
   const s = prSetup;
-  // Review is Scripture-only; the shared setup is reused for creeds, so fall back.
-  if (s.mode === 'review' && !d.bible) s.mode = 'flash';
+  // ⚑ B7 — the timed Review mode is retired; a remembered 'review' pick becomes flashcards.
+  if (s.mode === 'review') s.mode = 'flash';
   if (s.sel === 'ld' && d.bible) s.sel = 'all';   // Lord's Days is a creeds-only grouping
 
   // ---- mastery dashboard: every question at a glance ----
@@ -16628,7 +16734,6 @@ function practiceSetup(d, intent = 'practice') {
     <button class="pill ${s.mode === 'typer' ? 'on' : ''}" data-m="typer">First-Letter</button>
     <button class="pill ${s.mode === 'flash' ? 'on' : ''}" data-m="flash">Flashcards [1–5]</button>
     <button class="pill ${s.mode === 'scramble' ? 'on' : ''}" data-m="scramble">Scramble</button>
-    ${d.bible ? `<button class="pill ${s.mode === 'review' ? 'on' : ''}" data-m="review">Review ⏱</button>` : ''}
   </div>`);
   modes.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { s.mode = b.dataset.m; rerender(); });
   wrap.append(modes);
@@ -16639,25 +16744,10 @@ function practiceSetup(d, intent = 'practice') {
     // stated in two places, disagreeing. Renders from the constant now, like the other one.
     typer: `Type the first letter of each word. ${TYPER_MISS_LIMIT === 1 ? 'A miss' : TYPER_MISS_LIMIT + ' misses'} reveals the word. Accuracy feeds mastery.`,
     flash: `Rate each card 1–5. Weak cards return often. ${FLASH_TRAINED_MIN}+ counts it trained; a ${FLASH_MEMORIZED_MIN} marks it memorized and retires the card. Exit ratings feed mastery.`,
-    scramble: 'Rebuild the text by tapping the pieces in order. First-try accuracy feeds mastery.',
-    review: 'Timed recitation of this selection — logs to the review tracker. Tap 📖 View text to peek without stopping the clock.'
+    scramble: 'Rebuild the text by tapping the pieces in order. First-try accuracy feeds mastery.'
   }[s.mode]}</div>`));
 
   const inputStyle = 'padding:11px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px;text-align:center';
-
-  // Phase 7.5 — Review mode: skip the card-selection UI entirely and just time the
-  // chapter/range this doc covers. Lands on the same background-safe reviewTimer
-  // (with peek-text) that the book screen uses, but scoped to the individual chapter.
-  if (s.mode === 'review') {
-    const bk = allBooks[bookIndex[d.bible.book]];
-    const scope = reviewScopeFromDoc(d);
-    wrap.append(h(`<div class="card"><div class="muted">Reviewing <b>${esc(bk ? bk.name : d.bible.book)}${scope ? ' · ' + SC.scopeLabel(scope) : ''}</b>. The timer keeps running while you peek at the text, and logs to your review history when you finish.</div></div>`));
-    const startR = h(`<button class="btn" style="margin-top:16px">⏱ Start review timer</button>`).firstChild;
-    startR.onclick = () => render(() => reviewTimer(bk, scope));
-    wrap.append(startR);
-    main().append(wrap);
-    return;
-  }
 
   if (s.mode === 'flash') {
     // Phase 7.4 — three orders, all additive:
@@ -23198,7 +23288,6 @@ const PLUS_ITEMS = [
   { key: 'sleep',     label: 'Sleep',    tier: 1, def: 'click' },
   { key: 'weight',    label: 'Weight',   tier: 1, def: 'click' },
   { key: 'macros',    label: 'Macros',   tier: 1, def: 'click' },
-  { key: 'review',    label: 'Review timer', tier: 2, def: 'click' },
   // ⚑ THE KEY STAYS `practice`, THE LABEL DOES NOT. This id is stored in `settings.plusOrder` and in
   // his saved fan configuration; renaming it would drop the item out of his own arrangement, which is
   // the migration 7B.9 had to write once already. The label is what he reads, and it says Review.
@@ -23218,7 +23307,6 @@ const PLUS_ICONS = {
   sleep:    '<polyline points="-11,4 -6,4 -11,9 -6,9"/><polyline points="-5,-2 2,-2 -5,5 2,5"/><polyline points="3,-11 12,-11 3,-3 12,-3"/>',
   weight:   '<path d="M0 -8 V9 M-6 9 H6 M-10 -8 H10"/><circle cx="0" cy="-10" r="2"/><path d="M-10 -8 L-12 -2 M-10 -8 L-8 -2 M-13 -2 Q-10 4 -7 -2"/><path d="M10 -8 L12 -2 M10 -8 L8 -2 M7 -2 Q10 4 13 -2"/>',
   macros:   '<path d="M0 12 V-3 M-5 -3 H5 M-5 -3 V-11 M0 -3 V-11 M5 -3 V-11"/>',
-  review:   '<circle cx="0" cy="2" r="9"/><path d="M0 -7 V-11 M-3 -11 H3 M0 2 L4 -3"/>',
   practice: '<circle r="11"/><circle r="6.5"/><circle r="2" fill="currentColor" stroke="none"/>',
   creed:    '<path d="M0 -13.2 A11.8 11.8 0 0 1 0 4.8 A11.8 11.8 0 0 1 0 -13.2 Z"/><path d="M0 -13.2 A11.8 11.8 0 0 1 0 4.8 A11.8 11.8 0 0 1 0 -13.2 Z" transform="rotate(120)"/><path d="M0 -13.2 A11.8 11.8 0 0 1 0 4.8 A11.8 11.8 0 0 1 0 -13.2 Z" transform="rotate(240)"/>',
   bibleplan:'<path d="M0 -6 Q-5 -9 -10 -7 L-10 7 Q-5 5 0 8 Q5 5 10 7 L10 -7 Q5 -9 0 -6 Z"/><path d="M0 -6 V8"/><path d="M0 -8 L-2 11 L0 9 L2 11 Z" fill="currentColor" stroke="none"/>',
@@ -23266,6 +23354,9 @@ function plusFanCfg() {
     // The one-time E3 migration. Idempotent by construction: after it runs there is no 'click'
     // left to find, so it costs one pass over eleven keys and never fires again.
     PLUS_ITEMS.forEach(it => { if (s.plusFan[it.key] === 'click') { s.plusFan[it.key] = 'long'; changed = true; } });
+    // ⚑ B7 (17 Sep) — the Review timer item is retired. Its key is dropped here; `plusFanOrder` already
+    // filters keys it no longer knows, so the rest of his arrangement keeps its order.
+    if ('review' in s.plusFan) { delete s.plusFan.review; changed = true; }
     if (changed) save();
   }
   return s.plusFan;
@@ -23390,7 +23481,6 @@ function plusRoute(it, fan) {
   if (it.tier === 1) return plusScalarEntry(it, fan);
   if (it.key === 'pages') return plusPagesEntry(fan);
   if (it.key === 'verses') return plusVerses(fan);
-  if (it.key === 'review') return plusReview(fan);
   if (it.key === 'practice') return plusPractice(fan);
   if (it.key === 'bibleplan') return plusBible(fan);
   if (it.key === 'workout') return plusWorkout(fan);
@@ -23531,10 +23621,7 @@ function plusCreedGrid(fan, d) {
   p.querySelector('[data-done]').onclick = () => afterPlusLog('Creed updated');
 }
 
-// ===== Review Timer (dedicated fan icon) — book → whole book / a chapter / a module → LIVE timer =====
-// reviewTimer has both the running clock AND a manual mm:ss field, so this one path covers
-// timing AND entry ("strictly for review timing and entry", Baruch). Books are ordered
-// current-project / most-recently-reviewed first; the full memorized list is still there to scroll.
+// Memorized books, current project / most-recently-reviewed first (the ＋ Review picker uses it).
 function memorizedBooksRecentFirst() {
   const cur = new Set((state.scripture.currentItems || []).map(it => it.book));
   return allBooks.filter(b => SC.bookStats(b).done > 0).slice().sort((a, b) => {
@@ -23542,33 +23629,6 @@ function memorizedBooksRecentFirst() {
     if (ca !== cb) return cb - ca;
     return (SC.lastReviewTs(b.name) || 0) - (SC.lastReviewTs(a.name) || 0);
   });
-}
-function plusReview(fan) {
-  const books = memorizedBooksRecentFirst();
-  if (!books.length) { toast('Nothing memorized to review yet'); return; }
-  plusChoose(fan, 'Review timer · book', books.map(b => ({ label: b.name, sub: SC.bookStats(b).done + ' verses', on: () => plusReviewScope(fan, b) })));
-}
-function plusReviewScope(fan, b) {
-  const rows = [
-    { label: 'Whole book', on: () => plusStartTimer(b, null, null) },
-    { label: 'A chapter', sub: 'pick one', on: () => plusReviewChapter(fan, b) },
-  ];
-  if (MOD.moduleCount(b.name)) rows.push({ label: 'A module', sub: MOD.moduleCount(b.name) + ' saved', on: () => plusReviewModule(fan, b) });
-  plusChoose(fan, 'Review · ' + b.name, rows, () => plusReview(fan));
-}
-function plusReviewChapter(fan, b) {
-  plusChips(fan, 'Review · ' + b.name + ' · chapter',
-    b.verses.map((_, ci) => ({ label: 'Ch ' + (ci + 1), on: () => plusStartTimer(b, { kind: 'chapter', ch: ci + 1 }, null) })),
-    () => plusReviewScope(fan, b));
-}
-function plusReviewModule(fan, b) {
-  plusChoose(fan, 'Review · ' + b.name + ' · module',
-    MOD.modulesFor(b.name).map(mod => { const name = mod.name || MOD.moduleAutoName(mod, b); return { label: name, sub: MOD.moduleCoverage(mod, b), on: () => plusStartTimer(b, MOD.moduleReviewScope(mod), name) }; }),
-    () => plusReviewScope(fan, b));
-}
-function plusStartTimer(b, scope, name) {
-  closePlusFan();
-  render(() => reviewTimer(b, scope, name));   // live clock + manual mm:ss
 }
 
 // ===== Bible reading plan (plan → mark today's portion) =====
@@ -23678,23 +23738,12 @@ function plusPracticeMode(fan, b, scope, intent) {
     { label: 'First-Letter', on: () => plusPracticeLaunch(fan, b, scope, 'typer', intent) },
 
   ];
-  // ⚑ ONE LIST — Fade was practice-only and Timer review-only, which meant the mode you could
-  // reach depended on a question you no longer answer.
+  // ⚑ ONE LIST. (B7 — the Timer ⏱ entry is retired with the review timer.)
   const modes = [...shared,
-    { label: 'Fade', on: () => plusPracticeLaunch(fan, b, scope, 'fade', intent) },
-    { label: 'Timer ⏱', on: () => plusPracticeLaunch(fan, b, scope, 'timer', intent) }];
+    { label: 'Fade', on: () => plusPracticeLaunch(fan, b, scope, 'fade', intent) }];
   plusChips(fan, plusIntentTitle(intent) + ' · mode', modes, back);
 }
 async function plusPracticeLaunch(fan, b, scope, mode, intent) {
-  // Review Timer needs no ESV fetch — straight to the live clock, scoped (verses fall to their chapter).
-  if (mode === 'timer') {
-    let sc = null, name = null;
-    if (scope.kind === 'chapter' || scope.kind === 'verses') sc = { kind: 'chapter', ch: scope.ci + 1 };
-    else if (scope.kind === 'module') { sc = MOD.moduleReviewScope(scope.mod); name = scope.mod.name || MOD.moduleAutoName(scope.mod, b); }
-    closePlusFan();
-    render(() => reviewTimer(b, sc, name));
-    return;
-  }
   const p = plusEntryShell(fan, 'Loading…', `<div class="muted" style="font-size:13px">Fetching ESV text…</div>`);
   const status = p.querySelector('.muted');
   try {
@@ -23718,7 +23767,7 @@ function plusPracticeCreeds(fan, intent) {
   plusChoose(fan, plusIntentTitle(intent) + ' · creeds', CR.docs().map(d => { const st = CR.docStats(d.id); return { label: d.name, sub: st.done + '/' + st.total, on: () => plusPracticeCreedMode(fan, d, intent) }; }), () => plusPRDomain(fan, intent));
 }
 function plusPracticeCreedMode(fan, d, intent) {
-  // Creeds have no timed-review scope (reviewTimer is Bible-only), so Review = flash/typer only.
+  // Creeds: flash and typer (plus Fade outside review).
   const modes = [
     { label: 'Flashcards [1–5]', on: () => plusLaunchSession(d, 'flash', intent) },
     { label: 'First-Letter', on: () => plusLaunchSession(d, 'typer', intent) },
