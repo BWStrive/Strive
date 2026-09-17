@@ -9877,7 +9877,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260916-1506'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260916-1506';
+const BUILD_ID = '20260916-2056'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260916-2056';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -13523,7 +13523,7 @@ async function fetchScopeDoc(b, keys) {
 // Launch a mode scoped to a unit. ⚑ ONE INTENT — TRAIN. It is cycle/whole-scoped, marks coverage
 // as it goes, and still marks MEMORIZED at the thresholds (a rank-5, or a typing pass he
 // confirms). t = { kind, book, mod?, a?, keys, title }.
-async function launchScopeMode(t, mode, scope, intent, btn, order) {
+async function launchScopeMode(t, mode, scope, intent, btn, order, { noRelated = false } = {}) {
   // Remember this pick as the one-tap default. ⚑ Stored under TRAIN now; the old per-intent
   // preferences are simply not read, which is the cheapest possible migration for a preference.
   {
@@ -13576,6 +13576,19 @@ async function launchScopeMode(t, mode, scope, intent, btn, order) {
       .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))[0] || null;
     if (held) keys = held.cards.slice();
   }
+  // ⚑⚑ B9 (17 Sep) — A PAUSED DECK THAT OVERLAPS THIS UNIT IS OFFERED FIRST. His words: "If I'm in the
+  // whole book and I stop, I want chapter three to continue it, or vice versa." A held deck (wholly
+  // inside this unit) already carries straight on above; this catches the rest — a paused whole book
+  // when he opens one chapter, a paused chapter when he opens the book, overlapping units. Asked
+  // BEFORE the size question and before an all-covered start-over, so choosing Continue changes nothing.
+  if (mode === 'flash' && !t.creed && passBook && !held && !noRelated) {
+    const rel = flashRelatedDeck(passBook, t.keys);
+    if (rel) {
+      const instead = () => { if (stack.length > 1) stack.pop(); launchScopeMode(t, mode, scope, intent, null, order, { noRelated: true }); };
+      render(() => flashRelatedOffer(t.book, rel, t.title || passBook, instead));
+      return;
+    }
+  }
   if (!keys.length && t.keys.length) {
     keys = t.keys.slice();
     if (scope === 'cycle') {
@@ -13612,7 +13625,8 @@ async function launchScopeMode(t, mode, scope, intent, btn, order) {
   // ⚑⚑ AND THE TWO-ENGINE BRANCH IS GONE (45th). It read `isPlainPass ? orderedFlashCard : flashSession`
   // in THREE places; `flashSession` now owns all three orders, so the order is simply passed in.
   const fresh = held ? () => { if (stack.length > 1) stack.pop(); launchScopeMode(t, mode, scope, intent, null, order); } : null;
-  if (mode === 'flash') render(() => flashSession(doc, queue, prSetup.budget, order, intent, fresh, { auto: !!held }));
+  // ⚑ B9 — noRelated: this launcher has already asked about overlapping paused decks (above).
+  if (mode === 'flash') render(() => flashSession(doc, queue, prSetup.budget, order, intent, fresh, { auto: !!held, noRelated: true }));
   else if (mode === 'typer') render(() => typerScreen(doc, queue, 0, [], intent));
   else render(() => fadeScreen(doc, queue, 0, 0, []));
 }
@@ -17521,6 +17535,77 @@ function flashResumeOffer(d, queue, budget, order, intent, snap, onFresh = null)
   main().append(wrap);
 }
 
+// ===== B9 (17 Sep) — paused decks are connected across book ↔ chapter ↔ unit =====
+// ⚑ HIS WORDS: "whether I do a single chapter or a single book or a unit like several chapters…
+// connected together in a pathway… I want to be able to continue on or at least have the option to."
+// A deck's identity is still its doc id (so two different selections never overwrite each other);
+// what connects them is the VERSES. The newest paused deck in the same book that shares any verse with
+// what he is opening is offered — never silently swapped in, because "Start this instead" is his call.
+// ⚑ A stale deck (>14 days) is not offered here; it is still reachable from its own selection, where
+// the Finish it / Discard screen handles it.
+function flashRelatedDeck(bookName, keys, excludeId = null) {
+  if (!bookName || !keys || !keys.length) return null;
+  const want = new Set(keys), now = Date.now(), pre = 'bible:' + bookName + ':';
+  return Object.values(flashStore())
+    .filter(sn => sn && Array.isArray(sn.cards) && sn.cards.length && sn.docId !== excludeId
+      && String(sn.docId || '').indexOf(pre) === 0 && now - (sn.savedAt || 0) <= FLASH_STALE_MS
+      && sn.cards.some(k => want.has(k)))
+    .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))[0] || null;
+}
+// "Hebrews (whole book)" · "Hebrews 3" · "Hebrews 1–7" · "Hebrews 2, 5" — named from the deck's doc id.
+function flashDeckLabel(snap) {
+  const m = /^bible:(.+):([\d.]+)$/.exec(String(snap.docId || ''));
+  if (!m) return snap.docName || 'A deck';
+  const book = m[1], chs = m[2].split('.').map(Number);
+  const b = allBooks[bookIndex[book]];
+  if (b && b.verses && chs.length === b.verses.length && chs.length > 1) return book + ' (whole book)';
+  // runs collapse: 1.2.3.4.5.6.11 → "1–6, 11"
+  const parts = [];
+  chs.forEach(c => { const last = parts[parts.length - 1]; if (last && c === last[1] + 1) last[1] = c; else parts.push([c, c]); });
+  return book + ' ' + parts.map(([a, z]) => a === z ? String(a) : a + '–' + z).join(', ');
+}
+const flashKeyLabel = k => { const m = /^bible:(.+):(\d+)#(\d+)$/.exec(String(k || '')); return m ? m[1] + ' ' + m[2] + ':' + m[3] : ''; };
+// Rebuild the paused deck's own doc (same id, same cards) and hand it to flashSession, which carries
+// it straight on — or shows the usual offer if its verses were reviewed elsewhere since.
+async function flashContinueDeck(b, snap, onFresh, btn) {
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '…'; btn.disabled = true; }
+  let doc;
+  try { doc = await fetchScopeDoc(b, snap.cards); }
+  catch (e) { if (btn) { btn.textContent = orig; btn.disabled = false; } esvErrToast(e); return; }
+  if (!doc) { if (btn) { btn.textContent = orig; btn.disabled = false; } toast('Could not load that deck'); return; }
+  doc.id = snap.docId;                      // ⚑ the snapshot is keyed on this — it IS the deck
+  if (snap.docName) doc.name = snap.docName;
+  const queue = doc.sections.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn, ci: x.ci }));
+  if (stack.length > 1) stack.pop();        // the offer is not a screen to come back to
+  render(() => flashSession(doc, queue, snap.budget || prSetup.budget, snap.order || 'inorder', snap.intent || 'practice', onFresh, { auto: true, noRelated: true }));
+}
+function flashRelatedOffer(b, snap, thisLabel, onInstead) {
+  setImmersive(false);
+  setHeader('Continue?', { back: true });
+  const now = Date.now();
+  const done = new Set(Object.keys(snap.exit || {}).concat(Object.keys(snap.passed || {}))).size;
+  const at = flashKeyLabel((snap.history || [])[snap.cursor != null ? snap.cursor : (snap.history || []).length - 1]);
+  const days = Math.floor((now - (snap.savedAt || now)) / (24 * 60 * 60 * 1000));
+  const wrap = document.createElement('div');
+  wrap.append(h(`
+    <div class="card related-deck" style="padding:18px 16px">
+      <div class="muted" style="font-size:12.5px">You have a paused deck that includes this:</div>
+      <div style="font-weight:700;font-size:16px;margin-top:6px">${esc(flashDeckLabel(snap))}</div>
+      <div class="muted" style="margin-top:8px;font-size:13.5px;line-height:1.7">
+        ${at ? 'On ' + esc(at) + ' · ' : ''}${done} of ${snap.deckSize || (snap.cards || []).length} done · ${SC.fmtSecs(Math.max(0, Math.floor((snap.clock && snap.clock.accrued) || 0)))} on the clock<br>
+        Left ${days === 0 ? 'earlier today' : days === 1 ? 'yesterday' : days + ' days ago'}.
+      </div>
+    </div>`));
+  const go = h(`<button class="btn">Continue that deck</button>`).firstChild;
+  go.onclick = () => flashContinueDeck(b, snap, onInstead, go);
+  const other = h(`<button class="btn secondary">Start ${esc(thisLabel)} instead</button>`).firstChild;
+  other.onclick = onInstead;
+  wrap.append(go); wrap.append(other);
+  wrap.append(h(`<div class="muted" style="font-size:12px;margin:8px 4px;line-height:1.6">Starting this instead keeps the paused deck for later.</div>`));
+  main().append(wrap);
+}
+
 // ---- Flashcards: ONE deck engine (adaptive · sequential · in-order) ----
 //
 // ⚑⚑ FORTY-FIFTH SESSION — TWO SCREENS BECAME ONE, AND THE REASON IS NAVIGATION.
@@ -17731,11 +17816,24 @@ const flashSeenFrac = session => (session.deckSize ? flashSeen(session) / sessio
 // ⚑ THE GATE SITS HERE, NOT ON THE SETUP SCREEN, BECAUSE THERE ARE FOUR LAUNCH SITES — the setup
 // screen, the Train sheet, a module, and the ＋-fan. Putting the check on one of them would have
 // meant three ways to start a deck that silently ignored an unfinished one.
-function flashSession(d, queue, budget, order = 'adaptive', intent = 'practice', onFresh = null, { auto = false } = {}) {
+function flashSession(d, queue, budget, order = 'adaptive', intent = 'practice', onFresh = null, { auto = false, noRelated = false } = {}) {
   const snap = flashSaved(d);
+  // ⚑ B9 — EVERY OTHER DOOR (chapter screen, practice setup, a module, the ＋ fan): no deck of its own,
+  // but a paused deck elsewhere in this book shares its verses → ask. Start instead keeps that deck.
+  if (!snap && !noRelated && d && d.bible && d.bible.book && allBooks[bookIndex[d.bible.book]]) {
+    const rel = flashRelatedDeck(d.bible.book, queue.map(x => flashCardKey(d, x)), d.id);
+    if (rel) {
+      const instead = () => { if (stack.length > 1) stack.pop(); render(() => flashSession(d, queue, budget, order, intent, onFresh, { noRelated: true })); };
+      render(() => flashRelatedOffer(allBooks[bookIndex[d.bible.book]], rel, flashDeckLabel({ docId: d.id, docName: (d.name || 'this').replace(/ \(ESV\)$/, '') }), instead), false);
+      return;
+    }
+  }
   // ⚑ B8 — FROM THE PLAN, A PAUSED DECK JUST CARRIES ON. His words: "click that and then continue
   // on." The offer screen is kept for the cases that need a decision: a deck left over a fortnight,
   // one that cannot be rebuilt here, or one whose verses were reviewed elsewhere since.
+  // ⚑ B8b (16 Sep) — FROM ANYWHERE ELSE (the chapter screen, the book's Practice, a module, the ＋
+  // fan) the same deck is found by its doc id and OFFERED: one tap on Resume carries the clock on.
+  // Only the Plan/Train path skips the question — there he has already said "this unit, carry on".
   if (snap && auto && Array.isArray(snap.cards) && Date.now() - (snap.savedAt || 0) <= FLASH_STALE_MS
       && !snap.cards.some(k => RV.coverageTs(k) > (snap.savedAt || 0))) {
     const restored = flashRestore(d, snap);
@@ -23633,7 +23731,7 @@ async function plusLaunchSession(d, mode, intent = 'practice') {
   let queue = d.sections.map(x => ({ n: x.n, q: x.label, a: x.text, docId: x.docId, vn: x.vn, ci: x.ci }));
   if (!queue.length) { toast('No verses in that selection'); return; }
   closePlusFan();
-  if (mode === 'flash' && !flashSaved(d)) {   // B6 — an unfinished deck here is offered back instead
+  if (mode === 'flash' && !flashSaved(d) && !(d.bible && flashRelatedDeck(d.bible.book, queue.map(x => flashCardKey(d, x)), d.id))) {   // B6 — an unfinished deck here (B9: or one overlapping it) is offered back instead
     const n = await askDeckSize(queue.length);
     if (n == null) return;
     queue = queue.slice(0, n);
