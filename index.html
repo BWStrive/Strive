@@ -12,7 +12,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&family=IM+Fell+English:ital@1&display=swap" rel="stylesheet">
 
 <style>
-/* Strive — Folio design system (Phase 3). Light-only, editorial.
+/* Strive — Folio design system (Phase 3). Light and (E4, 17 Sep) dark, editorial.
    Token contract: variable NAMES are stable API for all screen code;
    values define the look. Numerals: Roman ONLY inside path/progress coins. */
 :root {
@@ -35,6 +35,13 @@
   --ot: #6b2330;          /* OT badge = burgundy */
   --nt: #2c3a5c;          /* NT badge = midnight */
   --danger: #9c3a30;
+  --on-fill: #fbf7ed;       /* text on a coloured fill (badges) */
+  --on-gold: #fff;          /* text on a brass fill */
+  --scrim: rgba(20,16,8,.28);
+  --accent-fill: #6b2330;   /* burgundy as a filled button / check */
+  --on-accent: #fbf7ed;
+  --danger-fill: #9c3a30;
+  --gold-fill: #8a6b2b;
 
   --radius: 3px;
   --nav-h: 58px;
@@ -42,6 +49,66 @@
   --serif-display: 'Cinzel', 'Iowan Old Style', Georgia, serif;   /* engraved small caps */
   --serif-quote: 'IM Fell English', Georgia, serif;               /* quoted Scripture/catechism ONLY */
   --serif-body: 'Cormorant Garamond', 'Iowan Old Style', Georgia, serif;
+}
+/* Dark: forced in Settings (data-theme="dark"), or following the device before the app has chosen.
+   The app always resolves the choice onto <html data-theme>, so the media query only covers first paint. */
+:root[data-theme="dark"] {
+  /* ⛑ E4 (17 Sep) — FOLIO BY LAMPLIGHT. Same names, darker paper. Checked for contrast against the
+     card: ink 13:1, secondary 7:1, burgundy 4.1:1 (and 4.2:1 for white text on it), brass 7:1. */
+  --bg: #15120d;
+  --card: #1e1a13;
+  --text: #ebe2cd;
+  --text-2: #b1a487;
+  --text-3: #80755f;
+  --line: #393124;
+  --track: #2c261c;
+  --accent: #c05c6a;
+  --accent-soft: #3a2226;
+  --gold: #c7a35a;
+  --midnight: #6d86bd;
+  --forest: #6e9c7c;
+  --ember: #d98548;
+  --ot: #9a3f4d;
+  --nt: #465d93;
+  --danger: #dd7266;
+  --on-fill: #f6efe1;
+  --on-gold: #15120d;
+  --scrim: rgba(0,0,0,.55);
+  --accent-fill: #9a3f4d;
+  --on-accent: #f6efe1;
+  --danger-fill: #a3443a;
+  --gold-fill: #8a6b2b;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    /* ⛑ E4 (17 Sep) — FOLIO BY LAMPLIGHT. Same names, darker paper. Checked for contrast against the
+       card: ink 13:1, secondary 7:1, burgundy 4.1:1 (and 4.2:1 for white text on it), brass 7:1. */
+    --bg: #15120d;
+    --card: #1e1a13;
+    --text: #ebe2cd;
+    --text-2: #b1a487;
+    --text-3: #80755f;
+    --line: #393124;
+    --track: #2c261c;
+    --accent: #c05c6a;
+    --accent-soft: #3a2226;
+    --gold: #c7a35a;
+    --midnight: #6d86bd;
+    --forest: #6e9c7c;
+    --ember: #d98548;
+    --ot: #9a3f4d;
+    --nt: #465d93;
+    --danger: #dd7266;
+    --on-fill: #f6efe1;
+    --on-gold: #15120d;
+    --scrim: rgba(0,0,0,.55);
+    --accent-fill: #9a3f4d;
+    --on-accent: #f6efe1;
+    --danger-fill: #a3443a;
+    --gold-fill: #8a6b2b;
+    color-scheme: dark;
+  }
 }
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { height: 100%; overflow: hidden; }
@@ -137,6 +204,10 @@ body.immersive .imm-card { flex: 1; min-height: 0; margin-bottom: 0; padding: 22
    cannot mean "scroll this" and "navigate the deck" at once. The ‹ › rail is why that is survivable,
    and is the second reason it was kept after the gesture landed. */
 .imm-card.imm-scroll { touch-action: pan-y; }
+/* V11 — the timer's "sound is off" bar: one row, brass hairline, the whole bar is the tap target. */
+.tm-sndbar { display: block; width: 100%; margin-top: 8px; padding: 9px 12px; border: 1px solid var(--gold);
+  border-radius: var(--radius); background: var(--card); color: var(--gold); font: inherit; font-size: 13.5px;
+  font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 /* B4 — the chapter-end filing bar: one row, never wrapping, brass hairline like the header coins. */
 .imm-file { display: flex; align-items: center; gap: 6px; margin: 6px 2px 0; padding: 6px 8px 6px 12px;
   border: 1px solid var(--gold); border-radius: var(--radius); background: var(--card); flex-wrap: nowrap; }
@@ -206,7 +277,7 @@ nav.tabbar button.active .ico { color: var(--accent); }
 nav.tabbar button.tab-plus {
   flex: 0 0 auto; align-self: center; position: relative; top: -14px;
   width: 52px; height: 52px; border-radius: 50%;
-  background: var(--accent); color: #fff;
+  background: var(--accent-fill); color: var(--on-accent);
   box-shadow: 0 2px 8px rgba(0,0,0,.18); border: 2px solid var(--card);
   user-select: none; -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -215,7 +286,7 @@ nav.tabbar button.tab-plus {
 /* The whole bar, for the same reason: a hold that starts on the ＋ and drifts a few pixels onto a
    neighbouring tab must not begin selecting the label it lands on. */
 nav.tabbar { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-nav.tabbar button.tab-plus .ico { font-size: 26px; color: #fff; }
+nav.tabbar button.tab-plus .ico { font-size: 26px; color: var(--on-accent); }
 nav.tabbar button.tab-plus.active::after { display: none; }
 
 /* header avatar → You/Profile (D-S) */
@@ -229,7 +300,7 @@ header.topbar .avatar {
 /* ＋ quick-add fan (D-Y) */
 .plus-overlay {
   position: fixed; inset: 0; z-index: 200;
-  background: rgba(20,16,8,.28);
+  background: var(--scrim);
   display: flex; align-items: flex-end; justify-content: center;
 }
 .plus-fan {
@@ -313,7 +384,7 @@ header.topbar .avatar {
 .list-item .chev { color: var(--text-3); font-size: 16px; }
 .badge {
   font-family: var(--serif-display); font-size: 9px; font-weight: 700; letter-spacing: .12em;
-  padding: 3px 8px; border-radius: 2px; color: var(--card);
+  padding: 3px 8px; border-radius: 2px; color: var(--on-fill);
 }
 .badge.ot { background: var(--ot); } .badge.nt { background: var(--nt); }
 
@@ -324,7 +395,7 @@ header.topbar .avatar {
   font-size: 13.5px; font-weight: 600; cursor: pointer; user-select: none;
   font-variant-numeric: tabular-nums;
 }
-.cell.done { background: var(--accent); border-color: var(--accent); color: var(--card); }
+.cell.done { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--on-accent); }
 .cell.partial { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 /* Universal scripture-circle grid (D-AE): decay fill + brass mastery ring + count caption below */
 .scgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 10px 6px; justify-items: center; }
@@ -334,21 +405,21 @@ header.topbar .avatar {
 
 .btn {
   display: block; width: 100%; border: none; border-radius: var(--radius);
-  background: var(--accent); color: var(--card);
+  background: var(--accent-fill); color: var(--on-accent);
   font-family: var(--serif-display); font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
   padding: 14px; cursor: pointer; margin-top: 8px;
   transition: transform .08s, opacity .15s;
 }
 .btn:active { transform: scale(.985); opacity: .92; }
 .btn.secondary { background: transparent; color: var(--text-2); border: 1px solid var(--line); }
-.btn.danger { background: var(--danger); }
+.btn.danger { background: var(--danger-fill); }
 
 .check {
   width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--line);
   flex-shrink: 0; display: flex; align-items: center; justify-content: center;
   color: transparent; font-size: 13px; cursor: pointer;
 }
-.check.on { background: var(--accent); border-color: var(--accent); color: var(--card); }
+.check.on { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--on-accent); }
 
 .empty { text-align: center; color: var(--text-2); padding: 40px 20px; font-size: 15px; line-height: 1.5; font-style: italic; }
 
@@ -474,6 +545,43 @@ header.topbar .avatar {
 .ref-panel { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--gold); border-radius: var(--radius); background: var(--bg); }
 .ref-panel .ref-text { margin-top: 6px; font-size: 14px; line-height: 1.6; }
 .ref-panel sup { font-size: 9px; font-weight: 700; color: var(--text-2); margin-right: 2px; }
+
+/* ===== E2 (17 Sep) — the condensed Study dashboard. Folio: brass hairlines, small caps, one row each. ===== */
+.d-head { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.d-head h3 { flex: 1 1 auto; min-width: 0; border: none; margin: 0; padding: 0 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d-ico { flex: 0 0 auto; width: 30px; height: 30px; margin-bottom: 6px; display: flex; align-items: center; justify-content: center;
+  border: none; background: none; color: var(--accent); font-size: 17px; line-height: 1; cursor: pointer; padding: 0; }
+.d-week { display: flex; align-items: baseline; gap: 8px; }
+.d-week .big { line-height: 1; }
+.d-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 10px 0 12px;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.d-tot { display: flex; align-items: baseline; justify-content: center; gap: 5px; padding: 7px 2px; min-width: 0; cursor: pointer; white-space: nowrap; }
+.d-tot + .d-tot { border-left: 1px solid var(--line); }
+.d-totals.stack .d-tot { flex-direction: column; align-items: center; gap: 1px; padding: 6px 2px; }
+.d-totals.stack .d-tot .l { max-width: 100%; }
+.d-tot .v { font-family: var(--serif-display); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.d-tot .l { font-family: var(--serif-display); font-size: 8.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-2); font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
+.d-corpus { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; cursor: pointer; }
+.d-corpus > .grow { flex: 1 1 auto; min-width: 0; }
+.d-corpus-pct.gold { color: var(--on-gold); }
+.d-corpus-pct { width: 38px; height: 38px; border-radius: 50%; color: #fff; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  font-family: var(--serif-display); font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.d-corpus-l { display: flex; align-items: baseline; gap: 8px; font-weight: 700; font-size: 14px; margin-bottom: 5px; white-space: nowrap; }
+.d-corpus-l > span:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.d-corpus-warn { flex: 0 0 auto; font-weight: 600; font-size: 11px; color: var(--danger); }
+.d-sec { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
+.d-sec > h3 { border: none; padding: 0; margin: 0 0 8px; }
+.d-shelf-books { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px 2px; justify-items: center; }
+.d-shelf-part { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+.d-shelf-books + .d-shelf-part { margin-top: 10px; }
+.d-shelf-name { flex: 0 0 64px; min-width: 0; text-align: left; background: none; border: none; padding: 0; cursor: pointer; color: var(--text);
+  font-family: var(--serif-display); font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d-shelf-chs { flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: repeat(auto-fill, 34px); justify-content: start; gap: 4px 2px; }
+.d-read-row { margin-bottom: 9px; cursor: pointer; }
+.d-read-line { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; white-space: nowrap; }
+.d-read-line .t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 700; font-size: 14px; }
+.d-read-line .p { flex: 0 0 auto; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.d-read-line .pc { flex: 0 0 auto; font-weight: 700; color: var(--accent); font-size: 13px; font-variant-numeric: tabular-nums; }
 
 </style>
 </head>
@@ -10214,7 +10322,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260916-2238'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260916-2238';
+const BUILD_ID = '20260917-0752'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260917-0752';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -10545,12 +10653,42 @@ function addRow(placeholder, onAdd) {
   return el;
 }
 
-function celebrate(text) {
-  const el = document.createElement('div');
-  el.className = 'xp-pop';
-  el.textContent = text;
-  document.body.append(el);
-  setTimeout(() => el.remove(), 1200);
+// ⛑ E3 (17 Sep) — NO POP-UPS. "Remove both": the floating gold "Milestone! 🎉" / "Pathway complete! 🏆"
+// and the emoji in labels. What a celebration said is still worth saying, so it is an ordinary toast.
+function celebrate(text) { toast(text); }
+
+// ⛑⛑ E4 (17 Sep) — DARK MODE. His pick: a Settings toggle, Light / Dark / Match device (the default).
+// The choice is kept on THIS device (localStorage `strive-theme`), not synced: the phone at night and
+// the iPad on the desk may want different things. The resolved theme is always written onto
+// <html data-theme>, which is what the CSS reads; the media query in app.css only covers the first
+// paint. Screens that compute colours in JS (the review-decay circles) are redrawn on a change.
+const THEME_KEY = 'strive-theme';
+const THEME_CHOICES = [['auto', 'Match device'], ['light', 'Light'], ['dark', 'Dark']];
+function themeChoice() {
+  try { const v = localStorage.getItem(THEME_KEY); return v === 'light' || v === 'dark' ? v : 'auto'; } catch (e) { return 'auto'; }
+}
+const deviceDark = () => { try { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); } catch (e) { return false; } };
+function themeResolved() { const c = themeChoice(); return c === 'auto' ? (deviceDark() ? 'dark' : 'light') : c; }
+function applyTheme() {
+  const t = themeResolved();
+  try { document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+  try {
+    const m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.setAttribute('content', t === 'dark' ? '#15120d' : '#f6efe1');
+  } catch (e) {}
+  return t;
+}
+function setThemeChoice(v) {
+  try { if (v === 'auto') localStorage.removeItem(THEME_KEY); else localStorage.setItem(THEME_KEY, v); } catch (e) {}
+  applyTheme();
+}
+function watchDeviceTheme(onChange) {
+  try {
+    const mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+    if (!mq) return;
+    const fn = () => { if (themeChoice() === 'auto') { applyTheme(); onChange(); } };
+    if (mq.addEventListener) mq.addEventListener('change', fn); else if (mq.addListener) mq.addListener(fn);
+  } catch (e) {}
 }
 
 // Complete a pathway's next step (from Today or the pathway itself),
@@ -10560,8 +10698,8 @@ function completePathwayStep(p, secs = null, stepId = null) {
   const s = stepId ? PW.completeStep(p, stepId, secs) : PW.completeNext(p, secs);
   if (!s) return;
   let note = 'Step complete';
-  if (mBefore && PW.milestoneComplete(mBefore)) { note = 'Milestone complete!'; celebrate('Milestone! 🎉'); }
-  if (PW.isComplete(p)) { note = 'Pathway complete!'; celebrate('Pathway complete! 🏆'); }
+  if (mBefore && PW.milestoneComplete(mBefore)) note = 'Milestone complete';
+  if (PW.isComplete(p)) note = 'Pathway complete';
   if (secs != null) {
     const mb = SC.matchBook(s.label);
     if (mb && (mb.kind === 'book' || mb.kind === 'range')) {
@@ -10685,24 +10823,93 @@ function ftRadial(label, level, domKey = null) {
   </div>`;
 }
 
-function levelRow(label, cx, color, cs = null, corpusKey = null) {
-  // cs = plain corpus % memorized (review-status-independent) shown at right (Phase 4B)
-  // corpusKey ('all'|'ot'|'nt') makes the row a clickable dashboard hub link to that corpus's books (7B.2)
-  const pctTxt = cs ? (cs.pct > 0 && cs.pct < 10 ? cs.pct.toFixed(1) : Math.round(cs.pct)) + '%' : '';
-  return `
-    <div class="row" style="margin-bottom:10px${corpusKey ? ';cursor:pointer' : ''}"${corpusKey ? ` data-corpus="${corpusKey}"` : ''}>
-      <div style="width:42px;height:42px;border-radius:50%;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${cx.level}</div>
-      <div class="grow">
-        <div style="font-weight:700;font-size:14px">${label}</div>
-        <div class="muted" style="font-size:12px">${cx.xp.toLocaleString()} / ${cx.max.toLocaleString()} XP${cx.stale.length ? ` · <span style="color:var(--danger)">⚠ ${cx.stale.length} book${cx.stale.length > 1 ? 's' : ''} need review</span>` : ''}</div>
-        <div class="progressbar" style="margin-top:5px"><div style="width:${cx.max ? cx.xp / cx.max * 100 : 0}%;background:${color}"></div></div>
+// ⛑ E2 (17 Sep) — A CORPUS ROW IS ITS PERCENT, NOT ITS LEVEL. His words: "3 progress bars for whole
+// bible, OT, and NT with percents … but no longer xp or level. So in that case the percent could go in
+// the little colored circle." The circle carries the % memorized; the bar shows the same number.
+// Books that have gone stale still say so — that is review information, not gamification.
+function corpusRow(label, t, color, corpusKey) {
+  const cs = SC.corpusStats(t);
+  const pct = cs.pct > 0 && cs.pct < 10 ? cs.pct.toFixed(1) : String(Math.round(cs.pct));
+  const stale = allBooks.filter(b => (!t || b.t === t) && SC.bookStats(b).done > 0 && SC.isStale(b)).length;
+  return `<div class="d-corpus" data-corpus="${corpusKey}">
+      <div class="d-corpus-pct${corpusKey === 'all' ? ' gold' : ''}" style="background:${color}">${pct}%</div>
+      <div class="grow" style="min-width:0">
+        <div class="d-corpus-l"><span>${label}</span>${stale ? `<span class="d-corpus-warn">${stale} book${stale > 1 ? 's' : ''} need review</span>` : ''}</div>
+        <div class="progressbar"><div style="width:${Math.min(100, cs.pct)}%;background:${color}"></div></div>
       </div>
-      ${cs ? `<div style="text-align:right;flex-shrink:0">
-        <div class="big" style="font-size:19px;color:${color}">${pctTxt}</div>
-        <div class="muted" style="font-size:10px">memorized</div>
-      </div>` : ''}
     </div>`;
 }
+
+// ⛑ E2 — EVERY MEMORIZED BOOK, ONE TAP FROM REVIEW. "Beneath currently memorizing I'd like all books
+// I've memorized so that I can do a quick click into them for review. They don't need progress bars
+// since they're done, just clean organized icons." Canon order. A book that is not finished but has
+// whole chapters memorized (Psalms) is ONE tile too, which opens a sheet of its chapters — so the
+// dashboard never grows a row per psalm.
+function memorizedShelfItems() {
+  return allBooks.map(b => {
+    const st = SC.bookStats(b);
+    if (!st.done) return null;
+    if (st.done === st.total) return { b, whole: true, chs: b.verses.map((_, ci) => ci) };
+    const chs = b.verses.map((_, ci) => ci).filter(ci => { const c = SC.chapterStats(b, ci); return c.total > 0 && c.done === c.total; });
+    return chs.length ? { b, whole: false, chs } : null;
+  }).filter(Boolean);
+}
+// ⛑ E5 (17 Sep) — HIS PICK, OPTION E: "I like it, especially because you're not putting any writing
+// underneath the circles … keep them in order like … how they show up in the scriptures." Every book he
+// has memorized whole is a circle (the Scripture home's circle: fill = review decay, brass ring =
+// mastery), no caption, canon order. Each book he has only part of gets its own line — the name, then a
+// circle per memorized chapter — so a psalm is one tap, with no panel in between.
+function shelfChapterCircle(b, ci) {
+  const keys = [];
+  for (let v = 1; v <= b.verses[ci]; v++) if (SC.verseDone(b, ci, v)) keys.push('bible:' + b.name + ':' + (ci + 1) + '#' + v);
+  const chMods = MOD.modulesFor(b.name).filter(m => RV.cadenceOf(m) && MOD.moduleChapters(m).includes(ci)).map(m => RV.cadenceOf(m));
+  const iv = RV.governingReviewInterval(b.name, ci, -1, chMods);
+  const el = scriptureCircle({
+    num: ci + 1, size: 34, memorized: true,
+    decay: (iv != null && keys.length) ? RV.unitDecay(keys, iv) : null,
+    mastery: RV.unitMastery(keys, verseRingMastery),
+    title: b.name + ' ' + (ci + 1),
+    onClick: () => render(() => chapterScreen(b, ci)),
+  });
+  el.classList.add('d-shelf-ch');
+  el.dataset.book = b.name; el.dataset.ci = String(ci);
+  return el;
+}
+function memorizedShelf() {
+  const items = memorizedShelfItems();
+  if (!items.length) return null;
+  const sec = h(`<div id="d-shelf" class="d-sec"><h3>Memorized</h3></div>`).firstElementChild;
+  const whole = items.filter(it => it.whole);
+  if (whole.length) {
+    const row = document.createElement('div');
+    row.className = 'd-shelf-books';
+    whole.forEach(it => {
+      const v = bookReviewView(it.b);
+      const el = scriptureCircle({
+        label: SC.abbr(it.b.name), size: 46, memorized: true, decay: v.decay, mastery: v.mastery,
+        title: it.b.name, onClick: () => render(() => bookScreen(it.b)),
+      });
+      el.classList.add('d-shelf-book');
+      el.dataset.book = it.b.name;
+      row.append(el);
+    });
+    sec.append(row);
+  }
+  items.filter(it => !it.whole).forEach(it => {
+    const line = h(`<div class="d-shelf-part" data-book="${esc(it.b.name)}"><button class="d-shelf-name">${esc(it.b.name)}</button><div class="d-shelf-chs"></div></div>`).firstElementChild;
+    line.querySelector('.d-shelf-name').onclick = () => render(() => bookScreen(it.b));
+    const chs = line.querySelector('.d-shelf-chs');
+    it.chs.forEach(ci => chs.append(shelfChapterCircle(it.b, ci)));
+    sec.append(line);
+  });
+  return sec;
+}
+
+// A small engraved bar-chart glyph: "stats should just live in each domain, so maybe there's an icon in
+// each to click and see stats."
+const STATS_GLYPH = '<svg viewBox="-14 -14 28 28" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" aria-hidden="true"><path d="M-11 11 H11 M-6.5 11 V2 M0 11 V-10 M6.5 11 V-3"/></svg>';
+const statsIcon = id => `<button class="d-ico" id="${id}" title="Stats" aria-label="Stats">${STATS_GLYPH}</button>`;
+function openDomainStats(corpus) { statsFilter.corpus = corpus; render(statsScreen); }
 
 // SM2 — one project: big display · 2+ projects: compact list · 0 projects: section hidden
 function currentItemInfo(it) {
@@ -10724,17 +10931,16 @@ function currentBookSection() {
     if (!inf) return '';
     const next = inf.ch == null ? SC.nextChapter(inf.b) : null;
     const sub = inf.ch != null
-      ? (inf.done === inf.total ? 'chapter complete! 🎉' : 'standalone chapter')
-      : next ? 'working on chapter ' + (next.ci + 1) + ' (' + next.done + '/' + next.total + ')' : 'book complete! 🎉';
-    const pi = TG.memPaceInfo(items[0]);
-    const paceLine = pi ? `<div style="font-size:12px;font-weight:600;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? pi.remaining + ' verses due now' : pi.perDay + ' verses/day to ' + shortDate(items[0].due)}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>` : '';
-    return `<div id="d-current" style="cursor:pointer;border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
-      <h3 style="margin-bottom:8px">Currently Memorizing</h3>
+      ? (inf.done === inf.total ? 'chapter complete' : 'standalone chapter')
+      : next ? 'working on chapter ' + (next.ci + 1) + ' (' + next.done + '/' + next.total + ')' : 'book complete';
+    // ⚑ E2 — no pace line here: "it's enough for that to show up in the planning portion of the app or
+    // when you click into the book itself."
+    return `<div id="d-current" class="d-sec" style="cursor:pointer">
+      <h3>Currently Memorizing</h3>
       <div class="row">
         <span class="badge ${inf.b.t}">${inf.b.t.toUpperCase()}</span>
         <div class="grow"><div style="font-size:17px;font-weight:700;">${esc(inf.label)}</div>
           <div class="muted" style="font-size:12px">${inf.done}/${inf.total} verses · ${sub}${inf.stale ? ' · <span style="color:var(--danger)">⚠ review needed</span>' : ''}</div>
-          ${paceLine}
         </div>
         <div style="text-align:right;flex-shrink:0"><div class="big" style="color:var(--accent)">${inf.pct}%</div></div>
       </div>
@@ -10753,61 +10959,53 @@ function currentBookSection() {
       <div class="progressbar" style="margin-top:4px"><div style="width:${inf.pct}%"></div></div>
     </div>`;
   }).join('');
-  return `<div id="d-current" style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
-    <h3 style="margin-bottom:8px">Currently Memorizing</h3>${rows}</div>`;
+  return `<div id="d-current" class="d-sec">
+    <h3>Currently Memorizing</h3>${rows}</div>`;
 }
 
+// ⛑⛑ E2 (17 Sep) — THE STUDY DASHBOARD, CONDENSED, SCRIPTURE FIRST. His rulings:
+//   · keep the daily verse and the day strip at the top; Pathways moves to the bottom;
+//   · Stats and Trends leave the dashboard — "stats should just live in each domain": a small chart
+//     icon on each card (Scripture and Creeds → Stats filtered to them, Scripture with its review
+//     times and graphs first; Reading → its read history). Trends is reached from Stats;
+//   · Scripture: memorized this week on top, then verses · chapters · books on one line, the three
+//     corpus bars with the % in the circle (no XP, no level, no day streak), Currently Memorizing
+//     without the pace line, then every memorized book as a tile;
+//   · Scripture Reading and Creeds stay as they are; Reading shows the last three books with pages
+//     logged and keeps its numbers.
 function dashboard() {
   setHeader('Strive');
   main().append(dailyVerseCard());
   main().append(checkinStrip());
   const g = SC.globalStats();
-  const xot = SC.corpusXP('ot'), xnt = SC.corpusXP('nt'), xall = SC.corpusXP(null);
-  const streak = getStreak();
-  const rdReading = RD.byStatus('reading');
+  const wkNew = SC.versesMarked(weekStartKey(), todayKey());
   const lib = RD.libraryLevel();
   const life = RD.lifetime();
   const activePaths = PW.all().filter(p => PW.nextStep(p));
+  // the last three books he logged pages in, newest first. ⚑ E5 — "a book that has been completed
+  // shouldn't count": a finished book drops out and the next most recent one takes its place.
+  const lastLogged = b => (b.logs || []).reduce((m, l) => Math.max(m, l.ts || 0), 0);
+  const rdRecent = RD.books().filter(b => b.status !== 'finished' && lastLogged(b) > 0).sort((x, y) => lastLogged(y) - lastLogged(x)).slice(0, 3);
+  const dayTs = k => { const [y, m, dd] = k.split('-').map(Number); return new Date(y, m - 1, dd).getTime(); };
   main().append(h(`
-    <div class="card" id="d-pathways" style="cursor:pointer">
-      <h3>Pathways</h3>
-      ${activePaths.length ? activePaths.slice(0, 3).map(p => {
-        const pst = PW.stats(p);
-        const nx = PW.nextStep(p);
-        return `<div class="row" style="margin-bottom:6px">
-          <div class="grow" style="font-size:13px;font-weight:600">${esc(p.name)}
-            <span class="muted" style="font-weight:400">· next: ${esc(nx.label)}</span></div>
-          <div style="font-weight:700;color:var(--accent);font-size:13px">${pst.pct}%</div>
-        </div>
-        <div class="progressbar" style="margin-bottom:8px"><div style="width:${pst.pct}%"></div></div>`;
-      }).join('') + '<div class="row"><span class="chev" style="margin-left:auto">›</span></div>'
-      : '<div class="row"><div class="grow muted">No active pathways — create one to always know your next stone.</div><span class="chev">›</span></div>'}
-    </div>
-    <div class="card">
-      <h3><span id="d-sc-title" style="cursor:pointer">Scripture</span> <span id="d-sc-practice" title="Practice" style="cursor:pointer;color:var(--accent);font-weight:400">◎</span></h3>
-      <div class="row" style="margin-bottom:12px">
-        <div class="grow">
-          <div class="big">${g.done.toLocaleString()}</div>
-          <div class="muted">verses memorized</div>
-        </div>
-        <div style="text-align:right">
-          <div class="big" style="color:var(--gold)">${streak}</div>
-          <div class="muted">day streak</div>
-          <div class="muted" style="font-size:11px">${weekDays('sm')} of 7 this week</div>
-        </div>
+    <div class="card" id="d-scripture">
+      <div class="d-head"><h3><span id="d-sc-title" style="cursor:pointer">Scripture</span></h3>
+        <button class="d-ico" id="d-sc-practice" title="Practice" aria-label="Practice">◎</button>${statsIcon('d-sc-stats')}</div>
+      <div class="d-week">
+        <div class="big">${wkNew.toLocaleString()}</div>
+        <div class="muted">memorized this week</div>
       </div>
-      ${levelRow('Whole Bible', xall, 'var(--gold)', SC.corpusStats(null), 'all')}
-      ${levelRow('Old Testament', xot, 'var(--ot)', SC.corpusStats('ot'), 'ot')}
-      ${levelRow('New Testament', xnt, 'var(--nt)', SC.corpusStats('nt'), 'nt')}
-      <div class="statgrid" style="margin-top:8px">
-        <div class="stat" id="d-sc-books" style="cursor:pointer"><div class="v">${g.booksComplete}</div><div class="l">Books complete</div></div>
-        <div class="stat"><div class="v">${g.chaptersComplete}</div><div class="l">Chapters complete</div></div>
+      <div class="d-totals">
+        <div class="d-tot" id="d-sc-verses"><span class="v">${g.done.toLocaleString()}</span><span class="l">verses</span></div>
+        <div class="d-tot" id="d-sc-chapters"><span class="v">${g.chaptersComplete.toLocaleString()}</span><span class="l">chapters</span></div>
+        <div class="d-tot" id="d-sc-books"><span class="v">${g.booksComplete}</span><span class="l">books</span></div>
       </div>
+      ${corpusRow('Whole Bible', null, 'var(--gold)', 'all')}
+      ${corpusRow('Old Testament', 'ot', 'var(--ot)', 'ot')}
+      ${corpusRow('New Testament', 'nt', 'var(--nt)', 'nt')}
       ${currentBookSection()}
+      <div id="d-shelf-slot"></div>
       ${openPassesSection()}
-      <div class="row" id="d-sc-review" style="cursor:pointer;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
-        <div class="grow muted" style="font-size:12px">⏱ Scripture Review — times, trends &amp; logs</div><span class="chev">›</span>
-      </div>
     </div>
     <div class="card" id="d-plans" style="cursor:pointer">
       <h3>Scripture Reading</h3>
@@ -10817,15 +11015,17 @@ function dashboard() {
         const rest = !pdone && !RP.isReadingDay(p);
         return `<div class="row" style="margin-bottom:6px">
           <div class="grow" style="font-size:13px;font-weight:600">${esc(p.name)}
-            <span class="muted" style="font-weight:400">· ${pst.complete ? 'complete 🎉' : rest ? 'rest day' : esc(RP.portionRef(p)) + (pdone ? ' ✓' : '')}</span></div>
+            <span class="muted" style="font-weight:400">· ${pst.complete ? 'complete' : rest ? 'rest day' : esc(RP.portionRef(p)) + (pdone ? ' ✓' : '')}</span></div>
           <div style="font-weight:700;color:var(--accent);font-size:13px">${pst.pct}%</div>
         </div>
         <div class="progressbar" style="margin-bottom:8px"><div style="width:${pst.pct}%"></div></div>`;
-      }).join('') : '<div class="row"><div class="grow muted">No reading plans yet — whole Bible, a testament, or any set of books.</div><span class="chev">›</span></div>'}
+      }).join('') + '<div class="row"><span class="chev" style="margin-left:auto">›</span></div>'
+      : '<div class="row"><div class="grow muted">No reading plans yet — whole Bible, a testament, or any set of books.</div><span class="chev">›</span></div>'}
     </div>`));
   main().append(h(`
     <div class="card" id="d-creeds" style="cursor:pointer">
-      <h3><span id="d-cr-title" style="cursor:pointer">Creeds, Catechisms &amp; Confessions</span> <span id="d-cr-practice" title="Practice" style="cursor:pointer;color:var(--accent);font-weight:400">◎</span></h3>
+      <div class="d-head"><h3><span id="d-cr-title" style="cursor:pointer">Creeds, Catechisms &amp; Confessions</span></h3>
+        <button class="d-ico" id="d-cr-practice" title="Practice" aria-label="Practice">◎</button>${statsIcon('d-cr-stats')}</div>
       ${(() => {
         const docs = CR.currentDocs();
         if (!docs.length) return '<div class="muted">Choose a document to read or memorize.</div>';
@@ -10833,7 +11033,7 @@ function dashboard() {
         if (docs.length === 1) {
           const d = docs[0], st = CR.docStats(d.id), tr = CR.trackOf(d.id);
           return `<div class="d-cr-row" data-cid="${d.id}" style="cursor:pointer"><div class="row">
-            <div style="width:42px;height:42px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${st.level}</div>
+            <div style="width:42px;height:42px;border-radius:50%;background:var(--accent-fill);color:var(--on-accent);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${st.level}</div>
             <div class="grow">
               <div style="font-weight:700;font-size:14px">${esc(d.name)}</div>
               <div class="muted" style="font-size:12px">${tr === 'memorize' ? 'memorizing' : tr === 'read' ? 'reading' : ''} · ${st.done}/${st.total} ${unitOf(d)} · ${st.pct}%</div>
@@ -10861,84 +11061,53 @@ function dashboard() {
       })()}
     </div>
     <div class="card" id="d-reading" style="cursor:pointer">
-      <h3>Reading</h3>
+      <div class="d-head"><h3>Reading</h3>${statsIcon('d-rd-stats')}</div>
       <div class="row" style="margin-bottom:10px">
-        <div class="grow muted" style="font-size:12px">${(() => {
-          const dayTs = k => { const [y, m, dd] = k.split('-').map(Number); return new Date(y, m - 1, dd).getTime(); };
-          return RD.pagesBetween(dayTs(todayKey())) + ' pages today · ' + RD.pagesBetween(dayTs(weekStartKey())) + ' this week';
-        })()}</div>
+        <div class="grow muted" style="font-size:12px">${RD.pagesBetween(dayTs(todayKey()))} pages today · ${RD.pagesBetween(dayTs(weekStartKey()))} this week</div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-weight:700;color:var(--gold);font-size:14px">${getStreak('rd')}</div>
           <div class="muted" style="font-size:10px">day streak</div>
         </div>
       </div>
-      ${rdReading.length ? rdReading.map(b => {
-        const est = RD.estimate(b);
-        return `<div class="d-read-row" data-bid="${b.id}" style="margin-bottom:10px">
-          <div class="row"><div class="grow" style="font-weight:700;font-size:14px">${esc(b.title)}</div>
-          <div style="font-weight:700;color:var(--accent)">${RD.pct(b)}%</div></div>
-          <div class="muted" style="font-size:12px">p. ${b.currentPage || 0} of ${b.pages || '?'}${est ? ' · ~' + est.days + ' days left (' + est.finish.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ')' : ''}</div>
-          ${(() => { const pi = TG.readPaceInfo(b); return pi ? `<div style="font-size:12px;font-weight:600;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? pi.remaining + ' pages due now' : '~' + pi.perDay + '/day to ' + shortDate(b.due)}${!pi.overdue && pi.done ? ' ✓' : ''}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>` : ''; })()}
-          <div class="progressbar" style="margin-top:5px"><div style="width:${RD.pct(b)}%"></div></div>
-        </div>`;
-      }).join('') : '<div class="muted" style="margin-bottom:8px">Nothing being read right now.</div>'}
-      <div class="row" style="gap:14px">
-        <div><span style="font-weight:700">${lib.level}</span> <span class="muted" style="font-size:12px">library level</span></div>
-        <div><span style="font-weight:700">${life.booksFinished}</span> <span class="muted" style="font-size:12px">books finished</span></div>
-        <div><span style="font-weight:700">${life.pagesRead.toLocaleString()}</span> <span class="muted" style="font-size:12px">pages read</span></div>
+      ${rdRecent.length ? rdRecent.map(b => `<div class="d-read-row" data-bid="${b.id}">
+          <div class="d-read-line">
+            <span class="t">${esc(b.title)}</span>
+            <span class="p">p. ${b.currentPage || 0}/${b.pages || '?'}</span>
+            <span class="pc">${RD.pct(b)}%</span>
+          </div>
+          <div class="progressbar"><div style="width:${RD.pct(b)}%"></div></div>
+        </div>`).join('') : '<div class="muted" style="margin-bottom:8px">No pages logged yet.</div>'}
+      <div class="d-totals stack" style="margin:8px 0 0;border-bottom:none">
+        <div class="d-tot"><span class="v">${lib.level}</span><span class="l">library level</span></div>
+        <div class="d-tot"><span class="v">${life.booksFinished}</span><span class="l">books finished</span></div>
+        <div class="d-tot"><span class="v">${life.pagesRead.toLocaleString()}</span><span class="l">pages read</span></div>
       </div>
     </div>
-    <div class="card" id="d-stats" style="cursor:pointer">
-      <div class="row"><h3 style="border:none;margin:0;padding:0">Stats</h3>
-      <div class="grow muted" style="font-size:12px;text-align:right;margin-right:4px">${(() => {
-        const s = ST.summary({ from: Date.now() - 30 * 86400000 });
-        return s.count ? s.count + ' session' + (s.count === 1 ? '' : 's') + ' · 30d' + (s.avgScore == null ? '' : ' · ' + s.avgScore + '%') : 'session history';
-      })()}</div>
-      <span class="chev">›</span></div>
-    </div>
-    <div class="card" id="d-trends" style="cursor:pointer">
-      <div class="row"><h3 style="border:none;margin:0;padding:0">Trends</h3>
-      <div class="grow muted" style="font-size:12px;text-align:right;margin-right:4px">8 weeks · week over week</div>
-      <span class="chev">›</span></div>
+    <div class="card" id="d-pathways" style="cursor:pointer">
+      <h3>Pathways</h3>
+      ${activePaths.length ? activePaths.slice(0, 3).map(p => {
+        const pst = PW.stats(p);
+        const nx = PW.nextStep(p);
+        return `<div class="row" style="margin-bottom:6px">
+          <div class="grow" style="font-size:13px;font-weight:600">${esc(p.name)}
+            <span class="muted" style="font-weight:400">· next: ${esc(nx.label)}</span></div>
+          <div style="font-weight:700;color:var(--accent);font-size:13px">${pst.pct}%</div>
+        </div>
+        <div class="progressbar" style="margin-bottom:8px"><div style="width:${pst.pct}%"></div></div>`;
+      }).join('') + '<div class="row"><span class="chev" style="margin-left:auto">›</span></div>'
+      : '<div class="row"><div class="grow muted">No active pathways — create one to always know your next stone.</div><span class="chev">›</span></div>'}
     </div>
   `));
-  main().querySelector('#d-stats').onclick = () => render(statsScreen);   // D-AB: Stats sits ABOVE Trends
-  main().querySelector('#d-trends').onclick = () => render(trendsScreen);
-  // ⚑ TWENTY-FOURTH SESSION — the ring lands on the HUB, not the assessment. He asked for the
-  // opposite in the twenty-second and reversed it himself after using the hub: "I know I told
-  // you different before but at this point the way that the fitness home page is laid out, it
-  // makes it easy to navigate to the overall fitness page and it shows it pretty largely at the
-  // top." The hub's own card carries the Level ring, so nothing is further away than one tap.
-  { // 7B.2 dashboard-as-hub — Scripture card clickable targets
-    const scT = main().querySelector('#d-sc-title'); if (scT) scT.onclick = () => render(scriptureHome);
-    main().querySelectorAll('[data-corpus]').forEach(r => r.onclick = () => { const k = r.dataset.corpus; render(() => corpusBooks(k === 'all' ? null : k)); });
-    const scB = main().querySelector('#d-sc-books'); if (scB) scB.onclick = () => render(booksCompleteScreen);
-    const scP = main().querySelector('#d-sc-practice'); if (scP) scP.onclick = e => { e.stopPropagation(); render(practiceScriptureLauncher); };
-    const scR = main().querySelector('#d-sc-review'); if (scR) scR.onclick = e => { e.stopPropagation(); render(reviewArea); };   // Scripture Review reachable from the hub (Areas tab removed)
-    const crP = main().querySelector('#d-cr-practice'); if (crP) crP.onclick = e => { e.stopPropagation(); render(practiceCreedsLauncher); };
-    // ⚑ 'assess', NOT 'lib'. Tapping a domain from the dashboard opened the FULL LIBRARY of that
-    // domain — every workout in it, scoring or not. His instruction: "the standard should be it
-    // just brings me to the assessment piece of that, not the full library." The library is still
-    // one tap away on the toggle; it is no longer what you land on.
-  }
-  // 7B.2 / D-P — the Creeds card and its title go to the master list (home); each current
-  // document row deep-links to that document.
-  main().querySelector('#d-creeds').onclick = () => render(creedsHome);
-  const crT = main().querySelector('#d-cr-title'); if (crT) crT.onclick = e => { e.stopPropagation(); render(creedsHome); };
-  main().querySelectorAll('#d-creeds .d-cr-row').forEach(r => r.onclick = e => {
-    e.stopPropagation();
-    const d = CR.getDoc(r.dataset.cid);
-    if (d) render(() => creedDocScreen(d));
-  });
-  main().querySelector('#d-reading').onclick = () => render(readingHome);
-  // Phase 6 bug fix — a currently-reading row opens that book's detail, not the general tab
-  main().querySelectorAll('.d-read-row').forEach(r => r.onclick = e => {
-    e.stopPropagation();
-    const b = RD.get(r.dataset.bid);
-    if (b) render(() => bookDetail(b));
-  });
-  main().querySelector('#d-pathways').onclick = () => render(pathwaysHome);
-  main().querySelector('#d-plans').onclick = () => render(plansScreen);
+  const on = (sel, fn) => { const el = main().querySelector(sel); if (el) el.onclick = e => { if (e && e.stopPropagation) e.stopPropagation(); fn(); }; };
+  // Scripture
+  on('#d-sc-title', () => render(scriptureHome));
+  on('#d-sc-verses', () => render(scriptureHome));
+  on('#d-sc-chapters', () => render(booksCompleteScreen));
+  on('#d-sc-books', () => render(booksCompleteScreen));
+  on('#d-sc-practice', () => render(practiceScriptureLauncher));
+  on('#d-sc-stats', () => openDomainStats('scripture'));
+  main().querySelectorAll('[data-corpus]').forEach(r => r.onclick = () => { const k = r.dataset.corpus; render(() => corpusBooks(k === 'all' ? null : k)); });
+  { const slot = main().querySelector('#d-shelf-slot'), shelf = memorizedShelf(); if (shelf) slot.replaceWith(shelf); else slot.remove(); }
   main().querySelectorAll('.d-pass-row').forEach(r => r.onclick = () => {
     const b = allBooks.find(x => x.name === r.dataset.book);
     if (b) render(() => bookScreen(b));
@@ -10955,6 +11124,28 @@ function dashboard() {
     if (rows.length) rows.forEach(r => r.onclick = () => open(items[Number(r.dataset.i)]));
     else dcur.onclick = () => { if (items.length) open(items[0]); };
   }
+  // Scripture Reading
+  main().querySelector('#d-plans').onclick = () => render(plansScreen);
+  // Creeds — the card and its title go to the master list; each current document row deep-links (7B.2 / D-P)
+  main().querySelector('#d-creeds').onclick = () => render(creedsHome);
+  on('#d-cr-title', () => render(creedsHome));
+  on('#d-cr-practice', () => render(practiceCreedsLauncher));
+  on('#d-cr-stats', () => openDomainStats('creeds'));
+  main().querySelectorAll('#d-creeds .d-cr-row').forEach(r => r.onclick = e => {
+    e.stopPropagation();
+    const d = CR.getDoc(r.dataset.cid);
+    if (d) render(() => creedDocScreen(d));
+  });
+  // Reading — a book row opens that book (Phase 6 fix); the chart opens the read history
+  main().querySelector('#d-reading').onclick = () => render(readingHome);
+  on('#d-rd-stats', () => render(readHistoryScreen));
+  main().querySelectorAll('.d-read-row').forEach(r => r.onclick = e => {
+    e.stopPropagation();
+    const b = RD.get(r.dataset.bid);
+    if (b) render(() => bookDetail(b));
+  });
+  // Pathways
+  main().querySelector('#d-pathways').onclick = () => render(pathwaysHome);
 }
 
 // ---------- Stats (D-AB · D-W) — all review/practice history in one place ----------
@@ -10967,6 +11158,10 @@ const statsOpen = new Set();   // expanded session ids, kept across a rerender
 function statsScreen() {
   setHeader('Stats', { back: () => switchTab('home') });
   const wrap = document.createElement('div');
+  // ⚑ E2 — Scripture's stats lead with the review times and graphs ("that would work with my desire to
+  // be able to see the times and graphs as well"); Trends now lives here, not on the dashboard.
+  const timesFirst = statsFilter.corpus === 'scripture';
+  if (timesFirst) wrap.append(statsReviewTimesEntry(true));
   const now = Date.now();
   const from = statsFilter.range ? now - statsFilter.range * 86400000 : 0;
   const q = { from, mode: statsFilter.mode, corpus: statsFilter.corpus };
@@ -10998,7 +11193,8 @@ function statsScreen() {
 
   if (!ST.allSessions().length) {
     wrap.append(h(`<div class="empty">No sessions recorded yet.<br>Finish a flashcard, typing, fade or scramble session<br>and it will appear here with its per-question results.</div>`));
-    wrap.append(statsReviewTimesEntry());
+    if (!timesFirst) wrap.append(statsReviewTimesEntry());
+    wrap.append(statsTrendsEntry());
     main().append(wrap);
     return;
   }
@@ -11030,7 +11226,8 @@ function statsScreen() {
   if (!list.length) wrap.append(h(`<div class="empty">Nothing in this filter — widen the range or pick another mode.</div>`));
   list.forEach(s => wrap.append(statsSessionRow(s)));
 
-  wrap.append(statsReviewTimesEntry());
+  if (!timesFirst) wrap.append(statsReviewTimesEntry());
+  wrap.append(statsTrendsEntry());
   main().append(wrap);
 }
 
@@ -11084,8 +11281,8 @@ function statsItemColor(it) {
 }
 // D-AB folds the old Scripture-Review times/trends screen in here. It's a big, self-contained view
 // (manual entry + per-corpus/book/chapter graphs), so it stays its own screen and Stats owns the door.
-function statsReviewTimesEntry() {
-  const el = h(`<div class="card" style="cursor:pointer;margin-top:14px">
+function statsReviewTimesEntry(first = false) {
+  const el = h(`<div class="card" id="st-times" style="cursor:pointer;margin-top:${first ? 0 : 14}px;margin-bottom:${first ? 10 : 13}px">
     <div class="row"><h3 style="border:none;margin:0;padding:0">Review times &amp; graphs</h3>
     <div class="grow muted" style="font-size:12px;text-align:right;margin-right:4px">recitation history</div>
     <span class="chev">›</span></div>
@@ -11094,9 +11291,20 @@ function statsReviewTimesEntry() {
   return el;
 }
 
+function statsTrendsEntry() {
+  const el = h(`<div class="card" id="st-trends" style="cursor:pointer;margin-top:10px">
+    <div class="row"><h3 style="border:none;margin:0;padding:0">Trends</h3>
+    <div class="grow muted" style="font-size:12px;text-align:right;margin-right:4px">8 weeks · week over week</div>
+    <span class="chev">›</span></div>
+  </div>`);
+  el.querySelector('.card').onclick = () => render(trendsScreen);
+  return el;
+}
+
 // ---------- Trends (Phase 5 · F5) ----------
+// E2: opened from Stats now, so Back returns there.
 function trendsScreen() {
-  setHeader('Trends', { back: () => switchTab('home') });
+  setHeader('Trends', { back: true });
   const wrap = document.createElement('div');
 
   if (!Object.keys(state.activity).length) {
@@ -11582,7 +11790,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
         : pi.perDay + ' ' + entry.unit + '/day' + (pi.done ? ' · done today ✓' : pi.progress ? ' · ' + pi.left + ' to go' : '');
       const el = h(`
         <div class="list-item" style="cursor:pointer${pi.overdue ? ';border-color:var(--danger)' : ''}">
-          <div class="check"${pi.done ? ' style="background:var(--accent);border-color:var(--accent);color:#fff"' : ''}>✓</div>
+          <div class="check"${pi.done ? ' style="background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent)"' : ''}>✓</div>
           <div class="grow">
             <div class="title">${esc(entry.title)}</div>
             <div class="sub">🎯 ${esc(entry.domain)} · ${txt}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>
@@ -11604,7 +11812,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
       const overdue = !entry.done && dk < todayKey();
       const el = h(`
         <div class="list-item" style="cursor:pointer${overdue ? ';border-color:var(--danger)' : ''}">
-          <div class="check"${entry.done ? ' style="background:var(--accent);border-color:var(--accent);color:#fff"' : ''}>✓</div>
+          <div class="check"${entry.done ? ' style="background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent)"' : ''}>✓</div>
           <div class="grow">
             <div class="title">${esc(entry.label)}</div>
             <div class="sub">🏋 ${entry.parts} part${entry.parts === 1 ? '' : 's'} · ${entry.logged}/${entry.parts} logged${entry.manual ? ' · set by hand' : ''}</div>
@@ -11621,7 +11829,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
       const periodLbl = entry.period === 'week' ? 'Weekly' : entry.period === 'month' ? 'Monthly' : 'Daily';
       const el = h(`
         <div class="list-item" style="cursor:pointer">
-          <div class="check"${entry.done ? ' style="background:var(--accent);border-color:var(--accent);color:#fff"' : ''}>✓</div>
+          <div class="check"${entry.done ? ' style="background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent)"' : ''}>✓</div>
           <div class="grow">
             <div class="title">${esc(entry.scopeLabel || entry.domainLabel + ' · any')}</div>
             <div class="sub">🎯 ${periodLbl} target · ${entry.amount}/${entry.target} ${esc(entry.unit)}${entry.done ? ' · done ✓' : entry.period !== 'day' ? ' this ' + entry.period : ''}</div>
@@ -11865,7 +12073,7 @@ function targetProgressBlock(body, period, dk, title) {
     const pctW = Math.min(100, Math.round(pr.amount / pr.target * 100));
     const el = h(`
       <div class="list-item" style="cursor:default">
-        <div class="check"${pr.done ? ' style="background:var(--accent);border-color:var(--accent);color:#fff"' : ''}>✓</div>
+        <div class="check"${pr.done ? ' style="background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent)"' : ''}>✓</div>
         <div class="grow">
           <div class="title">${esc(t.scope && t.scope.label ? t.scope.label : TG.domainLabelOf(t.domain) + ' · any')}</div>
           <div class="sub" style="color:${pr.done ? 'var(--forest)' : 'var(--accent)'};font-weight:600">🎯 ${pr.amount}/${pr.target} ${esc(t.unit)}${pr.done ? ' ✓' : ''}</div>
@@ -12165,7 +12373,7 @@ function pathwaysHome() {
       <div class="list-item">
         <div class="grow">
           <div class="title">${esc(p.name)}</div>
-          <div class="sub">${next ? 'Next: ' + esc(next.label) + (cur ? ' · ' + esc(cur.name) : '') : st.totalSteps ? 'Complete! 🎉' : 'No steps yet'} · ${st.doneSteps}/${st.totalSteps} steps</div>
+          <div class="sub">${next ? 'Next: ' + esc(next.label) + (cur ? ' · ' + esc(cur.name) : '') : st.totalSteps ? 'Complete' : 'No steps yet'} · ${st.doneSteps}/${st.totalSteps} steps</div>
           ${st.totalSteps ? `<div class="progressbar" style="margin-top:6px"><div style="width:${st.pct}%"></div></div>` : ''}
         </div>
         <div style="text-align:right;flex-shrink:0">
@@ -12250,7 +12458,7 @@ function buildPathwayBody(wrap, p) {
     // milestone header
     const head = h(`
       <div class="ms-head ${complete ? 'complete' : locked ? 'locked' : ''}">
-        <div class="ms-badge" style="${complete ? 'background:var(--accent);color:#fff' : isCurrent ? 'background:var(--gold);color:#fff' : 'background:var(--line);color:var(--text-2)'}">${complete ? '✓' : locked ? '🔒' : mi + 1}</div>
+        <div class="ms-badge" style="${complete ? 'background:var(--accent-fill);color:var(--on-accent)' : isCurrent ? 'background:var(--gold-fill);color:var(--on-accent)' : 'background:var(--line);color:var(--text-2)'}">${complete ? '✓' : locked ? '🔒' : mi + 1}</div>
         <div class="grow">
           ${pwEditMode
             ? `<input value="${esc(m.name)}" data-a="rename" style="width:100%;border:none;background:none;color:var(--text);font-size:15px;font-weight:700;padding:0">`
@@ -12760,7 +12968,7 @@ function scriptureHome() {
           <span class="badge ${cur.t}">${cur.t.toUpperCase()}</span>
           <div class="grow">
             <div style="font-size:18px;font-weight:700;">${esc(cur.name)}</div>
-            <div class="muted" style="font-size:12px">${next ? 'chapter ' + (next.ci + 1) + ' · ' + next.done + '/' + next.total + ' verses' : 'complete! 🎉'}${bookDecayNote(heroV) && heroV.decay != null ? ` · <span style="color:${heroV.due ? 'var(--danger)' : heroV.soon ? 'var(--gold)' : 'var(--text-2)'}">${esc(bookDecayNote(heroV))}</span>` : ''}</div>
+            <div class="muted" style="font-size:12px">${next ? 'chapter ' + (next.ci + 1) + ' · ' + next.done + '/' + next.total + ' verses' : 'complete'}${bookDecayNote(heroV) && heroV.decay != null ? ` · <span style="color:${heroV.due ? 'var(--danger)' : heroV.soon ? 'var(--gold)' : 'var(--text-2)'}">${esc(bookDecayNote(heroV))}</span>` : ''}</div>
           </div>
           <div class="big" style="color:var(--accent)">${st.pct}%</div>
         </div>
@@ -13599,9 +13807,12 @@ function pathwayAddSheet(scopeKey, title) {
   });
 }
 // paper (#fbf7ed) → ink (#262016) interpolation; f 0=fresh(light) … 1=due(black).
+// ⚑ E4 — the same meaning in dark mode (light = fresh, dark = due), over a softer parchment so a
+// fresh circle does not glare on the dark page, down to near-black. The text picks its own ink.
+const SHADE = { light: [[0xfb, 0xf7, 0xed], [0x26, 0x20, 0x16]], dark: [[0xd9, 0xcf, 0xb8], [0x0b, 0x09, 0x07]] };
 function reviewShade(f) {
-  const A = [0xfb, 0xf7, 0xed], B = [0x26, 0x20, 0x16], mix = i => Math.round(A[i] + (B[i] - A[i]) * f);
-  return { bg: `rgb(${mix(0)},${mix(1)},${mix(2)})`, fg: f > 0.55 ? 'var(--card)' : 'var(--text)' };
+  const [A, B] = SHADE[themeResolved()], mix = i => Math.round(A[i] + (B[i] - A[i]) * f);
+  return { bg: `rgb(${mix(0)},${mix(1)},${mix(2)})`, fg: f > 0.55 ? '#f6efe1' : '#262016' };
 }
 
 // Universal scripture-unit glyph (D-AE) — one circle carrying BOTH channels, used everywhere a verse/
@@ -13626,9 +13837,9 @@ function scriptureCircle({ num, label = null, size = 46, memorized = true, decay
   const RR = 24, C = 2 * Math.PI * RR;
   let fillBg = 'none', numCol = 'var(--text-2)', fillStroke = 'stroke:var(--line);stroke-width:1;stroke-dasharray:3 3';
   if (memorized) {
-    if (decay == null) { fillBg = '#fbf7ed'; numCol = 'var(--text)'; }          // memorized, no cadence → neutral fill
+    if (decay == null) { fillBg = 'var(--card)'; numCol = 'var(--text)'; }      // memorized, no cadence → neutral fill
     else { const sh = reviewShade(decay); fillBg = sh.bg; numCol = sh.fg; }      // decay fill
-    fillStroke = 'stroke:rgba(38,32,22,0.20);stroke-width:0.5';
+    fillStroke = 'stroke:var(--text-3);stroke-opacity:.45;stroke-width:0.5';
   }
   const ring = (memorized && mastery != null)
     ? `<circle cx="29" cy="29" r="${RR}" fill="none" stroke-linecap="round" style="stroke:var(--gold);stroke-width:2.5" stroke-dasharray="${(mastery / 100 * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 29 29)"/>`
@@ -15325,8 +15536,8 @@ function timesScreen(name, key = null) {
 function openPassesSection() {
   const names = SC.booksWithRuns().filter(n => SC.openRun(n) && allBooks.some(b => b.name === n));
   if (!names.length) return '';
-  return `<div id="d-passes" style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
-    <h3 style="margin-bottom:8px">Passes in progress</h3>
+  return `<div id="d-passes" class="d-sec">
+    <h3>Passes in progress</h3>
     ${names.map(n => {
       const run = SC.openRun(n), pr = SC.runProgress(n, run);
       const pct = pr.vTotal ? Math.round(pr.vDone / pr.vTotal * 100) : 0;
@@ -15721,7 +15932,7 @@ function bookDetail(b) {
         ${curCh ? `<div class="muted" style="font-size:12px;color:var(--accent);font-weight:600">📖 Ch. ${curCh.n}${curCh.title ? ' — ' + esc(curCh.title) : ''}</div>` : ''}
         ${est ? `<div class="muted" style="font-size:12px">~${est.pace.toFixed(0)} pages/day · ~${est.days} days left · done ${est.finish.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</div>` : ''}
         ${(() => { const pi = TG.readPaceInfo(b); return pi ? `<div style="font-size:12px;font-weight:600;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? 'Overdue — ' + pi.remaining + ' pages left, due now' : pi.perDay + ' pages/day to finish by ' + shortDate(b.due)}</div>` : ''; })()}</div>
-        <div style="text-align:right"><span class="badge" style="background:var(--accent)">${{ library: 'Library', upnext: 'Up Next', reading: 'Reading', finished: 'Finished' }[b.status]}</span></div>
+        <div style="text-align:right"><span class="badge" style="background:var(--accent-fill)">${{ library: 'Library', upnext: 'Up Next', reading: 'Reading', finished: 'Finished' }[b.status]}</span></div>
       </div>
       <div class="progressbar" style="margin-top:8px"><div style="width:${RD.pct(b)}%"></div></div>
     </div>`));
@@ -15934,9 +16145,9 @@ function bookStatusSheet(b) {
     // library → up next → reading → finished would be three pointless taps per book, and would leave
     // a false startedTs behind on every one of them.
     const moves = [];
-    if (b.status === 'library') moves.push(['Mark Finished 🎉', 'finished'], ['Move to Up Next', 'upnext']);
-    if (b.status === 'upnext') moves.push(['Start Reading', 'reading'], ['Mark Finished 🎉', 'finished'], ['Back to Library', 'library']);
-    if (b.status === 'reading') moves.push(['Mark Finished 🎉', 'finished'], ['Pause — back to Up Next', 'upnext']);
+    if (b.status === 'library') moves.push(['Mark Finished', 'finished'], ['Move to Up Next', 'upnext']);
+    if (b.status === 'upnext') moves.push(['Start Reading', 'reading'], ['Mark Finished', 'finished'], ['Back to Library', 'library']);
+    if (b.status === 'reading') moves.push(['Mark Finished', 'finished'], ['Pause — back to Up Next', 'upnext']);
     if (b.status === 'finished') moves.push(['Re-read — back to Reading', 'reading']);
 
     let dateInput = null;
@@ -15960,7 +16171,7 @@ function bookStatusSheet(b) {
         const r = RD.setStatus(b, status, on); if (!r.ok) { toast(r.reason); return; }
         // A backdated finish is a filing action, not an achievement — celebrating a book he read two
         // years ago every time he enters one would turn the celebration into noise.
-        if (status === 'finished') { if (RD.isBackdated(b)) toast('Filed under ' + RD.finishedLabel(b)); else celebrate('Book finished! 📚'); }
+        if (status === 'finished') { if (RD.isBackdated(b)) toast('Filed under ' + RD.finishedLabel(b)); else celebrate('Book finished'); }
         close(); rerender();
       };
       body.append(btn);
@@ -16406,7 +16617,7 @@ function renderPlans(body) {
     const el = h(`
       <div class="list-item">
         <div class="grow">
-          <div class="title">${esc(p.name)}${st.complete ? ' 🎉' : ''}</div>
+          <div class="title">${esc(p.name)}${st.complete ? ' <span class="muted" style="font-weight:400">· complete</span>' : ''}</div>
           <div class="sub">${st.done}/${st.total} ${p.kind === 'fixed' ? 'days' : 'chapters'} · ${st.pct}%${st.complete ? '' : ref ? ' · today: ' + esc(ref) + (done ? ' ✓' : '') : ''}</div>
           <div class="progressbar" style="margin-top:6px"><div style="width:${st.pct}%"></div></div>
           ${fin && !st.complete ? `<div class="sub" style="margin-top:3px">${p.mode === 'bydate' ? 'target' : 'on pace to finish'} ${fin.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</div>` : ''}
@@ -16596,7 +16807,7 @@ function planDetail(p) {
     };
     wrap.append(today);
   } else {
-    wrap.append(h(`<div class="card" style="text-align:center;padding:22px"><div class="big">🎉</div><div style="font-weight:700;margin-top:6px">Plan complete</div></div>`));
+    wrap.append(h(`<div class="card" style="text-align:center;padding:22px"><div style="font-weight:700">Plan complete</div></div>`));
   }
 
   const recent = Object.entries(p.log || {}).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 7);
@@ -19027,8 +19238,7 @@ function practiceSummary(d, mode, lines, count, stats = null, opts = {}) {
     </div>`));
   else wrap.append(h(`
     <div class="card" style="text-align:center;padding:26px 16px">
-      <div class="big">🎉</div>
-      <div style="font-weight:700;font-size:17px;margin-top:6px">${mode} session complete</div>
+      <div style="font-weight:700;font-size:17px">${mode} session complete</div>
       <div class="muted" style="margin-top:4px">${count} question${count === 1 ? '' : 's'} practiced</div>
     </div>`));
   if (lines.length) {
@@ -21148,7 +21358,7 @@ function logForm(w, prefillResult = '', ctx = null, prefillFields = null, prompt
       sets: row.querySelector('[data-d=sets]').value.trim()
     })).filter(x => x.exercise);
     const newLog = FT.addLog({ wid: w.id, ts, result, resultType: w.resultType, rxStatus, rpe, score: built.score, groupId: ctx ? ctx.cardId : null, weights: form.querySelector('[data-a=weights]').value.trim(), notes: form.querySelector('[data-a=notes]').value.trim(), details });
-    if (wasPr) celebrate('New PR! ★');
+    if (wasPr) celebrate('New PR');
     toast(wasPr ? 'PR logged — ' + result : 'Logged ' + result);
     if (ctx) { FT.cardSetPartLog(ctx.cardId, ctx.partIdx, newLog.id); render(() => workoutCardDetail(FT.getCard(ctx.cardId))); }
     else goBack();
@@ -23282,6 +23492,14 @@ const timerSoundMode = () => ((state.fitness && state.fitness.timerSound) === 'l
 function applyAudioSession() {
   try { if (navigator.audioSession) navigator.audioSession.type = timerSoundMode() === 'loud' ? 'playback' : 'transient'; } catch (e) {}
 }
+// ⚑⚑ V11 (17 Sep) — "ONCE MY SCREEN TIMED OUT, THE TIMER KEPT GOING BUT NO LONGER BEEPED."
+// iOS freezes a web app while the screen is off, and when it comes back Safari's AudioContext is
+// often left "interrupted" (or reports "running" with a frozen clock) — it will not sound again
+// until a tap. The old code only resumed a "suspended" context, so every later beep was scheduled
+// against a dead clock. Now: (1) the screen is kept on while a timer runs (Wake Lock), so the
+// usual cause never happens; (2) on return the context is asked to resume, a stalled clock is
+// detected, and if sound is still off a bar says "tap to turn the beeps back on" — any tap on the
+// screen rebuilds the audio inside that gesture, which is the one thing iOS always allows.
 let _actx = null;
 function timerAudioCtx() {
   const C = (typeof window !== 'undefined') && (window.AudioContext || window.webkitAudioContext);
@@ -23289,29 +23507,92 @@ function timerAudioCtx() {
   try { if (!_actx) _actx = new C(); } catch (e) { return null; }
   return _actx;
 }
+function toneOn(ctx, freq, ms, vol) {
+  const t = ctx.currentTime, end = t + ms / 1000, fade = Math.min(ms / 4, 8) / 1000;
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'sine';
+  o.frequency.value = freq;
+  // the same click-free envelope the WAV path bakes in
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vol, t + fade);
+  g.gain.setValueAtTime(vol, end - fade);
+  g.gain.linearRampToValueAtTime(0, end);
+  o.connect(g); g.connect(ctx.destination);
+  o.start(t); o.stop(end + 0.02);
+}
 function beepMix(freq, ms, vol) {
   const ctx = timerAudioCtx();
   if (!ctx) return false;
   try {
-    if (ctx.state === 'suspended' && ctx.resume) ctx.resume();
-    const t = ctx.currentTime, end = t + ms / 1000, fade = Math.min(ms / 4, 8) / 1000;
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.type = 'sine';
-    o.frequency.value = freq;
-    // the same click-free envelope the WAV path bakes in
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(vol, t + fade);
-    g.gain.setValueAtTime(vol, end - fade);
-    g.gain.linearRampToValueAtTime(0, end);
-    o.connect(g); g.connect(ctx.destination);
-    o.start(t); o.stop(end + 0.02);
+    if (ctx.state !== 'running') {
+      // ⚑ Never schedule on a clock that is not moving: those beeps would all go off together
+      // the moment sound comes back. Ask to resume, and sound only if it does so at once.
+      const asked = Date.now();
+      try {
+        const p = ctx.resume && ctx.resume();
+        if (p && p.then) p.then(() => { if (ctx.state === 'running' && Date.now() - asked < 400) toneOn(ctx, freq, ms, vol); }).catch(() => {});
+      } catch (e) {}
+      return true;
+    }
+    toneOn(ctx, freq, ms, vol);
     return true;
   } catch (e) { return false; }
+}
+// Is the sound the runner promised actually able to play right now?
+let _mediaBlocked = false, _clockWatch = null, _ctxStalled = false;
+function timerAudioHealthy() {
+  if (timerSoundMode() === 'loud') return !_mediaBlocked;
+  const ctx = _actx;
+  if (!ctx) return !((typeof window !== 'undefined') && (window.AudioContext || window.webkitAudioContext));
+  return ctx.state === 'running' && !_ctxStalled;
+}
+// Called on every tick while a piece runs: a context that says "running" but whose clock has not
+// moved for 1.5 s of wall time is the iOS stall.
+function timerAudioWatch() {
+  const ctx = _actx;
+  if (!ctx || timerSoundMode() !== 'mix') { _clockWatch = null; return; }
+  const now = Date.now(), ct = Number(ctx.currentTime) || 0;
+  if (ctx.state !== 'running') { _clockWatch = null; return; }
+  if (!_clockWatch || ct > _clockWatch.ct + 0.01) { _clockWatch = { at: now, ct }; _ctxStalled = false; return; }
+  if (now - _clockWatch.at > 1500) _ctxStalled = true;
+}
+// Back from a locked screen — no gesture here, so only what iOS allows without one.
+function timerAudioWake() {
+  _clockWatch = null;   // the clock was legitimately frozen while away; measure afresh
+  applyAudioSession();
+  const ctx = _actx;
+  if (timerSoundMode() === 'mix' && ctx && ctx.state !== 'running' && ctx.resume) {
+    try { const p = ctx.resume(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+  }
 }
 // When the timer screen goes, give the audio back so nothing keeps a session open.
 function timerAudioIdle() {
   try { if (_actx && _actx.state === 'running' && _actx.suspend) _actx.suspend(); } catch (e) {}
   try { if (navigator.audioSession) navigator.audioSession.type = 'auto'; } catch (e) {}
+}
+
+// ⚑ KEEP THE SCREEN ON WHILE A PIECE RUNS. A web app cannot beep with the screen off — iOS
+// freezes it — so the only way the 3-2-1 keeps coming is for the screen not to time out.
+// Screen Wake Lock (home-screen apps from iOS 18.4). iOS drops the lock whenever the app is
+// hidden, so it is asked for again on every return. `_wlGen` stops a late request from
+// re-taking a lock that was released while it was pending.
+let _wakeLock = null, _wlGen = 0;
+function keepScreenOn(on) {
+  const gen = ++_wlGen;
+  try {
+    if (!on) {
+      const l = _wakeLock; _wakeLock = null;
+      if (l && !l.released && l.release) { const p = l.release(); if (p && p.catch) p.catch(() => {}); }
+      return;
+    }
+    if (_wakeLock && !_wakeLock.released) return;
+    if (typeof navigator === 'undefined' || !navigator.wakeLock || document.hidden) return;
+    const p = navigator.wakeLock.request('screen');
+    if (p && p.then) p.then(l => {
+      if (gen !== _wlGen) { try { l.release(); } catch (e) {} return; }
+      _wakeLock = l;
+    }).catch(() => {});
+  } catch (e) {}
 }
 
 // A small pool, because a cue can land while the previous one is still sounding.
@@ -23325,27 +23606,80 @@ function beep(freq = 880, ms = 160, vol = 0.25) {
     a.src = toneDataUri(freq, ms, vol);
     a.currentTime = 0;
     const p = a.play();
-    if (p && p.catch) p.catch(() => {});
+    if (p && p.then) p.then(() => { _mediaBlocked = false; }, () => { _mediaBlocked = true; });
   } catch (e) {}
 }
 
-// Called from the play tap. iOS will not let audio start without a gesture, so the pool is
-// primed with silence there — otherwise the first count-in is always mute.
-function unlockAudio() {
+// Called from the play tap (and from any tap while sound is off). iOS will not let audio start
+// without a gesture, so it is primed here — otherwise the first count-in is always mute.
+// `rebuild`: the context is stuck (interrupted, or running with a frozen clock) — throw it away
+// and make a new one, which inside a gesture is always allowed to start.
+function unlockAudio(rebuild = false) {
   applyAudioSession();
   if (timerSoundMode() === 'mix') {
+    if (rebuild && _actx && (_actx.state !== 'running' || _ctxStalled)) {
+      try { if (_actx.close) { const p = _actx.close(); if (p && p.catch) p.catch(() => {}); } } catch (e) {}
+      _actx = null;
+    }
+    _ctxStalled = false; _clockWatch = null;
     const ctx = timerAudioCtx();
     if (ctx) {
-      try { if (ctx.resume) ctx.resume(); beepMix(440, 12, 0.0001); } catch (e) {}
+      try { if (ctx.resume) { const p = ctx.resume(); if (p && p.catch) p.catch(() => {}); } beepMix(440, 12, 0.0001); } catch (e) {}
       try { if (window.speechSynthesis) window.speechSynthesis.getVoices(); } catch (e) {}
       return;
     }
   }
   try {
     if (!_pool) _pool = Array.from({ length: 4 }, () => new Audio());
-    _pool.forEach(a => { a.src = toneDataUri(440, 12, 0.0001); const p = a.play(); if (p && p.catch) p.catch(() => {}); });
+    _pool.forEach(a => {
+      a.src = toneDataUri(440, 12, 0.0001);
+      const p = a.play();
+      if (p && p.then) p.then(() => { _mediaBlocked = false; }, () => {});
+    });
     if (window.speechSynthesis) window.speechSynthesis.getVoices();
   } catch (e) {}
+}
+
+// ⚑ THE RUN SURVIVES THE APP. "The second time I opened it, the timer was off and reset to 0."
+// Two ways that happened, both fixed by one record kept on THIS device (never synced — a clock
+// running on the phone means nothing on the iPad):
+//   · returning to the app triggers a sync pull, and a pull redraws the screen — which built a
+//     brand-new, idle runner and threw the running one away;
+//   · iOS killed the app while the screen was off, and it relaunched on the dashboard.
+// The runner now adopts a matching live run when it is drawn, and a relaunch reopens it.
+const TIMER_LIVE_KEY = 'strive-timer-live';
+const LIVE_OPEN_MS = 4 * 3600e3;        // a stopwatch / Death By is kept this long after its start
+const LIVE_AFTER_END_S = 30 * 60;       // a timed piece is reopened up to 30 min after it ended, to log it
+function liveTimerGet() {
+  try { return JSON.parse(localStorage.getItem(TIMER_LIVE_KEY) || 'null'); } catch (e) { return null; }
+}
+function liveTimerPut(v) {
+  try {
+    if (v) localStorage.setItem(TIMER_LIVE_KEY, JSON.stringify({ ...v, savedAt: Date.now() }));
+    else localStorage.removeItem(TIMER_LIVE_KEY);
+  } catch (e) {}
+}
+function liveTimerFresh(v, now = Date.now()) {
+  if (!v || !v.cfg || !v.session || !v.session.startedAt || v.session.stoppedAt != null) return false;
+  const total = TM.timerTotal(v.cfg);
+  if (total == null) return now - v.session.startedAt < LIVE_OPEN_MS;
+  return now - v.session.startedAt < 12 * 3600e3
+    && TM.rawSec(v.session, now) < TM.leadSec(v.cfg) + total + LIVE_AFTER_END_S;
+}
+const liveTimerMatches = (v, cfg, w) =>
+  !!v && (v.wid || null) === (w ? w.id : null) && JSON.stringify(v.cfg) === JSON.stringify(cfg);
+// On launch: a run the phone was in the middle of comes straight back.
+function resumeLiveTimer() {
+  const v = liveTimerGet();
+  if (!v) return false;
+  if (!liveTimerFresh(v)) { liveTimerPut(null); return false; }
+  let w = null;
+  try { w = v.wid ? FT.getWorkout(v.wid) || null : null; } catch (e) { w = null; }
+  if (v.wid && !w) { liveTimerPut(null); return false; }
+  switchTab('fitness');
+  render(() => timerRun(v.cfg, w));
+  toast('Your timer kept running');
+  return true;
 }
 
 // ⚑ "…and say Round 2." Spoken, not just toned: the round number is the one piece of state you
@@ -23378,6 +23712,7 @@ function tmDial(color) {
   </svg>`;
 }
 
+let _timerGen = 0, _lastHeal = 0;   // the newest runner on screen; an older one's cleanup must not touch its audio
 function timerRun(cfg, w) {
   setHeader({ stopwatch: 'For Time', countdown: 'AMRAP', emom: 'EMOM', tabata: 'Tabata', intervals: 'Intervals' }[cfg.kind] || 'Timer', { back: true });
 
@@ -23390,6 +23725,9 @@ function timerRun(cfg, w) {
   // tested headless in test-timer.mjs. See §4.3: this must work with the screen locked.
   tmPickerStyles();
   const F = state.fitness || (state.fitness = {});
+  // The live run used to sit in synced state (F.timerSession), written on every tick and never read.
+  if (F.timerSession !== undefined) delete F.timerSession;
+  const myGen = ++_timerGen;
   const COLOR = TM.TIMER_COLOR[cfg.kind] || 'var(--accent)';
   // ⚑ PLAY-TO-START. The clock no longer starts on the setup screen's button, because that
   // button is pressed while you are still holding the phone. The run screen loads idle with a
@@ -23397,6 +23735,15 @@ function timerRun(cfg, w) {
   // only arrangement in which a 5-second lead-in is any use at all.
   let session = null;
   let lastCueSec = 0;
+  // ⚑ A redraw (a sync pull on return, a relaunch) must pick the running clock back up, not reset it.
+  {
+    const live = liveTimerGet();
+    if (liveTimerFresh(live) && liveTimerMatches(live, cfg, w)) {
+      session = live.session;
+      lastCueSec = TM.rawSec(session, Date.now());   // nothing missed while away is replayed
+    }
+  }
+  const persist = () => liveTimerPut(session && session.stoppedAt == null ? { cfg, session, wid: w ? w.id : null } : null);
 
   const wrap = h(`
     <div class="card" style="text-align:center;padding:24px 14px">
@@ -23415,6 +23762,7 @@ function timerRun(cfg, w) {
         <button class="pill" data-snd="loud" style="padding:5px 10px;font-size:12px">Loud on silent</button>
       </div>
       <div class="muted" id="tm-sndnote" style="font-size:11.5px;margin-top:4px"></div>
+      <button class="tm-sndbar" id="tm-sndbar" style="display:none">Sound is off — tap to turn the beeps back on</button>
       <div id="tm-reps" style="display:none;margin-top:8px;font-weight:700;letter-spacing:.04em;color:${COLOR}"></div>
       <button class="btn" id="tm-tap" style="margin-top:16px;background:${COLOR}">Round done</button>
       <div class="row" style="gap:8px;margin-top:8px">
@@ -23458,7 +23806,7 @@ function timerRun(cfg, w) {
     // no longer resolving to this node — both true after navigation, neither true in the shim.
     const gone = !clock || clock.isConnected === false
       || (document.getElementById && document.getElementById('tm-clock') !== clock);
-    if (gone) { clearInterval(iv); document.removeEventListener('visibilitychange', wake); timerAudioIdle(); return; }
+    if (gone) { stopListening(); if (myGen === _timerGen) { timerAudioIdle(); keepScreenOn(false); } return; }
     const q = s => wrap.querySelector(s);
     // Idle: the dial is up, nothing is running, and the piece has not begun.
     if (!session) {
@@ -23476,6 +23824,14 @@ function timerRun(cfg, w) {
     const now = Date.now();
     const st = TM.timerState(cfg, session, now);
     const raw = TM.rawSec(session, now);
+    const live = !st.stopped && st.phase !== 'done';
+    // Sound check: shown only after half a second off, so a resume in flight does not flash it.
+    if (live) timerAudioWatch();
+    const bad = live && !timerAudioHealthy();
+    badSince = bad ? (badSince || now) : 0;
+    q('#tm-sndbar').style.display = bad && now - badSince >= 500 ? '' : 'none';
+    if (!live && !endedHandled) { endedHandled = true; keepScreenOn(false); }
+    q('#tm-pause').textContent = st.paused ? 'Resume' : 'Pause';
 
     // ⚑ Cues are DATA (timer.js decides what should sound; this only plays it), and we ask
     // for the window we actually skipped. A phone that slept for four minutes must not wake
@@ -23552,26 +23908,54 @@ function timerRun(cfg, w) {
           (r.delta == null ? '' : ` (${r.delta > 0 ? '+' : r.delta < 0 ? '−' : '±'}${Math.abs(r.delta)}s)`)).join('   ')
       : '';
     if (st.phase === 'done') q('#tm-pause').style.display = 'none';
-    F.timerSession = { cfg, session, wid: w ? w.id : null };
   }
 
+  let badSince = 0, endedHandled = false;
   // Re-derive the moment the app comes back. This is the line that makes a locked screen safe.
-  const wake = () => { if (!document.hidden) view(); };
+  const wake = () => {
+    if (document.hidden) return;
+    if (session && session.stoppedAt == null) { timerAudioWake(); keepScreenOn(true); }
+    view();
+  };
   document.addEventListener('visibilitychange', wake);
+  // Any tap while the sound is off turns it back on — the tap is the gesture iOS needs.
+  const heal = () => {
+    if (myGen !== _timerGen || !session || session.stoppedAt != null || timerAudioHealthy()) return;
+    if (Date.now() - _lastHeal < 1000) return;   // touchend and click both arrive for one tap
+    _lastHeal = Date.now();
+    unlockAudio(true);
+  };
+  document.addEventListener('touchend', heal, true);
+  document.addEventListener('click', heal, true);
+  const stopListening = () => {
+    clearInterval(iv);
+    document.removeEventListener('visibilitychange', wake);
+    document.removeEventListener('touchend', heal, true);
+    document.removeEventListener('click', heal, true);
+  };
+  wrap.querySelector('#tm-sndbar').onclick = () => {
+    heal();
+    badSince = 0;
+    setTimeout(() => { beep(880, 120); view(false); }, 150);
+  };
 
   const iv = setInterval(view, 250);
+  if (session) keepScreenOn(true);
   wrap.querySelector('#tm-play').onclick = () => {
     // The tap is the gesture iOS requires before any audio may play at all, so prime the pool
     // here — otherwise the lead-in counts down in silence the first time, every time.
     unlockAudio();
     session = TM.timerStart(Date.now());
     lastCueSec = 0;
-    F.timerSession = { cfg, session, wid: w ? w.id : null };
+    endedHandled = false;
+    persist();
+    keepScreenOn(true);
     view(false);
   };
   wrap.querySelector('#tm-tap').onclick = () => {
     if (!session) return;
     session = TM.timerTap(session, cfg, Date.now());
+    persist();
     beep(1200, 90);
     view(false);
   };
@@ -23583,11 +23967,11 @@ function timerRun(cfg, w) {
     if (!session) return;
     const now = Date.now();
     session = TM.timerFail(session, cfg, now);
-    clearInterval(iv);
-    document.removeEventListener('visibilitychange', wake);
+    stopListening();
     beep(440, 700);
     setTimeout(timerAudioIdle, 900);   // after the end tone has sounded
-    F.timerSession = null; save();
+    keepScreenOn(false);
+    liveTimerPut(null); save();
     const r = TM.deathByResult(cfg, session);
     if (!w) { view(false); toast(`${r.rounds} rounds · ${r.reps} reps`); return; }
     const out = TM.timerToLogFields(cfg, session, w, now);
@@ -23598,19 +23982,20 @@ function timerRun(cfg, w) {
     if (!session) return;
     const now = Date.now();
     session = TM.isPaused(session, now) ? TM.timerResume(session, now) : TM.timerPause(session, now);
+    persist();
     wrap.querySelector('#tm-pause').textContent = TM.isPaused(session, Date.now()) ? 'Resume' : 'Pause';
     view(false);
   };
   wrap.querySelector('#tm-done').onclick = () => {
-    clearInterval(iv);
-    document.removeEventListener('visibilitychange', wake);
+    stopListening();
     timerAudioIdle();
+    keepScreenOn(false);
     const now = Date.now();
     // Backing out before ever tapping play must not open a log form for a workout that did
     // not happen, and must not write a zero result.
-    if (!session) { F.timerSession = null; goBack(); return; }
+    if (!session) { goBack(); return; }
     session = TM.timerStop(session, now);
-    F.timerSession = null; save();
+    liveTimerPut(null); save();
     if (!w) { goBack(); return; }
     // ⚑ THE POINT OF THE WHOLE THING. The timer already knows the format, the elapsed time
     // and every round you tapped, so the log is ALREADY WRITTEN — you confirm it, you do not
@@ -23654,6 +24039,23 @@ function youProfile() {
     <div class="avatar" style="width:40px;height:40px;font-size:16px;border:1px solid var(--gold);border-radius:50%;background:var(--card);color:var(--gold);display:flex;align-items:center;justify-content:center;font-family:var(--serif-display);font-weight:700">B</div>
     <div class="grow"><div class="title">Baruch</div><div class="muted" style="font-size:12px">Account · sync · preferences</div></div>
   </div></div>`));
+
+  // ⛑ E4 — Appearance, on this device.
+  const thC = h(`<div class="card" id="s-theme"><h3>Appearance</h3>
+    <div class="pillrow th-pick" style="flex-wrap:nowrap">${THEME_CHOICES.map(([v, l]) => `<button class="pill${themeChoice() === v ? ' on' : ''}" data-th="${v}">${l}</button>`).join('')}</div>
+    <div class="muted" id="s-theme-note" style="font-size:12px;margin-top:8px"></div>
+  </div>`).firstElementChild;
+  const thNote = () => {
+    thC.querySelector('#s-theme-note').textContent = (themeChoice() === 'auto'
+      ? 'Follows your phone\'s light or dark setting. ' : '') + 'Set on this device only.';
+  };
+  thNote();
+  thC.querySelectorAll('[data-th]').forEach(b => b.onclick = () => {
+    setThemeChoice(b.dataset.th);
+    thC.querySelectorAll('[data-th]').forEach(x => x.classList.toggle('on', x === b));
+    thNote();
+  });
+  wrap.append(thC);
 
   wrap.append(plusFanSettingsCard());
 
@@ -24463,7 +24865,7 @@ function plusWorkoutResult(fan, w) {
     if (!result) { toast('Enter your result'); return; }
     const wasPr = FT.isPR(w.id, result);
     FT.addLog({ wid: w.id, result, resultType: w.resultType, score: built.score });
-    if (wasPr) celebrate('New PR! ★');
+    if (wasPr) celebrate('New PR');
     afterPlusLog(wasPr ? 'PR logged — ' + result : 'Logged ' + result);
   };
 }
@@ -24558,7 +24960,10 @@ function enablePlusReorder(list) {
 // His words: "one dashboard on the left of the plus and one on the right of it."
 const TABS = { home: dashboard, fitness: fitnessTab, plan: plan };
 const PLAN_ICON = '<path d="M-10 -7 H10 V10 H-10 Z"/><path d="M-10 -2 H10"/><path d="M-5 -11 V-4 M5 -11 V-4"/><path d="M0 1.5 L3 4.5 L0 7.5 L-3 4.5 Z" fill="currentColor" stroke="none"/>';
+applyTheme();   // before the first screen draws, so nothing flashes the wrong paper
 document.addEventListener('DOMContentLoaded', () => {
+  applyTheme();
+  watchDeviceTheme(() => rerender());
   document.getElementById('h-back').onclick = headerBack;
   const av = document.getElementById('h-avatar');
   if (av) av.onclick = () => render(youProfile);
@@ -24574,6 +24979,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('nav.tabbar button:not(.tab-plus)').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
   wirePlusFan();
   switchTab('home');
+  // ⚑ iOS killed the app mid-workout → it opens on the running timer, not the dashboard.
+  resumeLiveTimer();
   // ⚑ A5 — A DECK OPEN ON SCREEN IS NOT CARRIED ACROSS A PULL. The deck in memory was built from the
   // state that was just replaced; carrying on would build on another device's past (the stale iPad
   // deck that finished 37 hours late). Leave it; reopening offers the deck back with what changed.
