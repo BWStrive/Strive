@@ -173,9 +173,17 @@ body.immersive main { padding: calc(env(safe-area-inset-top) + 16px) 14px calc(e
 .imm-clock-t { border: none; background: none; color: var(--text); font-variant-numeric: tabular-nums;
   font-size: 14px; font-weight: 700; padding: 2px 4px; cursor: pointer; min-width: 44px; text-align: left; }
 .imm-clock-t.off { color: var(--text-2); }
-.imm-clock-b { border: 1px solid var(--line); background: var(--card); color: var(--text-2);
-  border-radius: 999px; font-size: 11px; line-height: 1; padding: 5px 9px; cursor: pointer; }
+.imm-clock-b { display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  border: 1px solid var(--line); background: var(--card); color: var(--text-2);
+  border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .04em; line-height: 1;
+  padding: 5px 9px; cursor: pointer; }
 .imm-clock-b:active { background: var(--bg); }
+/* ⚑ FOLIO, NOT EMOJI (his ask, 17 Sep: "the pause button is not folio style"). ⏸/▶ are EMOJI
+   codepoints — iOS paints them as full-colour glyphs, so a blue-black box sat beside a brass
+   hairline pill. The marks are drawn instead, in `currentColor`, so they take the pill's ink in
+   both themes and the paused state can brass the whole control rather than swapping a picture. */
+.imm-clock-b svg { display: block; flex: 0 0 auto; }
+.imm-clock-b.on { border-color: var(--gold); color: var(--gold); }
 /* ⚑ a paused clock must LOOK paused. A frozen number reads as a broken clock, not a stopped one. */
 .imm-clock.paused .imm-clock-t { opacity: .45; }
 /* ===== THE CARD IS THE SCREEN (chunk 3) =====
@@ -231,7 +239,14 @@ body.immersive .imm-card { flex: 1; min-height: 0; margin-bottom: 0; padding: 22
   display: flex; flex-direction: column; justify-content: center; }
 body.immersive { overscroll-behavior: contain; }
 .imm-q { font-size: 17px; font-weight: 700; line-height: 1.5; }
-.imm-a { font-size: 14px; line-height: 1.65; text-align: left; white-space: pre-line; }
+/* ⚑ CENTRED, AND NOT OBLIGED TO REACH BOTH EDGES (his ask, 17 Sep): "I want the text of the
+   scriptures to be centred instead of on the left … and it doesn't have to fill the entire page."
+   `max-width` is a MEASURE, not a box: on a phone it is wider than the card and does nothing, and on
+   an iPad it stops a verse running the full width of the glass. ⚑ It narrows the column, so a verse
+   is TALLER at the same size — `fitCardText` sees that and shrinks a step sooner, which is the
+   intended trade and is why the floor (IMM_MIN_SCALE) is what stops it going too far. */
+.imm-a { font-size: 14px; line-height: 1.65; text-align: center; white-space: pre-line;
+  max-width: 34ch; margin-left: auto; margin-right: auto; }
 /* ⚑ MIRRORED BY `IMM_BASE_PX` IN app.js, which needs the number when there is no layout engine to
    read it from. test-flashdeck asserts the two agree, so one cannot be retuned without the other. */
 body.immersive .imm-q { font-size: 21px; }
@@ -482,6 +497,17 @@ header.topbar .avatar {
 .tp-acc { font-family: var(--serif-display); font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--text-2); margin-left: 2px; }
 .tp-page .pw-word { padding: 0 1px; }
 .tp-page .pw-missed { color: var(--text); box-shadow: inset 0 -2px 0 var(--danger); }
+/* ===== Fade's prompt layer (17 Sep) — the text still ahead of the cursor =====
+   ⚑ FAINT, NOT GREY-ON-GREY. It has to be readable at a glance and unmistakably NOT the text he
+   has typed, so it takes the faint ink token rather than an opacity on the ink one — opacity would
+   also fade the red miss wash behind a word, which belongs to the typed layer. */
+.tp-ghost { color: var(--text-3); }
+.tp-ghost .pw-ghost { color: var(--text-3); }
+/* a word this rung has taken away: marks he can tap to peek. 44px is unreachable inline, so the
+   padding buys what it can and the marks themselves are the target. */
+.tp-ghost .pw-gblank { color: var(--text-3); letter-spacing: -.04em; cursor: pointer;
+  user-select: none; padding: 0 2px; border-radius: 2px; }
+.tp-ghost .pw-gblank:active { background: var(--track); }
 .pw-l1 { background: rgba(156, 58, 48, .10); }
 .pw-l2 { background: rgba(156, 58, 48, .20); }
 .pw-l3 { background: rgba(156, 58, 48, .32); }
@@ -10383,7 +10409,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260917-0815'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260917-0815';
+const BUILD_ID = '20260917-1641'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260917-1641';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -17385,7 +17411,7 @@ function practiceSetup(d, intent = 'practice') {
   modes.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { s.mode = b.dataset.m; rerender(); });
   wrap.append(modes);
   wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 4px">${{
-    fade: 'Recite while the text disappears in stages — tap a blank to peek. Pure learning; never scored.',
+    fade: 'Type the first letter of every word while the text disappears in stages — every word, then every other word, then the other half, then nothing. Tap a blank to peek. Pure learning; never scored.',
     // ⚑ THE FIFTH COPY, found by grepping for the literal after fixing the other four. It read
     // "Three misses" on the SETUP screen while the session itself allowed two — the same rule
     // stated in two places, disagreeing. Renders from the constant now, like the other one.
@@ -17515,75 +17541,45 @@ function practiceSetup(d, intent = 'practice') {
 }
 
 // ---- Fade ----
+// ===== Fade — THE SAME TYPING ENGINE, with the text fading out from under him =====
+// ⚑⚑ WHAT WAS WRONG, IN HIS WORDS (17 Sep): "the fade didn't let me type, so all it gave me was
+// the option to press the next button and just showed as I got every word wrong. So I had no
+// ability to kind of type in." He was right, and it was not a bug — the old Fade HAD NO INPUT AT
+// ALL. It printed the text with a share of the words replaced by blanks, you tapped a blank to
+// peek, and the only control was "Next stage →". Nothing you did there was a recitation, and
+// nothing could be: the screen had no way to hear an answer.
+//
+// ⚑ SO FADE IS NOW TYPED, AND IT IS THE TYPING ENGINE — not a copy of it. `typerScreen` already
+// owns the three things this mode needs, and each cost a session to get right: the ONE <input>
+// that is never replaced (iOS refuses programmatic focus outside a gesture — see the Aug 5 note),
+// the chapter page that keeps every verse on screen with its marks, and restart / step-back. A
+// fork would have forked all three and then drifted from them. Fade is `typerScreen` with a
+// PROMPT LAYER and a ladder, reached by `opts.fade`.
+//
+// ⚑ THE LADDER IS HIS: "starting with every word is there, but I still have to type the first
+// letter, and then every other word is missing, and then the opposite words are missing, and so
+// on." Each verse is typed once per rung; the rung decides which words are still PRINTED AHEAD of
+// the cursor. What is behind the cursor is always in ink — that is the text he has proved.
+//
+// ⚑ THE PREDICATE READS THE KEY INDEX, NOT THE TOKEN INDEX, so "every other word" means every
+// other word HE TYPES. Counting tokens would let punctuation and numerals decide which half of a
+// verse disappears, and the halves would differ verse to verse for no reason he could see.
+//
+// ⚑⚑ AND FADE STILL SCORES NOTHING. That ruling predates this rework (D-AE: "fade yields no
+// accuracy signal") and gaining an input does not overturn it: no mastery, no coverage, no
+// memorized offer, no per-word error memory, no saved page. Peeks remain the only number it
+// produces. Changing that is a decision to be taken on purpose, not a side effect of this.
 const FADE_STAGES = [
-  ['Full text', 0, false], ['Some blanks', 40, false], ['Mostly blanks', 80, false],
-  ['First letters', 100, true], ['Nothing', 100, false]
+  ['every word', () => true],
+  ['every other word', ki => ki % 2 === 0],
+  ['the other half', ki => ki % 2 === 1],
+  ['nothing', () => false]
 ];
-
-function fadeScreen(d, queue, qi, stage, results) {
-  const item = queue[qi];
-  statsStamp(results, 'fade', d.id);
-  if (!item) {
-    practiceSummary(d, 'Fade', results.map(r => `Q${r.n} — ${r.peeks} peek${r.peeks === 1 ? '' : 's'}`), queue.length, {
-      carrier: results, mode: 'fade', score: null,   // fade yields no accuracy signal (D-AE) — peeks only
-      items: results.map(r => ({ n: r.n, label: 'Q' + r.n, val: r.peeks, tag: 'peeks' }))
-    });
-    return;
-  }
-  const [label, pct, hints] = FADE_STAGES[stage];
-  setHeader(`Fade · Q${item.n}`, { back: true });
-  if (!item._peeks) item._peeks = 0;
-
-  const wrap = document.createElement('div');
-  wrap.append(h(`
-    <div class="muted" style="margin:2px 4px 10px">Question ${qi + 1} of ${queue.length} · stage ${stage + 1} of ${FADE_STAGES.length}: ${label}</div>
-    <div class="card"><div style="font-weight:700;font-size:15px;line-height:1.5">Q${item.n}. ${esc(item.q)}</div></div>`));
-
-  const card = document.createElement('div');
-  card.className = 'card';
-  const body = document.createElement('div');
-  body.style.cssText = 'font-size:15px;line-height:1.9';
-  tokenize(item.a).forEach(line => {
-    const div = document.createElement('div');
-    line.forEach((w, i) => {
-      const span = document.createElement('span');
-      span.className = 'pw-word';
-      const blanked = w.key && prand(item.n * 131 + i * 7 + 1) < pct;
-      if (!blanked || stage === 0) {
-        span.textContent = w.raw + ' ';
-      } else if (hints) {
-        span.className = 'pw-word pw-hint';
-        span.textContent = ' ' + w.key + '·'.repeat(Math.max(1, Math.min(6, w.raw.length - 1))) + ' ';
-        span.onclick = () => { span.className = 'pw-word pw-missed'; span.textContent = w.raw + ' '; item._peeks++; };
-      } else {
-        span.className = 'pw-word pw-blank';
-        span.textContent = ' ' + '▁'.repeat(Math.max(3, Math.min(9, w.raw.length))) + ' ';
-        span.onclick = () => { span.className = 'pw-word pw-missed'; span.textContent = w.raw + ' '; item._peeks++; };
-      }
-      div.append(span, document.createTextNode(' '));
-    });
-    body.append(div);
-  });
-  card.append(body);
-  wrap.append(card);
-
-  const nextStage = stage + 1 < FADE_STAGES.length;
-  const btn = h(`<button class="btn">${nextStage ? 'Next stage →' : (qi + 1 < queue.length ? 'Done — next question →' : 'Done — finish')}</button>`);
-  btn.firstChild.onclick = () => {
-    if (nextStage) render(() => fadeScreen(d, queue, qi, stage + 1, results), false);
-    else {
-      results.push({ n: item.n, peeks: item._peeks });
-      render(() => fadeScreen(d, queue, qi + 1, 0, results), false);
-    }
-  };
-  wrap.append(btn);
-  if (nextStage) {
-    const skip = h(`<button class="btn secondary">Skip to next question</button>`);
-    skip.firstChild.onclick = () => { results.push({ n: item.n, peeks: item._peeks }); render(() => fadeScreen(d, queue, qi + 1, 0, results), false); };
-    wrap.append(skip);
-  }
-  immersiveSession(wrap, queue.length ? qi / queue.length : 0, () => render(() => fadeScreen(d, queue, queue.length, 0, results), false));
-  main().append(wrap);
+// ⚑ THE OLD SIGNATURE IS KEPT. Four launch sites call `fadeScreen(d, queue, 0, 0, [])` and pass a
+// stage that now lives per verse rather than per session; the parameter is accepted and ignored
+// so that none of them has to know that.
+function fadeScreen(d, queue, qi0, _stage, results) {
+  typerScreen(d, queue, qi0, results, 'practice', { fade: true });
 }
 
 // ---- First-Letter typer ----
@@ -17726,8 +17722,11 @@ function typerSwipeBack(el, onBack) {
   el.addEventListener('pointercancel', () => { live = false; });
 }
 
-function typerScreen(d, queue, qi0, results, intent = 'practice') {
-  statsStamp(results, 'typer', d.id);
+function typerScreen(d, queue, qi0, results, intent = 'practice', opts = {}) {
+  // ⚑ FADE IS THIS SCREEN, one rung at a time — see the note over FADE_STAGES for why it is not a
+  // second implementation. Everything below that differs is gated on this one flag.
+  const fade = !!opts.fade;
+  statsStamp(results, fade ? 'fade' : 'typer', d.id);
   const isCreed = queue.length && queue[0].vn == null;   // creeds carry .n (question); scripture carries .vn
   const NOUN = isCreed ? 'Question' : 'Verse';
   // Verses that cleared the bar this session, collected rather than acted on.
@@ -17740,6 +17739,13 @@ function typerScreen(d, queue, qi0, results, intent = 'practice') {
     if (pending.length) memorizedSheet(d, pending, () => {});
   };
   const showSummary = () => {
+    if (fade) {
+      practiceSummary(d, 'Fade', results.map(r => `Q${r.n} — ${r.peeks} peek${r.peeks === 1 ? '' : 's'}`), queue.length, {
+        carrier: results, mode: 'fade', intent, score: null,   // fade yields no accuracy signal (D-AE) — peeks only
+        items: results.map(r => ({ n: r.n, label: 'Q' + r.n, val: r.peeks, tag: 'peeks' }))
+      });
+      return;
+    }
     practiceSummary(d, 'First-Letter', results.map(r => `Q${r.n} — ${r.acc}% (${r.missed.length ? 'missed: ' + r.missed.join(', ') : 'perfect'})`), queue.length, {
       carrier: results, mode: 'typer', intent,
       score: avgOf(results.map(r => r.acc)),
@@ -17755,8 +17761,10 @@ function typerScreen(d, queue, qi0, results, intent = 'practice') {
 
   // ⚑ C1 — PICK UP THE CHAPTER HE LEFT. The launch skips the verses the saved page already has,
   // and the page draws them back (from the queue's text, else the cached chapter) before he types.
+  // ⚑ AND FADE NEVER RESUMES A PAGE. The saved page is keyed by CHAPTER, so a fade pass would be
+  // picked up by Typing as verses already done — one mode quietly deciding another mode's progress.
   let restore = null;
-  if (!isCreed) {
+  if (!isCreed && !fade) {
     const pk = pageOf(queue[qi0]);
     const snap = typerPageStore()[pk];
     if (snap && Array.isArray(snap.done) && snap.done.length) {
@@ -17795,7 +17803,9 @@ function typerScreen(d, queue, qi0, results, intent = 'practice') {
   card.onclick = () => { if (card._swallow) { card._swallow = false; return; } inp.focus(); };
   wrap.append(card);
   // ⚑ THE SENTENCE RENDERS FROM THE CONSTANT (see TYPER_MISS_LIMIT).
-  wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 8px">Keep typing — ${NOUN.toLowerCase()}s advance on their own. A wrong letter marks the word; ${TYPER_MISS_LIMIT === 1 ? 'a miss reveals it' : TYPER_MISS_LIMIT + ' misses on a word reveals it'}. Swipe right to restart the ${NOUN.toLowerCase()}.</div>`));
+  wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 8px">${fade
+    ? `Type the first letter of every word. What is still printed ahead of you is the rung you are on — tap a blank to peek. ${TYPER_MISS_LIMIT === 1 ? 'A wrong letter reveals the word' : 'A wrong letter marks the word; ' + TYPER_MISS_LIMIT + ' misses reveals it'}. Nothing here is scored.`
+    : `Keep typing — ${NOUN.toLowerCase()}s advance on their own. A wrong letter marks the word; ${TYPER_MISS_LIMIT === 1 ? 'a miss reveals it' : TYPER_MISS_LIMIT + ' misses on a word reveals it'}. Swipe right to restart the ${NOUN.toLowerCase()}.`}</div>`));
 
   const bar = h(`<div class="progressbar"><div style="width:0%"></div></div>`).firstElementChild;
   wrap.append(bar);
@@ -17822,10 +17832,20 @@ function typerScreen(d, queue, qi0, results, intent = 'practice') {
   let qi = qi0, item = null, words = [], pos = 0, missedWords = [], wordMisses = 0;
   let total = 0, correct = 0, startTs = 0, cursor = null, done = false, awaiting = false;
   let pageKey = null, key = '', prior = {}, keyIdx = 0, missIdx = [], block = null, text = null;
+  // fade only: which rung of the ladder this verse is on, the prompt layer, and the peeks he has
+  // spent on it. ⚑ `peeks` counts the WHOLE verse, across every rung — it is the verse he is
+  // learning, not the rung. `peeked` is per rung: a word given away at "every other word" is not
+  // still given away when the rung takes the other half too.
+  let stage = 0, peeks = 0, peeked = new Set(), ghost = null;
   const blocks = new Map();      // queue index → verse element on the page
   const pageDone = new Map();    // key → { key, acc, miss, secs } for the page on screen
 
-  const sessionFrac = () => (qi + (words.length ? pos / words.length : 0)) / queue.length;
+  // ⚑ A RUNG IS PART OF A VERSE, NOT A VERSE. Without this the top hairline would jump back four
+  // times per verse and read as lost ground each time.
+  const sessionFrac = () => {
+    const inVerse = words.length ? pos / words.length : 0;
+    return (qi + (fade ? (stage + inVerse) / FADE_STAGES.length : inVerse)) / queue.length;
+  };
 
   function placeWord(target, before, raw, cls) {
     const span = document.createElement('span');
@@ -17870,10 +17890,44 @@ function typerScreen(d, queue, qi0, results, intent = 'practice') {
     }
     bar.firstElementChild.style.width = (pos / words.length * 100) + '%';
     setImmersiveProgress(immBar, sessionFrac());
+    paintGhost();
     if (pos >= words.length) finishVerse();
   }
+  // ===== The prompt layer (fade only) =====
+  // ⚑ WHAT IS BEHIND THE CURSOR IS WHAT HE HAS PROVED, and it is always in ink. This paints what is
+  // still AHEAD of it: faint, and only the words this rung still prints. A word the rung has taken
+  // away is a run of marks he can TAP to peek — the one number fade has ever produced, and the
+  // reason it produces one.
+  // ⚑ REPAINTED WHOLE ON EVERY WORD rather than mutated in place. Three things decide what a word
+  // ahead of the cursor looks like — the rung, whether he peeked at it, and whether he has reached
+  // it — and three separate mutations of one span is precisely how those three drift apart.
+  function paintGhost() {
+    if (!fade || !ghost) return;
+    ghost.innerHTML = '';
+    const shows = FADE_STAGES[stage][1];
+    for (let j = pos; j < words.length; j++) {
+      const w = words[j];
+      if (w.br) { ghost.append(document.createElement('br')); continue; }
+      if (!w.key || shows(w.ki) || peeked.has(w.ki)) {
+        ghost.append(h(`<span class="pw-word pw-ghost">${esc(w.raw)}</span>`).firstChild, document.createTextNode(' '));
+        continue;
+      }
+      const blank = h(`<span class="pw-word pw-gblank" role="button" tabindex="-1" aria-label="Peek at this word">${'▁'.repeat(Math.max(2, Math.min(9, w.raw.length)))}</span>`).firstChild;
+      // ⚑ stopPropagation, THEN focus: the card's own click handler focuses the input, and without
+      // the stop this tap would be read as a card tap as well. The focus is put back by hand so the
+      // keyboard never drops — the invariant this whole screen is built around.
+      blank.onclick = e => {
+        if (e && e.stopPropagation) e.stopPropagation();
+        peeked.add(w.ki);
+        peeks++;
+        paintGhost();
+        inp.focus();
+      };
+      ghost.append(blank, document.createTextNode(' '));
+    }
+  }
   function savePage() {
-    if (isCreed || !pageKey) return;
+    if (isCreed || fade || !pageKey) return;
     typerPageStore()[pageKey] = { done: [...pageDone.values()], savedAt: Date.now() };
     save();
   }
@@ -17881,18 +17935,29 @@ function typerScreen(d, queue, qi0, results, intent = 'practice') {
     if (done) return;
     const secs = Math.round((Date.now() - startTs) / 1000);
     const acc = total ? Math.round(100 * correct / total) : 100;
-    // ⚑ W2 — ONLY A COMPLETED VERSE WRITES THE MEMORY. `prior` is kept so a step back can undo it.
-    const next = {};
-    for (let i = 0; i < total; i++) next[i] = typerMemNext(prior[i], missIdx.includes(i));
-    typerMemSet(key, next);
-    results.push({ n: item.n, acc, missed: missedWords, secs, key, qi, miss: missIdx.slice(), prior: { ...prior } });
-    CR.logPractice(prDocId(d, item), prN(item), 'typer', acc);
-    // ⚑ EVERY VERSE HE GETS THROUGH COUNTS AS TRAINED, at any accuracy.
-    RV.markCovered(key);
-    // ⚑⚑ ≥ his threshold is COLLECTED and offered at the end — never marked behind his back.
-    if (acc >= typerMemorizedMin()) memorizedOffer.push({ item, acc, key });
     if (cursor && cursor.parentNode) cursor.remove();
-    block.append(h(`<span class="tp-acc">${acc}%</span>`).firstChild);
+    if (ghost && ghost.parentNode) ghost.remove();
+    // ⚑⚑ FADE CLIMBS THE LADDER BEFORE IT MOVES ON — the same verse, one rung fainter. NOTHING is
+    // recorded on the way up, and that is the point rather than an omission: a rung is another
+    // attempt at ONE verse, so filing each of them would file one verse four times, which is the
+    // exact shape of the re-entrant `flashEnd` defect chunk 7 had to undo.
+    if (fade && stage + 1 < FADE_STAGES.length) { load(qi, stage + 1); return; }
+    // ⚑ W2 — ONLY A COMPLETED VERSE WRITES THE MEMORY. `prior` is kept so a step back can undo it.
+    if (!fade) {
+      const next = {};
+      for (let i = 0; i < total; i++) next[i] = typerMemNext(prior[i], missIdx.includes(i));
+      typerMemSet(key, next);
+    }
+    results.push({ n: item.n, acc: fade ? null : acc, peeks, missed: missedWords, secs, key, qi, miss: missIdx.slice(), prior: { ...prior } });
+    // ⚑⚑ FADE FILES NOTHING — no mastery, no coverage, no memorized offer. See FADE_STAGES.
+    if (!fade) {
+      CR.logPractice(prDocId(d, item), prN(item), 'typer', acc);
+      // ⚑ EVERY VERSE HE GETS THROUGH COUNTS AS TRAINED, at any accuracy.
+      RV.markCovered(key);
+      // ⚑⚑ ≥ his threshold is COLLECTED and offered at the end — never marked behind his back.
+      if (acc >= typerMemorizedMin()) memorizedOffer.push({ item, acc, key });
+    }
+    block.append(h(`<span class="tp-acc">${fade ? peeks + ' peek' + (peeks === 1 ? '' : 's') : acc + '%'}</span>`).firstChild);
     pageDone.set(key, { key, acc, miss: missIdx.slice(), secs });
     savePage();
     if (isCreed) toast(`${NOUN} ${item.n}: ${acc}% in ${SC.fmtSecs(secs)}`);
@@ -17982,19 +18047,27 @@ function typerScreen(d, queue, qi0, results, intent = 'practice') {
       pageDone.set(r.key, { key: r.key, acc: r.acc, miss: r.miss, secs: r.secs });
     });
   }
-  function load(nx) {
+  function load(nx, st = 0) {
     qi = nx;
     item = queue[qi];
     if (!item) { done = true; render(finishSession, false); return; }
+    // ⚑ THE RUNG RESETS WITH THE VERSE and the peeks reset with the rung-0 arrival, not with each
+    // rung: `load(qi, stage + 1)` carries the count on, `load(nextVerse)` starts it at nothing.
+    stage = fade ? st : 0;
+    peeked = new Set();
+    if (!fade || st === 0) peeks = 0;
     awaiting = false;
     endBar.style.display = 'none';
     const pk = pageOf(item);
     if (pk !== pageKey) { pageKey = pk; drawPage(pk, qi); }
     if (blocks.has(qi)) { blocks.get(qi).remove(); blocks.delete(qi); }
-    setHeader(isCreed ? `First-Letter · ${NOUN} ${item.n}` : `First-Letter · ${refOf(item)}`, { back: true });
-    counter.textContent = isCreed
-      ? `${NOUN} ${qi + 1} of ${queue.length} · type the first letter of each word`
-      : `${NOUN} ${qi + 1} of ${queue.length} · ${refOf(item)}`;
+    const modeName = fade ? 'Fade' : 'First-Letter';
+    setHeader(isCreed ? `${modeName} · ${NOUN} ${item.n}` : `${modeName} · ${refOf(item)}`, { back: true });
+    counter.textContent = fade
+      ? `${NOUN} ${qi + 1} of ${queue.length}${isCreed ? '' : ' · ' + refOf(item)} · stage ${stage + 1} of ${FADE_STAGES.length}: ${FADE_STAGES[stage][0]} showing`
+      : isCreed
+        ? `${NOUN} ${qi + 1} of ${queue.length} · type the first letter of each word`
+        : `${NOUN} ${qi + 1} of ${queue.length} · ${refOf(item)}`;
     prompt.querySelector('[data-a=q]').textContent = isCreed ? `Q${item.n}. ${item.q}` : pageTitleOf(item);
     const resumed = !!(restore && restore.pk === pk && pageDone.size > 0);
     resumeRow.style.display = resumed ? '' : 'none';
@@ -18002,6 +18075,9 @@ function typerScreen(d, queue, qi0, results, intent = 'practice') {
 
     words = tokenize(item.a).flatMap((line, li) => [...line.map(w => ({ ...w, li })), { raw: '\n', key: null, br: true, li }]);
     words.pop();
+    // ⚑ THE INDEX THE RUNG READS counts only the words he TYPES — see the note over FADE_STAGES.
+    let wki = 0;
+    words.forEach(w => { if (w.key) w.ki = wki++; });
     pos = 0; missedWords = []; wordMisses = 0; correct = 0; keyIdx = 0; missIdx = [];
     total = words.filter(w => w.key).length;
     key = keyOf(item);
@@ -18013,6 +18089,11 @@ function typerScreen(d, queue, qi0, results, intent = 'practice') {
     text = block.querySelector('.tp-text');
     cursor = h(`<span class="tp-cursor" style="color:var(--gold);font-weight:700">▊</span>`).firstChild;
     text.append(cursor);
+    // ⚑ THE PROMPT SITS AFTER THE CURSOR, in the same line box, because the words he has typed are
+    // inserted BEFORE it — so the text reads straight through from ink into faint without the two
+    // layers being two elements he has to visually join.
+    ghost = null;
+    if (fade) { ghost = h(`<span class="tp-ghost"></span>`).firstChild; text.append(ghost); }
     blocks.set(qi, block);
     body.append(block);
     if (block.scrollIntoView) { try { block.scrollIntoView({ block: 'nearest' }); } catch (e) { /* layout-only */ } }
@@ -18024,7 +18105,7 @@ function typerScreen(d, queue, qi0, results, intent = 'practice') {
     const at = results.findIndex(r => r.qi === i);
     if (at < 0) return;
     const [r] = results.splice(at, 1);
-    typerMemSet(r.key, r.prior);
+    if (!fade) typerMemSet(r.key, r.prior);
     pageDone.delete(r.key);
     const oi = memorizedOffer.findIndex(o => o.key === r.key);
     if (oi >= 0) memorizedOffer.splice(oi, 1);
@@ -18032,11 +18113,14 @@ function typerScreen(d, queue, qi0, results, intent = 'practice') {
   }
   function restartCurrent() {
     if (awaiting) { stepBack(); return; }
-    load(qi);
+    load(qi, stage);   // ⚑ restart the RUNG he is on, not the whole ladder
   }
   function stepBack() {
     // at a chapter's end the verse just finished is the one to redo
     const target = awaiting ? qi : qi - 1;
+    // ⚑ FADE: A RUNG IS A STEP. ‹ walks back up the ladder before it leaves the verse — otherwise
+    // "go back" from stage 4 would skip the three attempts that led to it.
+    if (fade && !awaiting && stage > 0) { load(qi, stage - 1); return; }
     if (target < 0) { load(0); return; }
     if (!awaiting && blocks.has(qi)) { blocks.get(qi).remove(); blocks.delete(qi); }
     undoResult(target);
@@ -18069,7 +18153,7 @@ function typerScreen(d, queue, qi0, results, intent = 'practice') {
     inp.focus();
   };
   // ‹ stays clickable at the first verse (it restarts it) but says it is the end of the road.
-  const syncNav = () => { prev.style.opacity = qi === 0 && !awaiting ? '.45' : '1'; };
+  const syncNav = () => { prev.style.opacity = qi === 0 && stage === 0 && !awaiting ? '.45' : '1'; };
   inp.oninput = () => {
     const v = inp.value.toLowerCase();
     inp.value = '';
@@ -19170,6 +19254,9 @@ function flashFileBar(d, session, lap) {
   return bar;
 }
 
+// The two marks the pause pill wears, drawn rather than typed — see the note in `paint()` below.
+const CLOCK_PAUSE_SVG = '<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><rect x="2" y="1.4" width="3" height="9.2" rx="1" fill="currentColor"></rect><rect x="7" y="1.4" width="3" height="9.2" rx="1" fill="currentColor"></rect></svg>';
+const CLOCK_PLAY_SVG = '<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M3.2 1.5 10 6 3.2 10.5 Z" fill="currentColor"></path></svg>';
 // The clock, a Lap control and pause — the deck's whole timing surface, in the strip's left end.
 // ⚑ IT REPAINTS ITSELF ON A TICKER RATHER THAN RE-RENDERING THE SCREEN. Re-rendering once a second
 // to move a clock would rebuild the card, re-run the text fit, and re-bind the gesture handlers
@@ -19178,7 +19265,7 @@ function flashClockBar(d, session) {
   const el = h(`<div class="imm-clock">
       <button data-a="time" class="imm-clock-t" aria-label="Elapsed time — tap to hide"></button>
       <button data-a="lap" class="imm-clock-b">Lap</button>
-      <button data-a="pause" class="imm-clock-b" aria-label="Pause"></button>
+      <button data-a="pause" class="imm-clock-b" aria-label="Pause">${CLOCK_PAUSE_SVG}</button>
     </div>`).firstElementChild;
   const time = el.querySelector('[data-a=time]');
   const pause = el.querySelector('[data-a=pause]');
@@ -19189,8 +19276,15 @@ function flashClockBar(d, session) {
     // total he cannot see is still running, and the laps he takes still land where they should.
     time.textContent = session.clock.hidden ? '⏱' : SC.fmtSecs(flashElapsed(session.clock, now));
     time.classList.toggle('off', !!session.clock.hidden);
-    pause.textContent = flashPaused(session.clock) ? '▶' : '⏸';
-    el.classList.toggle('paused', flashPaused(session.clock));
+    // ⚑ FOLIO, NOT EMOJI. ⏸/▶ are emoji codepoints and iOS paints them as full-colour glyphs, so
+    // the control read as a sticker beside the brass "Lap" pill. Drawn marks in `currentColor` take
+    // the pill's ink, and `.on` brasses the whole pill when the clock is stopped — which says
+    // "paused" louder than a swapped picture does, next to the dimmed number.
+    const isPaused = flashPaused(session.clock);
+    pause.innerHTML = isPaused ? CLOCK_PLAY_SVG : CLOCK_PAUSE_SVG;
+    pause.setAttribute('aria-label', isPaused ? 'Resume' : 'Pause');
+    pause.classList.toggle('on', isPaused);
+    el.classList.toggle('paused', isPaused);
   };
   time.onclick = () => { session.clock.hidden = !session.clock.hidden; paint(); };
   pause.onclick = () => {
