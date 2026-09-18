@@ -178,7 +178,7 @@ body.immersive main { padding: calc(env(safe-area-inset-top) + 16px) 14px calc(e
   border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .04em; line-height: 1;
   padding: 5px 9px; cursor: pointer; }
 .imm-clock-b:active { background: var(--bg); }
-/* ⚑ FOLIO, NOT EMOJI (his ask, 17 Sep: "the pause button is not folio style"). ⏸/▶ are EMOJI
+/* ⚑ FOLIO, NOT EMOJI (his ask, 17 Sep: "the pause button is not folio style"). U+23F8 and U+25B6 are EMOJI
    codepoints — iOS paints them as full-colour glyphs, so a blue-black box sat beside a brass
    hairline pill. The marks are drawn instead, in `currentColor`, so they take the pill's ink in
    both themes and the paused state can brass the whole control rather than swapping a picture. */
@@ -501,6 +501,23 @@ header.topbar .avatar {
    ⚑ FAINT, NOT GREY-ON-GREY. It has to be readable at a glance and unmistakably NOT the text he
    has typed, so it takes the faint ink token rather than an opacity on the ink one — opacity would
    also fade the red miss wash behind a word, which belongs to the typed layer. */
+/* ===== Folio marks (18 Sep) =====
+   ⚑ THE APP DRAWS ITS OWN MARKS. An emoji codepoint is painted by the system — colour, its own
+   weight, its own size — so it can never match the page it sits on. These wrap the engraved
+   line-art set, take `currentColor`, and sit ON the text baseline rather than beside it. */
+.f-ico { display: inline-flex; vertical-align: -2px; margin-right: 3px; }
+.f-ico.solo { margin-right: 0; vertical-align: -3px; }
+.f-ico .plus-ico { display: block; }
+
+/* C6 (18 Sep) — the wrong-letter nudge. ⚑ IT IS ON THE CURSOR, NOT THE CARD: `.shake` moves whatever
+   it is on, and the card is the whole chapter, so on an iPad every miss slid a screenful of settled
+   text sideways. Smaller, faster, and inline-block because a transform does nothing to an inline box. */
+@keyframes tp-nudge {
+  0%, 100% { transform: translateX(0); }
+  30% { transform: translateX(-3px); }
+  70% { transform: translateX(3px); }
+}
+.tp-nudge { display: inline-block; animation: tp-nudge .18s ease-in-out; }
 .tp-ghost { color: var(--text-3); }
 .tp-ghost .pw-ghost { color: var(--text-3); }
 /* a word this rung has taken away: marks he can tap to peek. 44px is unreachable inline, so the
@@ -3471,7 +3488,7 @@ function scoreSeries(mode, limit = 30) {
 
 const MODE_LABELS = {
   flash: 'Flashcards [1–5]', binary: 'Flashcards [✓]', typer: 'First-Letter typing',
-  fade: 'Fade', scramble: 'Scramble', timer: 'Recite ⏱'
+  fade: 'Fade', scramble: 'Scramble', timer: 'Recite'
 };
 function modeLabel(m) { return MODE_LABELS[m] || m; }
 
@@ -5451,7 +5468,7 @@ function updateLog(id, patch = {}) {
 // Same rule on the library side: a workout he built is his to change; a seeded or competition
 // workout is a published prescription and stays as it is. Copy-and-modify shipped as
 // `workoutCopySheet` ("⎘ My version") — ⚑ and the locked branch of the edit sheet went on saying
-// it was "coming next" for weeks after it landed, which is the ✅-means-two-things defect wearing
+// it was "coming next" for weeks after it landed, which is the ✓-means-two-things defect wearing
 // a third hat: a promise in the source, still on screen, for something already built.
 //
 // ⚑⚑ AND THE SECOND HALF IS BARUCH'S RULING, Aug 19: **editable only until it is logged.**
@@ -5657,7 +5674,7 @@ function removeCard(id) { cardsEnsure(); F().cards = F().cards.filter(c => c.id 
 // this session"; a planned card is the same record with its parts not yet filled. Adding a
 // `planDate` beside `ts` would put two answers to one question in one record — which is the
 // Stats-vs-streak disagreement batch 2 caught ("when two screens answer 'how many workouts
-// this week', they answer from one rule"), and the ✅-means-two-things defect the thirty-third
+// this week', they answer from one rule"), and the ✓-means-two-things defect the thirty-third
 // session wrote a vocabulary for. A card owns nothing; every number in the app runs off the
 // component logs. Its date has only ever been a label, and a label can point forwards.
 //
@@ -5854,7 +5871,7 @@ function prFor(wid) {
 // than inventing a second vocabulary is the whole point. Q6 settled that a domain which is not
 // counting renders IDENTICALLY however it got there, and that the difference between "expired
 // with history" and "never unlocked" belongs in the SUB-LINE. The twenty-fourth session found a
-// live bug from breaking that rule — a locked ring drew `–` on one screen and 🔒 on another, so
+// live bug from breaking that rule — a locked ring drew `–` on one screen and a lock glyph on another, so
 // one fact had two glyphs. So:
 //
 //     never done        →  —   sub-line: "never done"
@@ -6213,7 +6230,7 @@ function levelLadder(key) {
   return LEVEL_RUNGS.map(l => ({ level: l, value: outputAtLevel(b, l) }));
 }
 
-// Q13 ✅: tier C and tier E results DO count toward the unlock. Anything with a curve and a
+// Q13 ✓: tier C and tier E results DO count toward the unlock. Anything with a curve and a
 // non-zero weight counts; only the weight-0 personal benchmarks are excluded.
 const UNLOCK_MIN = ASSESS_UNLOCK_MIN;
 const isTrue1RM = w => !!(w && /^1RM:/i.test(w.name || ''));
@@ -6268,7 +6285,7 @@ function sigmaOf(b) {
   return typeof s === 'number' ? s : TIER_SIGMA.C;
 }
 
-// ⚑ Q11 ✅ — what a repeat is actually worth, and it is the largest lever in the scheme.
+// ⚑ Q11 ✓ — what a repeat is actually worth, and it is the largest lever in the scheme.
 // On a repeat, σ_curve cancels entirely (the curve's error is a FIXED offset for a given
 // workout, so it is identical every time you do it) and only performance variation remains,
 // twice: σ_repeat = √2 · σ_perf = 7.07. Precision accumulates:
@@ -7880,8 +7897,8 @@ const FORM_SENSITIVE = new Set(['pullup', 'hspu', 'ringmu', 'barmu']);
 // gap rather than a general wish for extensibility. He asked to substitute bicep curls into a
 // workout. The registry answers:
 //
-//     "24 Push-ups"    → pushup   ✅        "12 Bicep Curls" → nothing ❌
-//     "Run 400m"       → run      ✅        "Barbell Curl"   → nothing ❌
+//     "24 Push-ups"    → pushup   ✓        "12 Bicep Curls" → nothing ✗
+//     "Run 400m"       → run      ✓        "Barbell Curl"   → nothing ✗
 //
 // The 66 movements were read off HIS OWN corpus — 19 barbell · 24 gymnastics · 10 dumbbell ·
 // 6 mono · 2 kettlebell · 5 other — and seven years of btwb contains no accessory work. So the
@@ -10409,7 +10426,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260917-1641'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260917-1641';
+const BUILD_ID = '20260918-1812'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260918-1812';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -10771,7 +10788,7 @@ function addRow(placeholder, onAdd) {
   return el;
 }
 
-// ⛑ E3 (17 Sep) — NO POP-UPS. "Remove both": the floating gold "Milestone! 🎉" / "Pathway complete! 🏆"
+// ⛑ E3 (17 Sep) — NO POP-UPS. "Remove both": the floating gold "Milestone!" / "Pathway complete!"
 // and the emoji in labels. What a celebration said is still worth saying, so it is an ordinary toast.
 function celebrate(text) { toast(text); }
 
@@ -11058,7 +11075,7 @@ function currentBookSection() {
       <div class="row">
         <span class="badge ${inf.b.t}">${inf.b.t.toUpperCase()}</span>
         <div class="grow"><div style="font-size:17px;font-weight:700;">${esc(inf.label)}</div>
-          <div class="muted" style="font-size:12px">${inf.done}/${inf.total} verses · ${sub}${inf.stale ? ' · <span style="color:var(--danger)">⚠ review needed</span>' : ''}</div>
+          <div class="muted" style="font-size:12px">${inf.done}/${inf.total} verses · ${sub}${inf.stale ? ' · <span style="color:var(--danger)">' + ICO_WARN() + 'review needed</span>' : ''}</div>
         </div>
         <div style="text-align:right;flex-shrink:0"><div class="big" style="color:var(--accent)">${inf.pct}%</div></div>
       </div>
@@ -11071,7 +11088,7 @@ function currentBookSection() {
     return `<div class="d-cur-row" data-i="${i}" style="cursor:pointer;margin-bottom:9px">
       <div class="row">
         <span class="badge ${inf.b.t}">${inf.b.t.toUpperCase()}</span>
-        <div class="grow" style="font-size:14px;font-weight:700">${esc(inf.label)}${inf.stale ? ' <span style="color:var(--danger);font-size:11px">⚠ review</span>' : ''}</div>
+        <div class="grow" style="font-size:14px;font-weight:700">${esc(inf.label)}${inf.stale ? ' <span style="color:var(--danger);font-size:11px">' + ICO_WARN() + 'review</span>' : ''}</div>
         <div style="font-weight:700;color:var(--accent);font-size:13px">${inf.pct}%</div>
       </div>
       <div class="progressbar" style="margin-top:4px"><div style="width:${inf.pct}%"></div></div>
@@ -11157,7 +11174,7 @@ function dashboard() {
               <div class="muted" style="font-size:12px">${tr === 'memorize' ? 'memorizing' : tr === 'read' ? 'reading' : ''} · ${st.done}/${st.total} ${unitOf(d)} · ${st.pct}%</div>
               <div class="progressbar" style="margin-top:5px"><div style="width:${st.pct}%"></div></div>
               <div class="muted" style="font-size:11px;margin-top:4px">${getStreak('cr')} day streak · ${weekDays('cr')} of 7 this week</div>
-              ${(() => { const pi = TG.creedPaceInfo(d.id); return pi ? `<div style="font-size:12px;font-weight:600;margin-top:4px;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? pi.remaining + ' ' + unitOf(d) + ' due now' : pi.perDay + ' ' + unitOf(d) + '/day to ' + shortDate(CR.docDueOf(d.id))}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>` : ''; })()}
+              ${(() => { const pi = TG.creedPaceInfo(d.id); return pi ? `<div style="font-size:12px;font-weight:600;margin-top:4px;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">${ICO_PACE()}${pi.overdue ? pi.remaining + ' ' + unitOf(d) + ' due now' : pi.perDay + ' ' + unitOf(d) + '/day to ' + shortDate(CR.docDueOf(d.id))}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>` : ''; })()}
             </div>
             <span class="chev">›</span>
           </div></div>`;
@@ -11172,7 +11189,7 @@ function dashboard() {
               <div class="grow" style="font-size:14px;font-weight:700">${esc(d.name)}</div>
               <div style="font-weight:700;color:var(--accent);font-size:13px">${st.pct}%</div>
             </div>
-            ${pi ? `<div style="font-size:11px;font-weight:600;margin-top:2px;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? pi.remaining + ' ' + unitOf(d) + ' due now' : pi.perDay + ' ' + unitOf(d) + '/day to ' + shortDate(CR.docDueOf(d.id))}</div>` : ''}
+            ${pi ? `<div style="font-size:11px;font-weight:600;margin-top:2px;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">${ICO_PACE()}${pi.overdue ? pi.remaining + ' ' + unitOf(d) + ' due now' : pi.perDay + ' ' + unitOf(d) + '/day to ' + shortDate(CR.docDueOf(d.id))}</div>` : ''}
             <div class="progressbar" style="margin-top:4px"><div style="width:${st.pct}%"></div></div>
           </div>`;
         }).join('');
@@ -11303,7 +11320,7 @@ function statsScreen() {
   // and nothing can create a new one — but his history HAS them, and dropping the filter option
   // along with the mode would have hidden real sessions he actually did. Deleting a feature must
   // not delete the record of having used it.
-  const modes = [[null, 'All modes'], ['flash', 'Cards 1–5'], ['typer', 'Typing'], ['fade', 'Fade'], ['scramble', 'Scramble'], ['timer', 'Recite ⏱'], ['binary', 'Cards ✓ (retired)']];
+  const modes = [[null, 'All modes'], ['flash', 'Cards 1–5'], ['typer', 'Typing'], ['fade', 'Fade'], ['scramble', 'Scramble'], ['timer', 'Recite'], ['binary', 'Cards ✓ (retired)']];
   const modeRow = h(`<div class="pillrow" style="margin-bottom:4px;flex-wrap:wrap">${modes.map(([v, l]) =>
     `<button class="pill${statsFilter.mode === v ? ' on' : ''}" data-m="${v === null ? '' : v}" style="padding:5px 10px;font-size:12px">${l}</button>`).join('')}</div>`).firstElementChild;
   modeRow.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { statsFilter.mode = b.dataset.m || null; rerender(); });
@@ -11543,7 +11560,7 @@ function paceDeltaChip(delta) {
 function dueControl({ label, hint, value, onSet, info, unit }) {
   const FIN = 'padding:10px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px';
   const readout = info
-    ? `<div style="font-size:12px;font-weight:600;margin-top:8px;${info.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${info.overdue ? 'Overdue — ' + info.remaining + ' ' + unit + ' left, due now' : info.perDay + ' ' + unit + '/day to stay on pace'}${info.overdue ? '' : paceDeltaChip(info.delta)}</div>`
+    ? `<div style="font-size:12px;font-weight:600;margin-top:8px;${info.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">${ICO_PACE()}${info.overdue ? 'Overdue — ' + info.remaining + ' ' + unit + ' left, due now' : info.perDay + ' ' + unit + '/day to stay on pace'}${info.overdue ? '' : paceDeltaChip(info.delta)}</div>`
     : `<div class="muted" style="font-size:12px;margin-top:8px">${esc(hint || 'Set a date for a self-adjusting daily pace — shows in Today, Week & Month.')}</div>`;
   const committed = value || '';
   const card = h(`<div class="card"><h3>${esc(label)}</h3>
@@ -11825,7 +11842,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
           <div class="check" style="color:var(--accent);border-color:var(--accent)">◎</div>
           <div class="grow">
             <div class="title">${esc(r.title)}</div>
-            <div class="sub">${r.scheduled ? '◎ review due' : (r.late ? '⚠ overdue · ' : '') + r.st.covered + '/' + r.st.total + ' reviewed this cycle · ' + RV.cadenceLabel(r.a.cadence)}</div>
+            <div class="sub">${r.scheduled ? '◎ review due' : (r.late ? ICO_WARN() + 'overdue · ' : '') + r.st.covered + '/' + r.st.total + ' reviewed this cycle · ' + RV.cadenceLabel(r.a.cadence)}</div>
           </div>
         </div>`);
       // due (not a future scheduled marker) → tap launches your remembered review mode; ▾ picks a different one
@@ -11848,7 +11865,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
   const mbRows = memByRowsForDate(dk).filter(r => !hidden('memby', r.id, r.title, r.creed ? 'creeds' : 'memorize'));
   if (mbRows.length) {
     mbRows.forEach(r => {
-      const when = r.late ? '⚠ overdue by ' + Math.abs(r.daysLeft) + 'd'
+      const when = r.late ? ICO_WARN() + 'overdue by ' + Math.abs(r.daysLeft) + 'd'
                  : r.daysLeft === 0 ? 'due today'
                  : r.daysLeft + ' day' + (r.daysLeft === 1 ? '' : 's') + ' left';
       const el = h(`
@@ -11882,7 +11899,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
       push(el, entry.kind, entry.id, entryIconKey(entry));
       return;
     }
-    // a scheduled step on a timed (Scripture Review) pathway → offer the ⏱ inline, like the next-steps list
+    // a scheduled step on a timed (Scripture Review) pathway → offer the timer pill inline, like the next-steps list
     if (entry.kind === 'pstep' && entry.timed && !entry.done) {
       const p = PW.all().find(x => x.id === entry.pid);
       const el = h(`
@@ -11892,7 +11909,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
             <div class="title">${esc(entry.label)}</div>
             <div class="sub">${esc(entry.domain)}</div>
           </div>
-          <button class="pill" data-a="t" style="padding:7px 11px;font-size:15px">⏱</button>
+          <button class="pill" data-a="t" style="padding:7px 11px">${folioIcoSolo('stopwatch', 15)}</button>
         </div>`);
       el.querySelector('.check').onclick = () => { PL.toggle(dk, entry); rerender(); };
       el.querySelector('[data-a=t]').onclick = () => { if (p) render(() => stepTimer(p, entry.id)); };
@@ -11904,14 +11921,14 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
     if (entry.kind === 'pace') {
       const pi = entry.info;
       const txt = pi.overdue
-        ? '⚠ Overdue — ' + pi.left + ' ' + entry.unit + ' due now'
+        ? ICO_WARN() + 'Overdue — ' + pi.left + ' ' + entry.unit + ' due now'
         : pi.perDay + ' ' + entry.unit + '/day' + (pi.done ? ' · done today ✓' : pi.progress ? ' · ' + pi.left + ' to go' : '');
       const el = h(`
         <div class="list-item" style="cursor:pointer${pi.overdue ? ';border-color:var(--danger)' : ''}">
           <div class="check"${pi.done ? ' style="background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent)"' : ''}>✓</div>
           <div class="grow">
             <div class="title">${esc(entry.title)}</div>
-            <div class="sub">🎯 ${esc(entry.domain)} · ${txt}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>
+            <div class="sub">${ICO_PACE()}${esc(entry.domain)} · ${txt}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>
           </div>
         </div>`);
       el.querySelector('.list-item').onclick = () => navPace(entry.goto);
@@ -11933,7 +11950,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
           <div class="check"${entry.done ? ' style="background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent)"' : ''}>✓</div>
           <div class="grow">
             <div class="title">${esc(entry.label)}</div>
-            <div class="sub">🏋 ${entry.parts} part${entry.parts === 1 ? '' : 's'} · ${entry.logged}/${entry.parts} logged${entry.manual ? ' · set by hand' : ''}</div>
+            <div class="sub">${ICO_LIFT()}${entry.parts} part${entry.parts === 1 ? '' : 's'} · ${entry.logged}/${entry.parts} logged${entry.manual ? ' · set by hand' : ''}</div>
           </div>
           <span class="chev">›</span>
         </div>`);
@@ -11950,7 +11967,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
           <div class="check"${entry.done ? ' style="background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent)"' : ''}>✓</div>
           <div class="grow">
             <div class="title">${esc(entry.scopeLabel || entry.domainLabel + ' · any')}</div>
-            <div class="sub">🎯 ${periodLbl} target · ${entry.amount}/${entry.target} ${esc(entry.unit)}${entry.done ? ' · done ✓' : entry.period !== 'day' ? ' this ' + entry.period : ''}</div>
+            <div class="sub">${ICO_PACE()}${periodLbl} target · ${entry.amount}/${entry.target} ${esc(entry.unit)}${entry.done ? ' · done ✓' : entry.period !== 'day' ? ' this ' + entry.period : ''}</div>
           </div>
         </div>`);
       el.querySelector('.list-item').onclick = () => navPace(entry.goto);
@@ -11978,7 +11995,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
               <div class="title">${esc(s.label)}</div>
               <div class="sub">${esc(p.name)} · was due ${shortDate(s.date)}</div>
             </div>
-            ${!s.ref && PW.isTimed(p) ? '<button class="pill" data-a="t" style="padding:7px 11px;font-size:15px">⏱</button>' : ''}
+            ${!s.ref && PW.isTimed(p) ? '<button class="pill" data-a="t" style="padding:7px 11px">' + folioIcoSolo('stopwatch', 15) + '</button>' : ''}
           </div>`);
         el.querySelector('.check').onclick = () => { PW.completeStep(p, s.id); rerender(); };
         const tb = el.querySelector('[data-a=t]');
@@ -11995,7 +12012,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
   // be able to move things from first to last or reorder in any way."
   //
   // ⚑ THEY COULD GO BECAUSE EVERY ROW ALREADY SAYS WHAT IT IS. The domain glyph landed in chunk 2
-  // and each sub-line names its own kind — "◎ training due", "🎯 Daily target", "🏋 2 parts · 1/2
+  // and each sub-line names its own kind — "◎ training due", "pace · Daily target", "workout · 2 parts · 1/2
   // logged". A heading that repeats what the row beneath it already prints is one fact in two
   // places, and it was the thing pinning an order he could not change.
   //
@@ -12025,7 +12042,7 @@ function renderDayChecklist(container, dk, { showPathways = false } = {}) {
               <div class="title">${esc(s.label)}</div>
               <div class="sub">${esc(p.name)} · step ${st.doneSteps + 1} of ${st.totalSteps}</div>
             </div>
-            ${!s.ref && PW.isTimed(p) ? '<button class="pill" data-a="t" style="padding:7px 11px;font-size:15px">⏱</button>' : ''}
+            ${!s.ref && PW.isTimed(p) ? '<button class="pill" data-a="t" style="padding:7px 11px">' + folioIcoSolo('stopwatch', 15) + '</button>' : ''}
           </div>`);
         el.querySelector('.check').onclick = () => { completePathwayStep(p); rerender(); };
         const tbtn = el.querySelector('[data-a=t]');
@@ -12149,9 +12166,9 @@ function planWeek(body) {
     const nudges = TG.paceNudges(dk);   // due-date pace amounts planned for this day (9.4)
     const paceLines = nudges.map(nd => {
       const pi = nd.info;
-      const amt = pi.overdue ? '⚠ ' + pi.left + ' ' + nd.unit + ' due now'
+      const amt = pi.overdue ? ICO_WARN() + pi.left + ' ' + nd.unit + ' due now'
         : pi.perDay + ' ' + nd.unit + (pi.done ? ' ✓' : '');
-      return `<div class="sub" style="${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${esc(nd.title)} · ${amt}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>`;
+      return `<div class="sub" style="${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">${ICO_PACE()}${esc(nd.title)} · ${amt}${pi.overdue ? '' : paceDeltaChip(pi.delta)}</div>`;
     }).join('');
     // one dotted line per DAILY target that applies this day (9.5)
     const dayTgts = PL.targets().filter(t => t.period === 'day' && TG.targetAppliesOn(t, dk));
@@ -12194,7 +12211,7 @@ function targetProgressBlock(body, period, dk, title) {
         <div class="check"${pr.done ? ' style="background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent)"' : ''}>✓</div>
         <div class="grow">
           <div class="title">${esc(t.scope && t.scope.label ? t.scope.label : TG.domainLabelOf(t.domain) + ' · any')}</div>
-          <div class="sub" style="color:${pr.done ? 'var(--forest)' : 'var(--accent)'};font-weight:600">🎯 ${pr.amount}/${pr.target} ${esc(t.unit)}${pr.done ? ' ✓' : ''}</div>
+          <div class="sub" style="color:${pr.done ? 'var(--forest)' : 'var(--accent)'};font-weight:600">${ICO_PACE()}${pr.amount}/${pr.target} ${esc(t.unit)}${pr.done ? ' ✓' : ''}</div>
           <div class="progressbar" style="margin-top:6px"><div style="width:${pctW}%"></div></div>
         </div>
       </div>`);
@@ -12334,7 +12351,7 @@ function planTargets(body) {
         <div class="grow">
           <div class="title">${esc(t.scope && t.scope.label ? t.scope.label : TG.domainLabelOf(t.domain) + ' · any')}</div>
           <div class="sub">${periodLbl} · ${t.amount} ${esc(t.unit)}${dowLbl}</div>
-          <div class="sub" style="color:${pr.done ? 'var(--forest)' : 'var(--accent)'};font-weight:600">🎯 ${pr.amount}/${pr.target} ${esc(t.unit)} this ${t.period}${pr.done ? ' ✓' : ''}</div>
+          <div class="sub" style="color:${pr.done ? 'var(--forest)' : 'var(--accent)'};font-weight:600">${ICO_PACE()}${pr.amount}/${pr.target} ${esc(t.unit)} this ${t.period}${pr.done ? ' ✓' : ''}</div>
         </div>
         <button class="del" style="border:none;background:none;color:var(--danger);font-size:17px;cursor:pointer">✕</button>
       </div>`);
@@ -12510,7 +12527,7 @@ function pathwaysHome() {
       <input data-a="name" placeholder="Pathway name" style="width:100%;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px;margin-bottom:10px">
       <div class="pillrow">
         <button class="pill on" data-c="general">General</button>
-        <button class="pill" data-c="scripture-review">Scripture Review ⏱</button>
+        <button class="pill" data-c="scripture-review">Scripture Review</button>
       </div>
       <div class="muted" style="margin-bottom:6px;font-size:12px">Scripture Review pathways include a timer on every step — timed whole-book reviews log automatically to the review tracker.</div>
       <button class="btn" data-a="create">Create pathway</button>
@@ -12576,7 +12593,7 @@ function buildPathwayBody(wrap, p) {
     // milestone header
     const head = h(`
       <div class="ms-head ${complete ? 'complete' : locked ? 'locked' : ''}">
-        <div class="ms-badge" style="${complete ? 'background:var(--accent-fill);color:var(--on-accent)' : isCurrent ? 'background:var(--gold-fill);color:var(--on-accent)' : 'background:var(--line);color:var(--text-2)'}">${complete ? '✓' : locked ? '🔒' : mi + 1}</div>
+        <div class="ms-badge" style="${complete ? 'background:var(--accent-fill);color:var(--on-accent)' : isCurrent ? 'background:var(--gold-fill);color:var(--on-accent)' : 'background:var(--line);color:var(--text-2)'}">${complete ? '✓' : locked ? folioIco('lock', 11) : mi + 1}</div>
         <div class="grow">
           ${pwEditMode
             ? `<input value="${esc(m.name)}" data-a="rename" style="width:100%;border:none;background:none;color:var(--text);font-size:15px;font-weight:700;padding:0">`
@@ -12621,11 +12638,11 @@ function buildPathwayBody(wrap, p) {
               ${s.ref && !s.done && !pwEditMode ? (isReadStep(s)
                 ? `<button class="pill" data-a="refgo" style="padding:5px 12px;font-size:12px">▸ Open</button><button class="pill" data-a="refman" title="Mark by hand" style="padding:5px 9px;font-size:12px">✓</button>`
                 : brokenRef
-                  ? `<button class="pill" data-a="relink" style="padding:5px 12px;font-size:12px;border-color:var(--danger);color:var(--danger)">⚠ Relink</button>`
+                  ? `<button class="pill" data-a="relink" style="padding:5px 12px;font-size:12px;border-color:var(--danger);color:var(--danger)">${ICO_WARN()}Relink</button>`
                   : `<button class="pill" data-a="refgo" style="padding:5px 12px;font-size:12px">${refPillLabel(s.ref.intent)}</button>${s.ref.intent !== 'memorize' ? `<button class="pill" data-a="refmodes" title="Choose mode" style="padding:5px 8px;font-size:12px">▾</button>` : ''}${handOnly ? `<button class="pill" data-a="refman" title="Mark by hand" style="padding:5px 9px;font-size:12px">✓</button>` : ''}`)
                 : isNext && !pwEditMode && !locked ? `<button class="pill on" data-a="go" style="padding:5px 12px;font-size:12px">Done</button>` +
-                (PW.isTimed(p) ? `<button class="pill" data-a="time" style="padding:5px 9px;font-size:13px">⏱</button>` : '') : ''}
-              ${!s.done && !pwEditMode ? `<button class="pill pw-datechip ${s.date ? 'on' : ''}" data-a="date" style="padding:5px 9px;font-size:12px">${s.date ? '📅 ' + shortDate(s.date) : '📅'}</button>` : ''}
+                (PW.isTimed(p) ? `<button class="pill" data-a="time" style="padding:5px 9px">${folioIcoSolo('stopwatch', 14)}</button>` : '') : ''}
+              ${!s.done && !pwEditMode ? `<button class="pill pw-datechip ${s.date ? 'on' : ''}" data-a="date" style="padding:5px 9px;font-size:12px">${s.date ? folioIco('calendar', 11) + shortDate(s.date) : folioIcoSolo('calendar', 13)}</button>` : ''}
               ${s.done && pwEditMode ? '<button class="pill" data-a="undo" style="font-size:12px;padding:5px 10px">Undo</button>' : ''}
               ${pwEditMode && s.ref && s.manualDone !== undefined ? `<button class="pill" data-a="refauto" title="Hand it back to the engine" style="padding:4px 9px;font-size:12px">↺</button>` : ''}
               ${pwEditMode ? `<button class="pill" data-a="wminus" style="padding:4px 9px;font-size:13px">−</button>
@@ -12635,7 +12652,7 @@ function buildPathwayBody(wrap, p) {
             </div>
             ${s.done && s.doneTs ? `<div class="sub" style="margin-top:2px">done ${new Date(s.doneTs).toLocaleDateString()}${s.secs != null ? ' · ' + SC.fmtSecs(s.secs) : ''}</div>` : ''}
             ${isReadStep(s) ? (() => { const sub = readStepSub(s); return sub ? `<div class="sub" style="margin-top:2px">${esc(sub)}${s.manualDone !== undefined ? ' · set by hand' : ''}</div>` : (s.manualDone !== undefined ? `<div class="sub" style="margin-top:2px">set by hand</div>` : ''); })() : ''}
-            ${brokenRef ? `<div class="sub" style="margin-top:2px;color:var(--danger)">⚠ ${esc(brokenRef.why)}</div>` : ''}
+            ${brokenRef ? `<div class="sub" style="margin-top:2px;color:var(--danger)">${ICO_WARN()}${esc(brokenRef.why)}</div>` : ''}
             ${(!isReadStep(s) && s.ref && !brokenRef) ? (() => {
                 const bits = [];
                 const why = refStepManualReason(p, s);
@@ -12742,7 +12759,7 @@ function buildPathwayEdit(wrap, p) {
           <div class="pw-handle pw-shandle" title="Drag to reorder">≡</div>
           <div class="pw-sdot ${s.done ? 'done' : ''}" data-a="toggledone" title="${s.done ? 'Mark not done' : 'Mark done'}" style="cursor:pointer">${s.done ? '✓' : ''}</div>
           <input class="grow pw-rename" value="${esc(s.label)}" placeholder="Step">
-          <button class="pw-wbtn" data-a="link" title="${s.ref ? 'Linked · ' + intentVerb(s.ref.intent) + ' — tap to unlink' : 'Link to a Scripture passage'}"${s.ref ? ' style="color:var(--gold)"' : ''}>🔗</button>
+          <button class="pw-wbtn" data-a="link" title="${s.ref ? 'Linked · ' + intentVerb(s.ref.intent) + ' — tap to unlink' : 'Link to a Scripture passage'}"${s.ref ? ' style="color:var(--gold)"' : ''}>${folioIcoSolo('link', 15)}</button>
           <button class="pw-wbtn" data-a="wminus">−</button>
           <span class="pw-wt">×${PW.stepWeight(s)}</span>
           <button class="pw-wbtn" data-a="wplus">+</button>
@@ -12771,7 +12788,7 @@ function buildPathwayEdit(wrap, p) {
       // score looks exactly like one it owns, right up until it never ticks itself.
       const bref = refStepBroken(s);
       if (bref) {
-        const warn = h(`<div class="pw-empty" style="margin:-4px 0 6px 34px;font-size:11.5px;color:var(--danger)">⚠ ${esc(bref.why)} · <button class="pill" data-a="relink" style="padding:2px 8px;font-size:11px">Relink</button></div>`).firstElementChild;
+        const warn = h(`<div class="pw-empty" style="margin:-4px 0 6px 34px;font-size:11.5px;color:var(--danger)">${ICO_WARN()}${esc(bref.why)} · <button class="pill" data-a="relink" style="padding:2px 8px;font-size:11px">Relink</button></div>`).firstElementChild;
         warn.querySelector('[data-a=relink]').onclick = () => relinkSheet(p, s);
         group.append(warn);
       } else {
@@ -12826,7 +12843,7 @@ function buildPathwayEdit(wrap, p) {
     <div class="card" style="margin-top:16px"><h3>Category</h3>
       <div class="pillrow" style="margin-bottom:0">
         <button class="pill ${p.category !== 'scripture-review' ? 'on' : ''}" data-c="general">General</button>
-        <button class="pill ${p.category === 'scripture-review' ? 'on' : ''}" data-c="scripture-review">Scripture Review ⏱</button>
+        <button class="pill ${p.category === 'scripture-review' ? 'on' : ''}" data-c="scripture-review">Scripture Review</button>
       </div>
     </div>`).firstElementChild;
   catCard.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { PW.setCategory(p, b.dataset.c); drawPathway(p); });
@@ -13229,8 +13246,8 @@ function bookScreen(b) {
         <span class="badge ${b.t}">${b.t.toUpperCase()}</span>
         <div class="grow"><div class="big">${st.pct}%</div>
         <div class="muted">${st.done}/${st.total} verses · ${chaptersDone}/${b.chapters} chapters${isCurrent ? ' · <span style="color:var(--accent);font-weight:700">current book</span>' : ''}</div>
-        ${(() => { const pi = it ? TG.memPaceInfo(it) : null; return pi ? `<div style="font-size:12px;font-weight:600;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? 'Overdue — ' + pi.remaining + ' verses left, due now' : pi.perDay + ' verses/day to finish by ' + shortDate(it.due)}</div>` : ''; })()}</div>
-        ${stale ? '<div style="text-align:right;color:var(--danger);font-weight:700;font-size:13px">⚠ Review<br>needed</div>' : ''}
+        ${(() => { const pi = it ? TG.memPaceInfo(it) : null; return pi ? `<div style="font-size:12px;font-weight:600;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">${ICO_PACE()}${pi.overdue ? 'Overdue — ' + pi.remaining + ' verses left, due now' : pi.perDay + ' verses/day to finish by ' + shortDate(it.due)}</div>` : ''; })()}</div>
+        ${stale ? '<div style="text-align:right;color:var(--danger);font-weight:700;font-size:13px">${ICO_WARN()}Review<br>needed</div>' : ''}
       </div>
       <div class="progressbar" style="margin-top:8px;height:7px"><div style="width:${st.pct}%;${stale ? 'background:var(--danger);opacity:.6' : ''}"></div></div>
       ${last ? `<div class="muted" style="font-size:12px;margin-top:8px">Last review: ${new Date(last).toLocaleDateString()}</div>` : ''}
@@ -13435,7 +13452,7 @@ function reviewCadenceSheet(name, current, onApply) {
     body.append(card);
   });
 }
-// whole-book cadence sheet — also mirrors to the legacy reviewIntervals so the staleness ⚠ keeps working
+// whole-book cadence sheet — also mirrors to the legacy reviewIntervals so the staleness warning keeps working
 function bookCadenceSheet(b) {
   reviewCadenceSheet(b.name, RV.bookAssignment(b.name), c => {
     if (c) { RV.setBookCadence(b.name, c); SC.setReviewInterval(b.name, RV.normCadence(c).days); }
@@ -14044,7 +14061,7 @@ function bookReviewView(b) {
   };
 }
 // ⚑⚑ ONE ROW FOR A BOOK, USED BY ALL THREE LISTS. The Scripture home, the corpus lists and Books
-// complete each drew their own — badge, title, a progress bar, and (on two of the three) a bare red ⚠
+// complete each drew their own — badge, title, a progress bar, and (on two of the three) a bare red warning mark
 // off `SC.isStale`. Three drawings of one fact, disagreeing about which facts were worth drawing.
 // One builder means the decay circle, the proficiency ring and the "due / soon" wording cannot drift
 // apart across the screens he moves between while deciding what to work on.
@@ -14073,8 +14090,10 @@ function bookRow(b, { pctOnly = false } = {}) {
 }
 function bookDecayNote(v) {
   if (v.decay == null) return v.memorized ? 'no review rhythm set' : '';
-  if (v.due) return '⚠ review due';
-  if (v.soon) return '◎ review soon';
+  // ⚑ WORDS ONLY. This string is `esc()`d into HTML in one place and used as a `title=`
+  // attribute in another, so a drawn mark would be shown as its own source or read aloud.
+  if (v.due) return 'review due';
+  if (v.soon) return 'review soon';
   return 'reviewed';
 }
 
@@ -14807,7 +14826,7 @@ function modulesScreen(b) {
         // toast. The delete is still allowed; it just stops being silent.
         const dependents = stepsWithKey('mod:' + mod.id);
         const extra = dependents.length
-          ? `\n\n⚠ ${dependents.length} pathway step${dependents.length === 1 ? '' : 's'} point${dependents.length === 1 ? 's' : ''} at this unit and will need relinking.`
+          ? `\n\n${dependents.length} pathway step${dependents.length === 1 ? '' : 's'} point${dependents.length === 1 ? 's' : ''} at this unit and will need relinking.`
           : '';
         if (!confirm('Delete unit "' + (mod.name || MOD.moduleAutoName(mod, b)) + '"? This does not affect your memorization progress.' + extra)) return;
         MOD.deleteModule(b.name, mod.id);
@@ -15121,7 +15140,7 @@ function moduleScreen(b, mod) {
     save();
   });
   wrap.append(ordRow);
-  // ⚑ B7 — Recite ⏱ is gone with the review timer; the three modes sit on one row.
+  // ⚑ B7 — the Recite timer is gone with the review timer; the three modes sit on one row.
   const modes = h(`<div>
     <div class="row" style="gap:8px">
       <button class="btn" data-m="flash" style="margin-top:0;flex:1">Flashcards</button>
@@ -15138,7 +15157,7 @@ function moduleScreen(b, mod) {
   const del = h(`<button class="btn secondary" style="margin-top:8px;color:var(--danger)">Delete module</button>`);
   del.firstChild.onclick = () => {
     const deps = stepsWithKey('mod:' + mod.id);
-    const dextra = deps.length ? `\n\n⚠ ${deps.length} pathway step${deps.length === 1 ? '' : 's'} point${deps.length === 1 ? 's' : ''} at this unit and will need relinking.` : '';
+    const dextra = deps.length ? `\n\n${deps.length} pathway step${deps.length === 1 ? '' : 's'} point${deps.length === 1 ? 's' : ''} at this unit and will need relinking.` : '';
     if (!confirm('Delete module "' + title + '"? This does not affect your memorization progress.' + dextra)) return;
     MOD.deleteModule(b.name, mod.id);
     toast('Module deleted');
@@ -16066,9 +16085,9 @@ function bookDetail(b) {
       <div class="row">
         <div class="grow"><div class="big">${RD.pct(b)}%</div>
         <div class="muted">${esc(b.author || '')}${b.pages ? (b.author ? ' · ' : '') + 'p. ' + (b.currentPage || 0) + ' of ' + b.pages : ''}</div>
-        ${curCh ? `<div class="muted" style="font-size:12px;color:var(--accent);font-weight:600">📖 Ch. ${curCh.n}${curCh.title ? ' — ' + esc(curCh.title) : ''}</div>` : ''}
+        ${curCh ? `<div class="muted" style="font-size:12px;color:var(--accent);font-weight:600">${ICO_BOOK()}Ch. ${curCh.n}${curCh.title ? ' — ' + esc(curCh.title) : ''}</div>` : ''}
         ${est ? `<div class="muted" style="font-size:12px">~${est.pace.toFixed(0)} pages/day · ~${est.days} days left · done ${est.finish.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</div>` : ''}
-        ${(() => { const pi = TG.readPaceInfo(b); return pi ? `<div style="font-size:12px;font-weight:600;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? 'Overdue — ' + pi.remaining + ' pages left, due now' : pi.perDay + ' pages/day to finish by ' + shortDate(b.due)}</div>` : ''; })()}</div>
+        ${(() => { const pi = TG.readPaceInfo(b); return pi ? `<div style="font-size:12px;font-weight:600;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">${ICO_PACE()}${pi.overdue ? 'Overdue — ' + pi.remaining + ' pages left, due now' : pi.perDay + ' pages/day to finish by ' + shortDate(b.due)}</div>` : ''; })()}</div>
         <div style="text-align:right"><span class="badge" style="background:var(--accent-fill)">${{ library: 'Library', upnext: 'Up Next', reading: 'Reading', finished: 'Finished' }[b.status]}</span></div>
       </div>
       <div class="progressbar" style="margin-top:8px"><div style="width:${RD.pct(b)}%"></div></div>
@@ -16090,14 +16109,14 @@ function bookDetail(b) {
   if (b.status === 'reading') {
     // The everyday path is deliberately untouched — one field, one button, always "now". Baruch's
     // constraint when asking for back-logging was that logging must not become complicated, so
-    // backdating is its OWN affordance (the 🗓 pill) rather than a date field bolted onto this row
+    // backdating is its OWN affordance (the backlog pill) rather than a date field bolted onto this row
     // that every ordinary log would have to look at.
     const log = h(`
       <div class="card"><h3>Log progress</h3>
         <div class="row">
           <input data-a="page" placeholder="Page you're on" inputmode="numeric" style="flex:1;min-width:0;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:15px">
           <button class="pill on" data-a="log" style="padding:11px 16px">Log</button>
-          <button class="pill" data-a="backlog" title="Log a day you missed" aria-label="Log a past day" style="padding:11px 13px">🗓</button>
+          <button class="pill" data-a="backlog" title="Log a day you missed" aria-label="Log a past day" style="padding:11px 13px">${folioIcoSolo('calendar', 16)}</button>
         </div>
       </div>`).firstElementChild;
     log.querySelector('[data-a=log]').onclick = () => {
@@ -16413,8 +16432,8 @@ function chapterEditor(b, initialRows = null, initialStatus = '') {
       <input data-a="cam" type="file" accept="image/*" capture="environment" style="display:none">
       <input data-a="files" type="file" accept="image/*" multiple style="display:none">
       <div class="row">
-        <button class="btn secondary" data-a="shoot" style="flex:1;margin-top:0">📷 Photograph a page</button>
-        <button class="btn secondary" data-a="pick" style="flex:1;margin-top:0">🖼 Choose photos</button>
+        <button class="btn secondary" data-a="shoot" style="flex:1;margin-top:0">${folioIco('camera', 14)}Photograph a page</button>
+        <button class="btn secondary" data-a="pick" style="flex:1;margin-top:0">${folioIco('pictures', 14)}Choose photos</button>
       </div>
       <div class="muted" data-a="status" style="font-size:12px;margin-top:6px">Multi-page TOC? Choose all the pages at once — read together, subheadings are judged across the whole table, so a page holding only subheadings is handled correctly. Scanning one at a time also works, but each page is then judged alone. Use ⌃ to rejoin a title that came through split.</div>
     </div>`).firstElementChild;
@@ -17024,13 +17043,13 @@ function creedDocScreen(d) {
   const isCurrent = CR.isCurrentDoc(d.id);
   const unit = d.group === 'catechisms' ? 'Q&As' : 'sections';
 
-  // status card (+ 🎯 pace line when a finish-by date is set)
+  // status card (+ a pace line when a finish-by date is set)
   wrap.append(h(`
     <div class="card" style="${isCurrent ? 'border-color:var(--accent)' : ''}">
       <div class="row">
         <div class="grow"><div class="big">${st.pct}%</div>
         <div class="muted">${st.done}/${st.total} ${unit} ${tr ? '· ' + (tr === 'memorize' ? 'memorizing' : 'reading') : ''}${isCurrent ? ' · <span style="color:var(--accent);font-weight:700">current</span>' : ''}</div>
-        ${(() => { const pi = TG.creedPaceInfo(d.id); return pi ? `<div style="font-size:12px;font-weight:600;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">🎯 ${pi.overdue ? 'Overdue — ' + pi.remaining + ' ' + unit + ' left, due now' : pi.perDay + ' ' + unit + '/day to finish by ' + shortDate(CR.docDueOf(d.id))}</div>` : ''; })()}</div>
+        ${(() => { const pi = TG.creedPaceInfo(d.id); return pi ? `<div style="font-size:12px;font-weight:600;${pi.overdue ? 'color:var(--danger)' : 'color:var(--accent)'}">${ICO_PACE()}${pi.overdue ? 'Overdue — ' + pi.remaining + ' ' + unit + ' left, due now' : pi.perDay + ' ' + unit + '/day to finish by ' + shortDate(CR.docDueOf(d.id))}</div>` : ''; })()}</div>
         <div style="text-align:right"><div class="big" style="color:var(--gold)">${st.level}</div><div class="muted">level</div></div>
       </div>
       <div class="progressbar" style="margin-top:8px;height:7px"><div style="width:${st.pct}%"></div></div>
@@ -17038,7 +17057,7 @@ function creedDocScreen(d) {
 
   // primary action — Practice (catechisms only, as before)
   if (d.group === 'catechisms') {
-    const prBtn = h(`<button class="btn">🎯 Practice</button>`);
+    const prBtn = h(`<button class="btn">${folioIco('pace', 14)}Practice</button>`);
     prBtn.firstChild.onclick = () => render(setupScreen(() => practiceSetup(d)));
     wrap.append(prBtn);
   }
@@ -17359,7 +17378,7 @@ const FLASH_MEMORIZED_MIN = 5;
 // card rated ≥4 with the session-end instant — re-dating verses he had already earned (Eph 09-15
 // 00:37:25: 98 stamps in 2 ms). `deckRate` has ALREADY stamped every rated card, at any rating, at
 // the moment he rated it; that is the true time and it must stand.
-// ⚠ AND THE FIX IS NOT A NEVER-OVERWRITE GUARD IN `markCovered`. `covered` holds one latest stamp per
+// ⚑⚑ AND THE FIX IS NOT A NEVER-OVERWRITE GUARD IN `markCovered`. `covered` holds one latest stamp per
 // verse and a cycle asks `ts >= since`; refusing to overwrite would make a verse uncoverable in
 // every later pass. `FLASH_TRAINED_MIN` stays as a claim about knowing a verse (the ring), not coverage.
 function flashRate(d, item, r) {
@@ -17801,6 +17820,9 @@ function typerScreen(d, queue, qi0, results, intent = 'practice', opts = {}) {
   const inp = h(`<input autocapitalize="off" autocomplete="off" autocorrect="off" style="position:absolute;opacity:0.01;height:1px;width:1px;border:none">`).firstChild;
   card.append(inp);
   card.onclick = () => { if (card._swallow) { card._swallow = false; return; } inp.focus(); };
+  // ⚑ C6 — the keyboard coming up shrinks the visual viewport under the cursor. The listener
+  // lives on the input, which lives and dies with this screen, so nothing is left behind.
+  inp.addEventListener('focus', () => { try { setTimeout(() => keepCursorInView(), 300); } catch (e) { /* no timers */ } });
   wrap.append(card);
   // ⚑ THE SENTENCE RENDERS FROM THE CONSTANT (see TYPER_MISS_LIMIT).
   wrap.append(h(`<div class="muted" style="font-size:12px;margin:0 4px 8px">${fade
@@ -17832,6 +17854,9 @@ function typerScreen(d, queue, qi0, results, intent = 'practice', opts = {}) {
   let qi = qi0, item = null, words = [], pos = 0, missedWords = [], wordMisses = 0;
   let total = 0, correct = 0, startTs = 0, cursor = null, done = false, awaiting = false;
   let pageKey = null, key = '', prior = {}, keyIdx = 0, missIdx = [], block = null, text = null;
+  // ⚑ C7 — the level each word was DRAWN at this time round, kept so a redraw and the saved page
+  // show him what he saw rather than recomputing it from a store that has since moved on.
+  let shownLv = {};
   // fade only: which rung of the ladder this verse is on, the prompt layer, and the peeks he has
   // spent on it. ⚑ `peeks` counts the WHOLE verse, across every rung — it is the verse he is
   // learning, not the rung. `peeked` is per rung: a word given away at "every other word" is not
@@ -17860,10 +17885,13 @@ function typerScreen(d, queue, qi0, results, intent = 'practice', opts = {}) {
     return el;
   }
   // A verse already done — drawn whole, with this attempt's misses and the memory as it now stands.
-  function doneBlock(vn, raw, k, miss, acc) {
+  // ⚑ C7 — `lv` is what the words were DRAWN at. Falling back to the store is right only for a
+  // page saved before C7 shipped; recomputing from the store is not an option at all, because a
+  // level that hit the floor is indistinguishable from one that was never set.
+  function doneBlock(vn, raw, k, miss, acc, drawn) {
     const el = verseBlock(vn);
     const t = el.querySelector('.tp-text');
-    const lv = typerMemLevels(k);
+    const lv = drawn && typeof drawn === 'object' ? drawn : typerMemLevels(k);
     const missSet = new Set(miss || []);
     let ki = 0;
     tokenize(raw).forEach((line, li) => {
@@ -17877,10 +17905,22 @@ function typerScreen(d, queue, qi0, results, intent = 'practice', opts = {}) {
     el.append(h(`<span class="tp-acc">${acc}%</span>`).firstChild);
     return el;
   }
+  // ⚑⚑ C7 (18 Sep) — THE LEVEL HE SEES IS THE ONE HE CAME IN WITH. His words: "when I redo one,
+  // whether I swipe back or I go to that chapter again, those red marks should be visible. I should
+  // see them because I got it wrong last time." This painted `typerMemNext(prior, missed)` — the
+  // level the verse is ABOUT to be stored with — which erased the history at the exact moment he
+  // earned the right to see it: get a level-1 word right and its wash vanished in the same
+  // keystroke, so a chapter he was finally typing cleanly showed him nothing at all, and a level-3
+  // word dropped a shade before he could read it. The attempt now shows the memory it INHERITED.
+  // ⚑ A MISS STILL DEEPENS AT ONCE — that is the strength he asked to watch grow, and it is true
+  // the moment it happens. Only the LIGHTENING waits: it lands in the store at the end of the verse
+  // and shows on the next attempt, so one clean pass never wipes the mark he is reading.
   function placeKey(w, missed) {
     const i = keyIdx++;
     if (missed) missIdx.push(i);
-    placeWord(text, cursor, w.raw, wordCls(missed, typerMemNext(prior[i], missed)));
+    const lvl = missed ? typerMemNext(prior[i], true) : (prior[i] || 0);
+    if (lvl) shownLv[i] = lvl;
+    placeWord(text, cursor, w.raw, wordCls(missed, lvl));
   }
   function advanceAutos() {
     while (pos < words.length && !words[pos].key) {
@@ -17891,7 +17931,8 @@ function typerScreen(d, queue, qi0, results, intent = 'practice', opts = {}) {
     bar.firstElementChild.style.width = (pos / words.length * 100) + '%';
     setImmersiveProgress(immBar, sessionFrac());
     paintGhost();
-    if (pos >= words.length) finishVerse();
+    if (pos >= words.length) { finishVerse(); return; }
+    keepCursorInView();                      // C6 — every word can wrap a line; follow it
   }
   // ===== The prompt layer (fade only) =====
   // ⚑ WHAT IS BEHIND THE CURSOR IS WHAT HE HAS PROVED, and it is always in ink. This paints what is
@@ -17926,6 +17967,52 @@ function typerScreen(d, queue, qi0, results, intent = 'practice', opts = {}) {
       ghost.append(blank, document.createTextNode(' '));
     }
   }
+  // ===== C6 (18 Sep) — the page stops jostling, and the cursor stays in sight =====
+  // His report: "when it was a large chapter and it got to the bottom of the page for the iPad, it
+  // started to, when I would make mistakes, kind of jostle the words."
+  //
+  // ⚑⚑ THE SHAKE WAS ON THE CARD, AND THE CARD IS THE WHOLE CHAPTER. `.shake` translates its element
+  // ±6px; on a phone early in a chapter that is a verse or two twitching, but the card grows with
+  // every verse he finishes, so by the foot of Hebrews 3 on an iPad it is a screenful of settled
+  // text lurching sideways on every wrong letter. The feedback belongs where he is typing, so the
+  // CURSOR moves 3px and nothing he has already written moves at all.
+  function nudgeCursor() {
+    if (!cursor || !cursor.classList) return;
+    cursor.classList.remove('tp-nudge');
+    void cursor.offsetWidth;                 // restart the animation rather than let it be ignored
+    cursor.classList.add('tp-nudge');
+  }
+  // ⚑⚑ AND NOTHING WAS KEEPING THE CURSOR ON SCREEN. `main` is the scroller (html and body are
+  // fixed), and the browser's own caret-into-view never fires here: the input is a 1px transparent
+  // box parked in the card, not the place the words appear. The verse block was scrolled into view
+  // once, at `load()`, "nearest" — which lands a new verse hard against the bottom edge — and then
+  // the page grew downwards under his hands with nothing following it.
+  // ⚑ THE BOTTOM IS NOT THE BOTTOM OF THE SCREEN. On an iPad the keyboard covers the lower third
+  // and `innerHeight` knows nothing about it; `visualViewport.height` does. Scrolling to a place
+  // the keyboard is sitting on would have been a fix that looked right in a desktop browser.
+  // ⚑ A BAND, NOT A FOLLOW — it moves only when the cursor is outside the comfortable strip, so his
+  // own scrolling is left alone and a keystroke that changed no line moves nothing.
+  const TP_BAND_PAD = 72;
+  function keepCursorInView() {
+    const m = main();
+    if (!m || !cursor || !cursor.getBoundingClientRect || !m.getBoundingClientRect) return;
+    try {
+      const r = cursor.getBoundingClientRect(), mr = m.getBoundingClientRect();
+      // ⚑ AN ALL-ZERO RECT IS "NO LAYOUT ENGINE", not "at the top of the screen". Without this the
+      // suites would compute a band out of zeros and scroll a page that has no height.
+      if (!r.height && !r.top && !r.bottom) return;
+      const vv = (typeof visualViewport !== 'undefined' && visualViewport) ? visualViewport
+        : (typeof window !== 'undefined' ? window.visualViewport : null);
+      const screenH = (vv && vv.height) || (typeof window !== 'undefined' && window.innerHeight) || 0;
+      if (!screenH) return;
+      const top = Math.max(mr.top, 0) + 8;
+      const bottom = Math.min(screenH, mr.bottom) - TP_BAND_PAD;
+      if (bottom <= top) return;
+      const at = m.scrollTop || 0;
+      if (r.bottom > bottom) m.scrollTop = at + (r.bottom - bottom);
+      else if (r.top < top) m.scrollTop = Math.max(0, at - (top - r.top));
+    } catch (e) { /* layout-only */ }
+  }
   function savePage() {
     if (isCreed || fade || !pageKey) return;
     typerPageStore()[pageKey] = { done: [...pageDone.values()], savedAt: Date.now() };
@@ -17948,7 +18035,7 @@ function typerScreen(d, queue, qi0, results, intent = 'practice', opts = {}) {
       for (let i = 0; i < total; i++) next[i] = typerMemNext(prior[i], missIdx.includes(i));
       typerMemSet(key, next);
     }
-    results.push({ n: item.n, acc: fade ? null : acc, peeks, missed: missedWords, secs, key, qi, miss: missIdx.slice(), prior: { ...prior } });
+    results.push({ n: item.n, acc: fade ? null : acc, peeks, missed: missedWords, secs, key, qi, miss: missIdx.slice(), prior: { ...prior }, lv: { ...shownLv } });
     // ⚑⚑ FADE FILES NOTHING — no mastery, no coverage, no memorized offer. See FADE_STAGES.
     if (!fade) {
       CR.logPractice(prDocId(d, item), prN(item), 'typer', acc);
@@ -17958,7 +18045,7 @@ function typerScreen(d, queue, qi0, results, intent = 'practice', opts = {}) {
       if (acc >= typerMemorizedMin()) memorizedOffer.push({ item, acc, key });
     }
     block.append(h(`<span class="tp-acc">${fade ? peeks + ' peek' + (peeks === 1 ? '' : 's') : acc + '%'}</span>`).firstChild);
-    pageDone.set(key, { key, acc, miss: missIdx.slice(), secs });
+    pageDone.set(key, { key, acc, miss: missIdx.slice(), secs, lv: { ...shownLv } });
     savePage();
     if (isCreed) toast(`${NOUN} ${item.n}: ${acc}% in ${SC.fmtSecs(secs)}`);
     advanceFrom(qi);
@@ -18004,7 +18091,7 @@ function typerScreen(d, queue, qi0, results, intent = 'practice', opts = {}) {
       advanceAutos();
     } else {
       wordMisses++;
-      card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
+      nudgeCursor();
       if (wordMisses >= TYPER_MISS_LIMIT) {
         missedWords.push(w.raw.replace(/[.,;:!?”’)]+$/, ''));
         placeKey(w, true);
@@ -18033,7 +18120,7 @@ function typerScreen(d, queue, qi0, results, intent = 'practice', opts = {}) {
           raw = cached && cached.verses ? cached.verses[vn] : null;
         }
         if (raw == null) return;
-        const el = doneBlock(vn, raw, x.key, x.miss, x.acc);
+        const el = doneBlock(vn, raw, x.key, x.miss, x.acc, x.lv);
         if (qItem) blocks.set(queue.indexOf(qItem), el);   // so a step back onto it replaces it
         body.append(el);
         pageDone.set(x.key, { ...x });
@@ -18041,7 +18128,7 @@ function typerScreen(d, queue, qi0, results, intent = 'practice', opts = {}) {
     }
     mine.forEach(r => {
       const it = queue[r.qi];
-      const el = doneBlock(it.vn, it.a, r.key, r.miss, r.acc);
+      const el = doneBlock(it.vn, it.a, r.key, r.miss, r.acc, r.lv);
       blocks.set(r.qi, el);
       body.append(el);
       pageDone.set(r.key, { key: r.key, acc: r.acc, miss: r.miss, secs: r.secs });
@@ -18078,7 +18165,7 @@ function typerScreen(d, queue, qi0, results, intent = 'practice', opts = {}) {
     // ⚑ THE INDEX THE RUNG READS counts only the words he TYPES — see the note over FADE_STAGES.
     let wki = 0;
     words.forEach(w => { if (w.key) w.ki = wki++; });
-    pos = 0; missedWords = []; wordMisses = 0; correct = 0; keyIdx = 0; missIdx = [];
+    pos = 0; missedWords = []; wordMisses = 0; correct = 0; keyIdx = 0; missIdx = []; shownLv = {};
     total = words.filter(w => w.key).length;
     key = keyOf(item);
     prior = typerMemLevels(key);
@@ -18096,7 +18183,7 @@ function typerScreen(d, queue, qi0, results, intent = 'practice', opts = {}) {
     if (fade) { ghost = h(`<span class="tp-ghost"></span>`).firstChild; text.append(ghost); }
     blocks.set(qi, block);
     body.append(block);
-    if (block.scrollIntoView) { try { block.scrollIntoView({ block: 'nearest' }); } catch (e) { /* layout-only */ } }
+    keepCursorInView();                      // C6 — with room under it to type, not jammed against the fold
     advanceAutos();
     syncNav();
   }
@@ -18262,7 +18349,7 @@ function scrambleScreen(d, queue, qi, results) {
 // ===== The deck's clock and laps (Phase 11 chunk 5) =====
 // ⚑ HIS REQUEST: "I need to be able to have a timer on while I am doing the flashcards... part of my
 // timing of the books or chapters... I want to know did it take me 10 min to do chapter one or 20
-// min or 5 min." The Review ⏱ timer already existed but shows the WHOLE TEXT; this one runs behind
+// min or 5 min." The Review timer already existed but shows the WHOLE TEXT; this one runs behind
 // the cards, so the deck is the prompt while he recites.
 //
 // ⚑⚑ THE CLOCK LIVES ON THE SESSION, NOT ON THE SCREEN, AND THAT IS THE WHOLE DESIGN CONSTRAINT.
@@ -18276,7 +18363,7 @@ function scrambleScreen(d, queue, qi, results) {
 
 // A single unbroken gap longer than this is NOT counted, and is reported rather than swallowed.
 // ⚑ THIS RAIL RECONCILES TWO ANSWERS OF HIS THAT AGREE EVERYWHERE EXCEPT ONE CASE. He asked for the
-// clock to keep counting while the app is backgrounded, exactly like Review ⏱ (he recites with the
+// clock to keep counting while the app is backgrounded, exactly like the Review timer (he recites with the
 // screen off), AND for a resumed session to count no time away. Those agree for locking the iPad to
 // think, or taking a call. They disagree for a session left open overnight in a tab Safari does not
 // kill — which would report eight hours and destroy the very chapter times this exists to produce.
@@ -18350,7 +18437,7 @@ function flashMaybeLap(d, session, item, now) {
   // rotation routinely sit in three different chapters and EVERY rotation step crossed a boundary.
   // Probed on Hebrews 1-7 with his own kind of history: **59 laps in 60 cards**, each about twenty
   // seconds, labelled "Hebrews 3 · Hebrews 1 · Hebrews 2 · Hebrews 3 …".
-  // ⚑ AND IT WAS ONE BUTTON AWAY FROM BEING PERMANENT. "⏱ Log to review times → each chapter
+  // ⚑ AND IT WAS ONE BUTTON AWAY FROM BEING PERMANENT. "Log to review times → each chapter
   // separately" files one `SC.logReviewTime` per chapter lap; on such a session it would have
   // written dozens of twenty-second chapter times into the graph he wants to measure himself by,
   // and nothing downstream could tell them from real ones.
@@ -18587,7 +18674,7 @@ function flashResumeOffer(d, queue, budget, order, intent, snap, onFresh = null)
   main().append(wrap);
 }
 
-// ===== B9 (17 Sep) — paused decks are connected across book ↔ chapter ↔ unit =====
+// ===== B9 (17 Sep) — paused decks are connected across book <-> chapter <-> unit =====
 // ⚑ HIS WORDS: "whether I do a single chapter or a single book or a unit like several chapters…
 // connected together in a pathway… I want to be able to continue on or at least have the option to."
 // A deck's identity is still its doc id (so two different selections never overwrite each other);
@@ -19274,9 +19361,10 @@ function flashClockBar(d, session) {
     flashClockSync(session.clock, now);
     // ⚑ HIDDEN HIDES THE NUMBER, NOT THE CLOCK. He asked to be able to hide the readout; a running
     // total he cannot see is still running, and the laps he takes still land where they should.
-    time.textContent = session.clock.hidden ? '⏱' : SC.fmtSecs(flashElapsed(session.clock, now));
+    if (session.clock.hidden) time.innerHTML = folioIcoSolo('stopwatch', 13);
+    else time.textContent = SC.fmtSecs(flashElapsed(session.clock, now));
     time.classList.toggle('off', !!session.clock.hidden);
-    // ⚑ FOLIO, NOT EMOJI. ⏸/▶ are emoji codepoints and iOS paints them as full-colour glyphs, so
+    // ⚑ FOLIO, NOT EMOJI. U+23F8 and U+25B6 are emoji codepoints and iOS paints them as full-colour glyphs, so
     // the control read as a sticker beside the brass "Lap" pill. Drawn marks in `currentColor` take
     // the pill's ink, and `.on` brasses the whole pill when the clock is stopped — which says
     // "paused" louder than a swapped picture does, next to the dimmed number.
@@ -19385,13 +19473,13 @@ function memorizedSheet(d, pending, done) {
     body.append(h(`<div class="muted" style="font-size:12.5px;line-height:1.6;margin:0 2px 10px">You typed ${pending.length === 1 ? 'this one' : 'these'} at ${typerMemorizedMin()}% or better. Tick the ${pending.length === 1 ? 'one' : 'ones'} you want marked memorized — untick anything you are not sure of.</div>`));
     pending.forEach(o => {
       const row = h(`<div class="row" style="gap:10px;padding:9px 0;align-items:center;border-top:1px solid var(--line);cursor:pointer">
-          <span data-a="box" style="font-size:16px;line-height:1.2">☑</span>
+          <span data-a="box" style="line-height:0">${folioIco('boxon', 16)}</span>
           <div class="grow" style="font-size:14px">${NOUN} ${esc(String(o.item.n))}</div>
           <b style="font-size:13px">${o.acc}%</b>
         </div>`).firstElementChild;
       row.onclick = () => {
         if (picked.has(o.item.n)) picked.delete(o.item.n); else picked.add(o.item.n);
-        row.querySelector('[data-a=box]').textContent = picked.has(o.item.n) ? '☑' : '☐';
+        row.querySelector('[data-a=box]').innerHTML = folioIco(picked.has(o.item.n) ? 'boxon' : 'boxoff', 16);
       };
       body.append(row);
     });
@@ -19461,7 +19549,7 @@ function practiceSummary(d, mode, lines, count, stats = null, opts = {}) {
     if (opts.logReview.logged) {
       wrap.append(h(`<div class="muted" style="text-align:center;font-size:12.5px;margin:14px 4px 0">✓ Logged to your review times${opts.logReview.logged > 1 ? ` — ${opts.logReview.logged} chapters` : ''}</div>`));
     } else {
-      const lg = h(`<button class="btn">⏱ Log to review times</button>`);
+      const lg = h(`<button class="btn">${folioIco('stopwatch', 14)}Log to review times</button>`);
       lg.firstChild.onclick = opts.logReview.open;
       wrap.append(lg);
     }
@@ -19721,7 +19809,7 @@ function fmtBench(item) {
 // all-time best as a target to chase. Locked domains show a lock in a plain track ring.
 // ⚑ A LOCKED RING SHOWS A DASH, NOT A PADLOCK (twenty-fourth session). His words: "I want the
 // domains to just have a line in the middle of the circle when they're not unlocked like they
-// are in the dashboard instead of the lock symbol." ftRadial has always drawn `–`; this drew 🔒,
+// are in the dashboard instead of the lock symbol." ftRadial has always drawn `–`; this drew a lock glyph,
 // so the same fact had two glyphs depending on which screen you were on.
 //
 // ⚑ Q6's REASONING SURVIVES THIS UNCHANGED, and that is the thing to check rather than the
@@ -19797,7 +19885,7 @@ function ftLevel(body) {
   const view = a.live;
   const liveView = true;
 
-  // ⚑ Q12 ✅ — the Overall is a BARE NUMBER. No ±, no tier mix, nothing hedging it.
+  // ⚑ Q12 ✓ — the Overall is a BARE NUMBER. No ±, no tier mix, nothing hedging it.
   // Everything that qualifies it lives one tap down, on the card itself.
   const overallCard = h(`
     <div class="card" style="text-align:center;padding:22px 14px;cursor:pointer">
@@ -19889,7 +19977,7 @@ function ftLevel(body) {
     card.firstElementChild.onclick = () => render(() => ftDomainScreen(d));
     body.append(card);
   });
-  // ⚑ Q11 ✅ — the cheapest way to move the number, said out loud.
+  // ⚑ Q11 ✓ — the cheapest way to move the number, said out loud.
   // A repeat cancels the curve's error entirely, so it carries σ 7.07 instead of the tier's.
   // On a tier-E workout that is 8.4× a first attempt and worth half an Open result.
   // ⚑ READ FROM ALL-TIME, NOT FROM THE LIVE VIEW. This nudge is about what is in your log,
@@ -20430,7 +20518,7 @@ function logRow(l, { showName = true } = {}) {
         <div class="sub">${showName ? esc(l.result) + ' · ' : ''}${new Date(l.ts).toLocaleDateString()}${l.rx ? ' · ' + esc(l.rx) : ''}${l.weights ? ' · ' + esc(l.weights) : ''}</div>
         ${(l.details || []).map(x => `<div class="sub">↳ ${esc(x.exercise)}${x.weight ? ' · ' + esc(x.weight) + ' lb' : ''}${x.reps ? ' · ' + esc(x.reps) + ' reps' : ''}${x.sets ? ' × ' + esc(x.sets) + ' sets' : ''}</div>`).join('')}
         ${l.notes ? `<div class="sub" style="font-style:italic">${esc(l.notes)}</div>` : ''}
-        ${(() => { const c = FT.cardForLog(l.id); return c ? `<div class="sub" style="color:var(--gold)">⛓ ${esc(FT.cardPartLabel(c.parts.findIndex(p => p.logId === l.id)))} of “${esc(c.name)}”</div>` : ''; })()}
+        ${(() => { const c = FT.cardForLog(l.id); return c ? `<div class="sub" style="color:var(--gold)">${folioIco('link', 11)}${esc(FT.cardPartLabel(c.parts.findIndex(p => p.logId === l.id)))} of “${esc(c.name)}”</div>` : ''; })()}
       </div>
       ${l.user ? '<button data-a="edit" style="border:none;background:none;color:var(--text-2);font-size:15px;cursor:pointer" title="Edit">✎</button>' : ''}
       ${l.user ? '<button data-a="del" style="border:none;background:none;color:var(--danger);font-size:15px;cursor:pointer">✕</button>' : ''}
@@ -20779,7 +20867,7 @@ function ftLogbook(body) {
   // an action that is always dead is worse than no action.
   const days = FT.groupableDays().filter(d => d.grouped < d.logs.length);
   if (days.length) {
-    const gbtn = h(`<button class="btn secondary" style="margin-bottom:14px">⛓ Group entries into one workout</button>`);
+    const gbtn = h(`<button class="btn secondary" style="margin-bottom:14px">${folioIco('link', 14)}Group entries into one workout</button>`);
     gbtn.firstChild.onclick = () => render(cardGroupDayPicker);
     body.append(gbtn);
   }
@@ -20930,13 +21018,13 @@ function cardGroupDay(dk) {
     const w = FT.getWorkout(l.wid);
     const owner = FT.cardForLog(l.id);
     const el = h(`<div class="row" data-log="${l.id}" style="gap:10px;padding:8px 0;align-items:flex-start;${owner ? 'opacity:.45' : 'cursor:pointer'};border-top:1px solid var(--line)">
-        <span data-a="box" style="font-size:16px;line-height:1.2">${owner ? '·' : '☑'}</span>
+        <span data-a="box" style="line-height:0">${owner ? '·' : folioIco('boxon', 16)}</span>
         <div class="grow"><div style="font-size:13.5px">${esc(w ? w.name : 'Unknown workout')}</div>
           <div class="muted" style="font-size:11.5px">${esc(l.result || '—')}${owner ? ` · already in “${esc(owner.name)}”` : ''}</div></div>
       </div>`).firstElementChild;
     if (!owner) el.onclick = () => {
       if (picked.has(l.id)) picked.delete(l.id); else picked.add(l.id);
-      el.querySelector('[data-a=box]').textContent = picked.has(l.id) ? '☑' : '☐';
+      el.querySelector('[data-a=box]').innerHTML = folioIco(picked.has(l.id) ? 'boxon' : 'boxoff', 16);
       refresh();
     };
     rowsBox.append(el);
@@ -21577,7 +21665,7 @@ function logForm(w, prefillResult = '', ctx = null, prefillFields = null, prompt
   // ⚑ THE TIMER MAY HAVE SET `capped` — the pills and the two zones have to follow it.
   ftSyncCapMode(form);
 
-  const timerBtn = h(`<button class="btn secondary">⏱ Start a timer for this workout</button>`);
+  const timerBtn = h(`<button class="btn secondary">${folioIco('stopwatch', 14)}Start a timer for this workout</button>`);
   timerBtn.firstChild.onclick = () => render(() => ftTimersScreen(w));
   wrap.append(timerBtn);
   main().append(wrap);
@@ -21745,7 +21833,7 @@ function ftMovements(body) {
 
   const blockedNow = MV.blockedMovements();
   const blockRow = h(`<div class="pillrow" style="margin-top:2px">
-      <button class="pill ${blockedNow.length ? 'on' : ''}" data-a="block">🚫 Won’t do${blockedNow.length ? ' · ' + blockedNow.length : ''}</button>
+      <button class="pill ${blockedNow.length ? 'on' : ''}" data-a="block">Won’t do${blockedNow.length ? ' · ' + blockedNow.length : ''}</button>
     </div>`).firstElementChild;
   blockRow.querySelector('[data-a=block]').onclick = () => movementBlockSheet();
   body.append(blockRow);
@@ -22341,7 +22429,7 @@ function workoutDetail(w) {
   const seedCfg = ftTimerCfgFor(w).cfg;
   const oneTap = TM.timerFullySpecified(seedCfg, w);
   const pills = h(`<div class="pillrow" style="margin-top:12px">
-    <button class="pill" data-s="timer">⏱ ${oneTap ? 'Start' : 'Timer'}</button>
+    <button class="pill" data-s="timer">${ICO_TIMER()}${oneTap ? 'Start' : 'Timer'}</button>
     ${oneTap ? '<button class="pill" data-s="tmsetup">Adjust first</button>' : ''}
     <button class="pill" data-s="addcard">Add to card</button>
     <button class="pill" data-s="copy">⎘ My version</button>
@@ -22923,7 +23011,7 @@ function workoutBuilder(opts = {}) {
     const floors = TM.rampFloorsAt(cfg);
     const seq = rows.map(r => r.load != null ? `${r.reps}@${r.load}` : String(r.reps)).join(' · ');
     ladderBox.textContent = `${cfg.rounds} rounds — ${seq}  —  ${TM.rampVolume(cfg, rows.length)} reps total`
-      + (floors ? `  ⚠ flattens at 1 rep after round ${floors}` : '');
+      + (floors ? `  · flattens at 1 rep after round ${floors}` : '');
   }
 
   // ⚑ ITS OWN FUNCTION BECAUSE TWO THINGS CHANGE IT, AND ONE OF THEM WAS MISSING IT. Picking a
@@ -23600,7 +23688,7 @@ function ftTimerConfig(body, w) {
       const floors = TM.rampFloorsAt(b);
       const seq = rows.map(r => r.load != null ? `${r.reps}@${r.load}` : String(r.reps)).join(' · ');
       $('tot').textContent = `${seq}  —  ${TM.rampVolume(b, rows.length)} reps in ${SC.fmtSecs(tot)}`
-        + (floors ? `  ⚠ flattens at 1 rep after round ${floors}` : '');
+        + (floors ? `  · flattens at 1 rep after round ${floors}` : '');
     } else {
       $('tot').textContent = tot ? 'Total time: ' + SC.fmtSecs(tot) : 'No time cap';
     }
@@ -23962,7 +24050,7 @@ function timerRun(cfg, w) {
         ${tmDial(COLOR)}
         <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
           <div class="tm-dial-num" id="tm-clock" style="color:${COLOR}">0:00</div>
-          <button id="tm-play" style="background:none;border:0;cursor:pointer;color:${COLOR};font-size:52px;line-height:1">▶</button>
+          <button id="tm-play" style="background:none;border:0;cursor:pointer;color:${COLOR};line-height:0;padding:0">${folioIcoSolo('play', 46)}</button>
           <div class="muted" id="tm-hint" style="font-size:13px">tap to start</div>
         </div>
       </div>
@@ -24504,7 +24592,7 @@ function syncCard() {
 
   const last = st.lastRemoteTs ? new Date(st.lastRemoteTs).toLocaleString() : 'never';
   const c = h(`<div class="card"><h3>Sync</h3>
-    <div class="muted" style="font-size:12px;margin-bottom:8px">Signed in as <b>${esc(st.email || '')}</b><br>Last sync: <span id="sy-last">${esc(last)}</span>${st.dirty ? ' · unsynced changes' : ''}${st.lastError ? '<br>⚠️ ' + esc(st.lastError) : ''}</div>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">Signed in as <b>${esc(st.email || '')}</b><br>Last sync: <span id="sy-last">${esc(last)}</span>${st.dirty ? ' · unsynced changes' : ''}${st.lastError ? '<br>' + ICO_WARN() + esc(st.lastError) : ''}</div>
     <button class="btn secondary" id="sy-now">Sync now</button>
     <button class="btn secondary" id="sy-out">Sign out</button>
   </div>`).firstElementChild;
@@ -24567,6 +24655,25 @@ const PLUS_ICONS = {
   reading:  '<path d="M-11 -8 Q-5 -10 0 -7 Q5 -10 11 -8 L11 8 Q5 6 0 9 Q-5 6 -11 8 Z"/><path d="M0 -7 V9"/>',
   training: '<path d="M-7 0 H7 M-7 -8 V8 M-10 -5 V5 M7 -8 V8 M10 -5 V5"/>',
   health:   '<path d="M-12 0 H-6 L-3 -7 L2 7 L5 0 H12"/>',
+  // ⚑⚑ FOLIO MARKS, NOT EMOJI (18 Sep, his ask: "we shouldn't be using that"). An emoji codepoint is
+  // painted by the SYSTEM — in colour, at a weight and size nothing in this app controls. That is
+  // what made the deck's pause pill look like a sticker (I2), and it was true of sixteen other
+  // glyphs besides. Drawn in the same -14..14 box and the same engraved line as the set above, so
+  // they take `currentColor`: the burgundy of a pace line, the red of an overdue one, the brass of
+  // a grouped-workout line — in both themes, without being told.
+  // ⚑ `pace` IS A CROSSHAIR, NOT A BULLSEYE, on purpose: `practice` above is already two rings and
+  // ◎ already means "review" on Plan rows. A third thing must not wear the second thing's face.
+  pace:     '<circle r="8.5"/><circle r="2.2" fill="currentColor" stroke="none"/><path d="M0 -13 V-10.5 M0 10.5 V13 M-13 0 H-10.5 M10.5 0 H13"/>',
+  warn:     '<path d="M0 -11 L12 9.5 H-12 Z"/><path d="M0 -4 V2.5"/><circle cx="0" cy="6" r="1.1" fill="currentColor" stroke="none"/>',
+  stopwatch:'<circle cx="0" cy="2.5" r="9.5"/><path d="M0 2.5 V-3.5 M0 2.5 H4.5"/><path d="M-4 -12 H4 M0 -12 V-7"/>',
+  calendar: '<path d="M-10 -7 H10 V10 H-10 Z"/><path d="M-10 -2 H10"/><path d="M-5 -11 V-4 M5 -11 V-4"/>',
+  lock:     '<path d="M-8 -1 H8 V11 H-8 Z"/><path d="M-4.5 -1 V-6.5 A4.5 4.5 0 0 1 4.5 -6.5 V-1"/>',
+  link:     '<rect x="-11.5" y="-4.5" width="13" height="9" rx="4.5"/><rect x="-1.5" y="-4.5" width="13" height="9" rx="4.5"/>',
+  camera:   '<path d="M-12 -5 H-5.5 L-3.5 -8.5 H3.5 L5.5 -5 H12 V9 H-12 Z"/><circle cx="0" cy="1.5" r="4.5"/>',
+  pictures: '<path d="M-12 -8 H12 V8 H-12 Z"/><path d="M-12 4.5 L-4 -3 L2 3 L6 -0.5 L12 5"/><circle cx="5.5" cy="-4" r="1.8"/>',
+  play:     '<path d="M-5 -10 L10 0 L-5 10 Z" fill="currentColor"/>',
+  boxoff:   '<rect x="-9" y="-9" width="18" height="18" rx="2.5"/>',
+  boxon:    '<rect x="-9" y="-9" width="18" height="18" rx="2.5"/><path d="M-4.5 0.5 L-1 4.5 L5 -4"/>',
 };
 function plusIconSvg(key, size) {
   const inner = PLUS_ICONS[key] || '';
@@ -24574,6 +24681,22 @@ function plusIconSvg(key, size) {
   const s = size || 26;
   return `<svg class="plus-ico" viewBox="-14 -14 28 28" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
 }
+
+// ⚑ INLINE, so a mark can sit inside a sentence rather than beside it: `vertical-align` and a
+// trailing gap, not a flex row. `aria-hidden` because the words next to it already say what it
+// means — a screen reader announcing "warning warning overdue by 3d" is worse than silence.
+// ⚑ SOLO is the icon-ONLY button (the timer pill, the backlog calendar, the timer's play): no trailing
+// gap, and bigger, because there is no word beside it to carry the meaning.
+function folioIco(key, size) { return `<span class="f-ico">${plusIconSvg(key, size || 12)}</span>`; }
+function folioIcoSolo(key, size) { return `<span class="f-ico solo">${plusIconSvg(key, size || 16)}</span>`; }
+// ⚑ EVALUATED AT CALL TIME, NOT AT LOAD. These sit AFTER `PLUS_ICONS` deliberately: a top-level
+// const built from it any earlier would read it in its temporal dead zone and throw at boot.
+const ICO_WARN = () => folioIco('warn', 11);
+const ICO_PACE = () => folioIco('pace', 12);
+const ICO_TIMER = () => folioIco('stopwatch', 12);
+const ICO_LINK = () => folioIco('link', 12);
+const ICO_LIFT = () => folioIco('training', 12);
+const ICO_BOOK = () => folioIco('reading', 12);
 
 // per-loggable fan assignment: 'click' | 'long' | 'off'. Additive + sync-safe on state.settings.
 // ⚑⚑ E3 LEAVES ONE FAN, AND THE MIGRATION IS THE WHOLE RISK. Tap now opens the domains, so the
@@ -24985,7 +25108,7 @@ function plusPracticeMode(fan, b, scope, intent) {
     { label: 'First-Letter', on: () => plusPracticeLaunch(fan, b, scope, 'typer', intent) },
 
   ];
-  // ⚑ ONE LIST. (B7 — the Timer ⏱ entry is retired with the review timer.)
+  // ⚑ ONE LIST. (B7 — the Timer entry is retired with the review timer.)
   const modes = [...shared,
     { label: 'Fade', on: () => plusPracticeLaunch(fan, b, scope, 'fade', intent) }];
   plusChips(fan, plusIntentTitle(intent) + ' · mode', modes, back);
@@ -25209,7 +25332,7 @@ document.addEventListener('DOMContentLoaded', () => {
       toast('Synced — this screen updates when you leave it');
       return;
     }
-    toast('Synced from cloud ☁️');
+    toast('Synced from cloud');
     rerender();
   });
   SY.init();
