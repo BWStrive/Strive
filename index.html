@@ -693,6 +693,98 @@ header.topbar .avatar {
    still rendering "1" as an old-style stem. Stated again, explicitly, for svg text. */
 svg text { font-variant-numeric: lining-nums tabular-nums; font-feature-settings: 'lnum' 1, 'tnum' 1; }
 
+/* ⛑ Reliability (22 Sep 2026). The save alarm sits above the tab bar and cannot be dismissed: it is up
+   exactly while saves are failing. Hairline in the danger ink, no fill, no glow — per the design rules. */
+.save-alarm {
+  position: fixed; left: 12px; right: 12px; z-index: 80;
+  /* 34px clears the ＋ button, which stands proud of the tab bar */
+  bottom: calc(var(--nav-h) + 34px + env(safe-area-inset-bottom, 0px));
+  display: flex; gap: 10px; align-items: center;
+  background: var(--card); color: var(--text);
+  border: 1px solid var(--danger); border-radius: var(--radius);
+  padding: 10px 12px; font-size: 13px; line-height: 1.45;
+}
+.save-alarm b { color: var(--danger); font-weight: 600; }
+.save-alarm .sa-txt { flex: 1 1 auto; min-width: 0; }
+.save-alarm .pill { flex: 0 0 auto; }
+body.immersive .save-alarm { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+.screen-error h3 { color: var(--danger); }
+.screen-error .se-msg { font-size: 13px; margin: 4px 0 8px; word-break: break-word; }
+.screen-error .se-note { font-size: 12px; margin-bottom: 10px; line-height: 1.5; }
+.screen-error .btn { margin-top: 6px; }
+
+/* ===== The Pilgrim's Road (4 Nov 2026) ===== */
+.road-upnext .ru-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--gold); margin-bottom: 2px; }
+.road-upnext .ru-row { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); flex-wrap: nowrap; }
+.road-upnext .ru-check { flex: none; width: 44px; height: 44px; margin-left: -10px; display: flex; align-items: center; justify-content: center; border: 0; background: none; cursor: pointer; padding: 0; }
+.road-upnext .ru-check span { width: 20px; height: 20px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid var(--gold); }
+.road-upnext .ru-done .ru-check span { background: var(--gold); }
+.road-upnext .ru-main { flex: 1; min-width: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 10px 0 9px; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; white-space: nowrap; }
+.road-upnext .ru-title { font-size: 16px; font-weight: 600; flex-shrink: 0; }
+.road-upnext .ru-sub { font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.road-upnext .ru-actions { display: flex; gap: 10px; flex-wrap: nowrap; margin-top: 12px; }
+.road-upnext .ru-actions .btn { margin-top: 0; flex: 1; white-space: nowrap; }
+.road-upnext .ru-actions .btn:first-child { flex: 1.4; }
+.road-upnext .ru-road { display: block; margin: 10px 0 0 auto; border: 0; background: none; color: var(--gold); font: inherit; font-size: 13px; cursor: pointer; padding: 4px 0; }
+
+.road-ask .ra-row { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; padding: 8px 0; border-top: 1px solid var(--line); }
+.road-ask .ra-ch { flex: 1; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.rv-form select, .rv-form input { width: 100%; padding: 11px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 15px; box-sizing: border-box; }
+.rv-form .rv-f { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text-2); min-width: 0; }
+
+.road-screen { padding-bottom: 20px; }
+.road-top { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin: 4px 4px 0; }
+.road-eyebrow { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--gold); }
+.road-week { font-size: 15px; margin-top: 2px; white-space: nowrap; }
+.road-nt { text-align: right; font-size: 12px; white-space: nowrap; }
+.road-meter { display: block; height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; margin-top: 6px; width: 170px; }
+.road-meter.small { width: 78px; height: 4px; margin: 0 0 6px auto; }
+.road-meter > div, .road-meter > span { display: block; height: 100%; background: var(--gold); border-radius: 3px; }
+.road-here { margin: 22px 4px 0; }
+.road-here-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; white-space: nowrap; }
+.road-here-row h2 { margin: 2px 0 0; font-size: 34px; font-weight: 500; line-height: 1.05; }
+.road-ticks { display: flex; gap: 4px; margin-top: 12px; }
+.road-tick { flex: 1; height: 9px; border-radius: 2px; box-sizing: border-box; border: 1.5px solid var(--text-3); }
+.road-tick.on { background: var(--gold); border-color: var(--gold); }
+.road-tick.now { border-color: var(--gold); border-width: 2px; }
+.road-note { font-size: 13px; margin-top: 8px; }
+.road-map { position: relative; width: 100%; max-width: 440px; margin: 8px auto 0; overflow: hidden; }
+.road-traveler { position: absolute; pointer-events: none; }
+:root[data-theme="dark"] .road-traveler { filter: drop-shadow(0 0 1.2px rgba(239,228,204,.45)); }
+.road-camps { margin: 18px 4px 0; }
+.road-sec { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; border-bottom: 1px solid var(--line); padding-bottom: 8px; white-space: nowrap; }
+.road-sec h3 { margin: 0; }
+.road-sec .muted { font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.road-camp { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 12px 0; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; flex-wrap: nowrap; }
+.road-camp .rc-name { display: flex; flex-direction: column; font-size: 15px; white-space: nowrap; }
+.road-camp .rc-name .muted { font-size: 12px; }
+.road-pips { display: flex; gap: 5px; flex-wrap: nowrap; }
+.road-pip { width: 12px; height: 12px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid var(--text-3); }
+.road-pip.on { background: var(--gold); border-color: var(--gold); }
+.road-pip.due { border-color: var(--gold); border-width: 2.5px; }
+.road-pip.gap { margin-left: 6px; }
+.road-lap { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); white-space: nowrap; font-size: 14px; }
+.road-lap .road-meter { flex: 1; width: auto; margin-top: 0; }
+.d-goal { font-size: 12px; color: var(--gold); margin-top: 2px; white-space: nowrap; }
+.road-plan-row { padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.road-camps > .btn { margin-top: 10px; }
+.rp-row { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; padding: 5px 0; }
+.rp-row .rp-d { width: 38px; flex: none; font-size: 13px; color: var(--text-2); }
+.rp-row .rp-d.wide { width: auto; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.rp-row select { flex: 1; min-width: 0; padding: 9px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 14px; }
+.rp-row input { width: 58px; flex: none; padding: 9px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 14px; box-sizing: border-box; }
+.rp-starts { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 6px; }
+
+/* ===== Strive / Strive Fitness (4 Nov 2026) — the title flips the app between two modes ===== */
+nav.tabbar:not([data-mode="fitness"]) [data-tab="level"],
+nav.tabbar:not([data-mode="fitness"]) [data-tab="fitness"],
+nav.tabbar[data-mode="fitness"] [data-tab="home"],
+nav.tabbar[data-mode="fitness"] [data-tab="road"] { display: none; }
+#h-title.h-mode { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+#h-title.h-mode::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 8px; vertical-align: middle;
+  border-right: 1.5px solid var(--gold); border-bottom: 1.5px solid var(--gold); transform: translateY(-3px) rotate(45deg); }
+
 </style>
 </head>
 <body>
@@ -710,10 +802,12 @@ svg text { font-variant-numeric: lining-nums tabular-nums; font-feature-settings
   </header>
   <main id="main"></main>
 </div>
-<nav class="tabbar">
+<nav class="tabbar" data-mode="study">
   <button data-tab="home" data-ico="bible"><span class="ico"></span>Study</button>
+  <button data-tab="level" data-ico="level"><span class="ico"></span>Level</button>
   <button class="tab-plus" data-tab="plus" aria-label="Quick add"><span class="ico">＋</span></button>
-  <button data-tab="fitness" data-ico="training"><span class="ico"></span>Fitness</button>
+  <button data-tab="road" data-ico="road"><span class="ico"></span>Road</button>
+  <button data-tab="fitness" data-ico="training"><span class="ico"></span>Training</button>
 </nav>
 <div id="toast"></div>
 <script>
@@ -1255,6 +1349,12 @@ const MODELED_TIERS = new Set(['C', 'E', 'P']);
 // OT once, NT & Psalms twice per year. Public-domain table.
 const MCHEYNE = [["Genesis 1","Matthew 1","Ezra 1","Acts 1"],["Genesis 2","Matthew 2","Ezra 2","Acts 2"],["Genesis 3","Matthew 3","Ezra 3","Acts 3"],["Genesis 4","Matthew 4","Ezra 4","Acts 4"],["Genesis 5","Matthew 5","Ezra 5","Acts 5"],["Genesis 6","Matthew 6","Ezra 6","Acts 6"],["Genesis 7","Matthew 7","Ezra 7","Acts 7"],["Genesis 8","Matthew 8","Ezra 8","Acts 8"],["Genesis 9–10","Matthew 9","Ezra 9","Acts 9"],["Genesis 11","Matthew 10","Ezra 10","Acts 10"],["Genesis 12","Matthew 11","Nehemiah 1","Acts 11"],["Genesis 13","Matthew 12","Nehemiah 2","Acts 12"],["Genesis 14","Matthew 13","Nehemiah 3","Acts 13"],["Genesis 15","Matthew 14","Nehemiah 4","Acts 14"],["Genesis 16","Matthew 15","Nehemiah 5","Acts 15"],["Genesis 17","Matthew 16","Nehemiah 6","Acts 16"],["Genesis 18","Matthew 17","Nehemiah 7","Acts 17"],["Genesis 19","Matthew 18","Nehemiah 8","Acts 18"],["Genesis 20","Matthew 19","Nehemiah 9","Acts 19"],["Genesis 21","Matthew 20","Nehemiah 10","Acts 20"],["Genesis 22","Matthew 21","Nehemiah 11","Acts 21"],["Genesis 23","Matthew 22","Nehemiah 12","Acts 22"],["Genesis 24","Matthew 23","Nehemiah 13","Acts 23"],["Genesis 25","Matthew 24","Esther 1","Acts 24"],["Genesis 26","Matthew 25","Esther 2","Acts 25"],["Genesis 27","Matthew 26","Esther 3","Acts 26"],["Genesis 28","Matthew 27","Esther 4","Acts 27"],["Genesis 29","Matthew 28","Esther 5","Acts 28"],["Genesis 30","Mark 1","Esther 6","Romans 1"],["Genesis 31","Mark 2","Esther 7","Romans 2"],["Genesis 32","Mark 3","Esther 8","Romans 3"],["Genesis 33","Mark 4","Esther 9–10","Romans 4"],["Genesis 34","Mark 5","Job 1","Romans 5"],["Genesis 35–36","Mark 6","Job 2","Romans 6"],["Genesis 37","Mark 7","Job 3","Romans 7"],["Genesis 38","Mark 8","Job 4","Romans 8"],["Genesis 39","Mark 9","Job 5","Romans 9"],["Genesis 40","Mark 10","Job 6","Romans 10"],["Genesis 41","Mark 11","Job 7","Romans 11"],["Genesis 42","Mark 12","Job 8","Romans 12"],["Genesis 43","Mark 13","Job 9","Romans 13"],["Genesis 44","Mark 14","Job 10","Romans 14"],["Genesis 45","Mark 15","Job 11","Romans 15"],["Genesis 46","Mark 16","Job 12","Romans 16"],["Genesis 47","Luke 1:1–38","Job 13","1 Corinthians 1"],["Genesis 48","Luke 1:39–80","Job 14","1 Corinthians 2"],["Genesis 49","Luke 2","Job 15","1 Corinthians 3"],["Genesis 50","Luke 3","Job 16–17","1 Corinthians 4"],["Exodus 1","Luke 4","Job 18","1 Corinthians 5"],["Exodus 2","Luke 5","Job 19","1 Corinthians 6"],["Exodus 3","Luke 6","Job 20","1 Corinthians 7"],["Exodus 4","Luke 7","Job 21","1 Corinthians 8"],["Exodus 5","Luke 8","Job 22","1 Corinthians 9"],["Exodus 6","Luke 9","Job 23","1 Corinthians 10"],["Exodus 7","Luke 10","Job 24","1 Corinthians 11"],["Exodus 8","Luke 11","Job 25–26","1 Corinthians 12"],["Exodus 9","Luke 12","Job 27","1 Corinthians 13"],["Exodus 10","Luke 13","Job 28","1 Corinthians 14"],["Exodus 11–12:21","Luke 14","Job 29","1 Corinthians 15"],["Exodus 12:22–51","Luke 15","Job 30","1 Corinthians 16"],["Exodus 13","Luke 16","Job 31","2 Corinthians 1"],["Exodus 14","Luke 17","Job 32","2 Corinthians 2"],["Exodus 15","Luke 18","Job 33","2 Corinthians 3"],["Exodus 16","Luke 19","Job 34","2 Corinthians 4"],["Exodus 17","Luke 20","Job 35","2 Corinthians 5"],["Exodus 18","Luke 21","Job 36","2 Corinthians 6"],["Exodus 19","Luke 22","Job 37","2 Corinthians 7"],["Exodus 20","Luke 23","Job 38","2 Corinthians 8"],["Exodus 21","Luke 24","Job 39","2 Corinthians 9"],["Exodus 22","John 1","Job 40","2 Corinthians 10"],["Exodus 23","John 2","Job 41","2 Corinthians 11"],["Exodus 24","John 3","Job 42","2 Corinthians 12"],["Exodus 25","John 4","Proverbs 1","2 Corinthians 13"],["Exodus 26","John 5","Proverbs 2","Galatians 1"],["Exodus 27","John 6","Proverbs 3","Galatians 2"],["Exodus 28","John 7","Proverbs 4","Galatians 3"],["Exodus 29","John 8","Proverbs 5","Galatians 4"],["Exodus 30","John 9","Proverbs 6","Galatians 5"],["Exodus 31","John 10","Proverbs 7","Galatians 6"],["Exodus 32","John 11","Proverbs 8","Ephesians 1"],["Exodus 33","John 12","Proverbs 9","Ephesians 2"],["Exodus 34","John 13","Proverbs 10","Ephesians 3"],["Exodus 35","John 14","Proverbs 11","Ephesians 4"],["Exodus 36","John 15","Proverbs 12","Ephesians 5"],["Exodus 37","John 16","Proverbs 13","Ephesians 6"],["Exodus 38","John 17","Proverbs 14","Philippians 1"],["Exodus 39","John 18","Proverbs 15","Philippians 2"],["Exodus 40","John 19","Proverbs 16","Philippians 3"],["Leviticus 1","John 20","Proverbs 17","Philippians 4"],["Leviticus 2–3","John 21","Proverbs 18","Colossians 1"],["Leviticus 4","Psalms 1–2","Proverbs 19","Colossians 2"],["Leviticus 5","Psalms 3–4","Proverbs 20","Colossians 3"],["Leviticus 6","Psalms 5–6","Proverbs 21","Colossians 4"],["Leviticus 7","Psalms 7–8","Proverbs 22","1 Thessalonians 1"],["Leviticus 8","Psalm 9","Proverbs 23","1 Thessalonians 2"],["Leviticus 9","Psalm 10","Proverbs 24","1 Thessalonians 3"],["Leviticus 10","Psalms 11–12","Proverbs 25","1 Thessalonians 4"],["Leviticus 11–12","Psalms 13–14","Proverbs 26","1 Thessalonians 5"],["Leviticus 13","Psalms 15–16","Proverbs 27","2 Thessalonians 1"],["Leviticus 14","Psalm 17","Proverbs 28","2 Thessalonians 2"],["Leviticus 15","Psalm 18","Proverbs 29","2 Thessalonians 3"],["Leviticus 16","Psalm 19","Proverbs 30","1 Timothy 1"],["Leviticus 17","Psalms 20–21","Proverbs 31","1 Timothy 2"],["Leviticus 18","Psalm 22","Ecclesiastes 1","1 Timothy 3"],["Leviticus 19","Psalms 23–24","Ecclesiastes 2","1 Timothy 4"],["Leviticus 20","Psalm 25","Ecclesiastes 3","1 Timothy 5"],["Leviticus 21","Psalms 26–27","Ecclesiastes 4","1 Timothy 6"],["Leviticus 22","Psalms 28–29","Ecclesiastes 5","2 Timothy 1"],["Leviticus 23","Psalm 30","Ecclesiastes 6","2 Timothy 2"],["Leviticus 24","Psalm 31","Ecclesiastes 7","2 Timothy 3"],["Leviticus 25","Psalm 32","Ecclesiastes 8","2 Timothy 4"],["Leviticus 26","Psalm 33","Ecclesiastes 9","Titus 1"],["Leviticus 27","Psalm 34","Ecclesiastes 10","Titus 2"],["Numbers 1","Psalm 35","Ecclesiastes 11","Titus 3"],["Numbers 2","Psalm 36","Ecclesiastes 12","Philemon 1"],["Numbers 3","Psalm 37","Song of Solomon 1","Hebrews 1"],["Numbers 4","Psalm 38","Song of Solomon 2","Hebrews 2"],["Numbers 5","Psalm 39","Song of Solomon 3","Hebrews 3"],["Numbers 6","Psalms 40–41","Song of Solomon 4","Hebrews 4"],["Numbers 7","Psalms 42–43","Song of Solomon 5","Hebrews 5"],["Numbers 8","Psalm 44","Song of Solomon 6","Hebrews 6"],["Numbers 9","Psalm 45","Song of Solomon 7","Hebrews 7"],["Numbers 10","Psalms 46–47","Song of Solomon 8","Hebrews 8"],["Numbers 11","Psalm 48","Isaiah 1","Hebrews 9"],["Numbers 12–13","Psalm 49","Isaiah 2","Hebrews 10"],["Numbers 14","Psalm 50","Isaiah 3–4","Hebrews 11"],["Numbers 15","Psalm 51","Isaiah 5","Hebrews 12"],["Numbers 16","Psalms 52–54","Isaiah 6","Hebrews 13"],["Numbers 17–18","Psalm 55","Isaiah 7","James 1"],["Numbers 19","Psalms 56–57","Isaiah 8–9:7","James 2"],["Numbers 20","Psalms 58–59","Isaiah 9:8–10:4","James 3"],["Numbers 21","Psalms 60–61","Isaiah 10:5–34","James 4"],["Numbers 22","Psalms 62–63","Isaiah 11–12","James 5"],["Numbers 23","Psalms 64–65","Isaiah 13","1 Peter 1"],["Numbers 24","Psalms 66–67","Isaiah 14","1 Peter 2"],["Numbers 25","Psalm 68","Isaiah 15","1 Peter 3"],["Numbers 26","Psalm 69","Isaiah 16","1 Peter 4"],["Numbers 27","Psalms 70–71","Isaiah 17–18","1 Peter 5"],["Numbers 28","Psalm 72","Isaiah 19–20","2 Peter 1"],["Numbers 29","Psalm 73","Isaiah 21","2 Peter 2"],["Numbers 30","Psalm 74","Isaiah 22","2 Peter 3"],["Numbers 31","Psalms 75–76","Isaiah 23","1 John 1"],["Numbers 32","Psalm 77","Isaiah 24","1 John 2"],["Numbers 33","Psalm 78:1–37","Isaiah 25","1 John 3"],["Numbers 34","Psalm 78:38–72","Isaiah 26","1 John 4"],["Numbers 35","Psalm 79","Isaiah 27","1 John 5"],["Numbers 36","Psalm 80","Isaiah 28","2 John 1"],["Deuteronomy 1","Psalms 81–82","Isaiah 29","3 John 1"],["Deuteronomy 2","Psalms 83–84","Isaiah 30","Jude 1"],["Deuteronomy 3","Psalm 85","Isaiah 31","Revelation 1"],["Deuteronomy 4","Psalms 86–87","Isaiah 32","Revelation 2"],["Deuteronomy 5","Psalm 88","Isaiah 33","Revelation 3"],["Deuteronomy 6","Psalm 89","Isaiah 34","Revelation 4"],["Deuteronomy 7","Psalm 90","Isaiah 35","Revelation 5"],["Deuteronomy 8","Psalm 91","Isaiah 36","Revelation 6"],["Deuteronomy 9","Psalms 92–93","Isaiah 37","Revelation 7"],["Deuteronomy 10","Psalm 94","Isaiah 38","Revelation 8"],["Deuteronomy 11","Psalms 95–96","Isaiah 39","Revelation 9"],["Deuteronomy 12","Psalms 97–98","Isaiah 40","Revelation 10"],["Deuteronomy 13–14","Psalms 99–101","Isaiah 41","Revelation 11"],["Deuteronomy 15","Psalm 102","Isaiah 42","Revelation 12"],["Deuteronomy 16","Psalm 103","Isaiah 43","Revelation 13"],["Deuteronomy 17","Psalm 104","Isaiah 44","Revelation 14"],["Deuteronomy 18","Psalm 105","Isaiah 45","Revelation 15"],["Deuteronomy 19","Psalm 106","Isaiah 46","Revelation 16"],["Deuteronomy 20","Psalm 107","Isaiah 47","Revelation 17"],["Deuteronomy 21","Psalms 108–109","Isaiah 48","Revelation 18"],["Deuteronomy 22","Psalms 110–111","Isaiah 49","Revelation 19"],["Deuteronomy 23","Psalms 112–113","Isaiah 50","Revelation 20"],["Deuteronomy 24","Psalms 114–115","Isaiah 51","Revelation 21"],["Deuteronomy 25","Psalm 116","Isaiah 52","Revelation 22"],["Deuteronomy 26","Psalms 117–118","Isaiah 53","Matthew 1"],["Deuteronomy 27–28:19","Psalm 119:1–24","Isaiah 54","Matthew 2"],["Deuteronomy 28:20–68","Psalm 119:25–48","Isaiah 55","Matthew 3"],["Deuteronomy 29","Psalm 119:49–72","Isaiah 56","Matthew 4"],["Deuteronomy 30","Psalm 119:73–96","Isaiah 57","Matthew 5"],["Deuteronomy 31","Psalm 119:97–120","Isaiah 58","Matthew 6"],["Deuteronomy 32","Psalm 119:121–144","Isaiah 59","Matthew 7"],["Deuteronomy 33–34","Psalm 119:145–176","Isaiah 60","Matthew 8"],["Joshua 1","Psalms 120–122","Isaiah 61","Matthew 9"],["Joshua 2","Psalms 123–125","Isaiah 62","Matthew 10"],["Joshua 3","Psalms 126–128","Isaiah 63","Matthew 11"],["Joshua 4","Psalms 129–131","Isaiah 64","Matthew 12"],["Joshua 5–6:5","Psalms 132–134","Isaiah 65","Matthew 13"],["Joshua 6:6–27","Psalms 135–136","Isaiah 66","Matthew 14"],["Joshua 7","Psalms 137–138","Jeremiah 1","Matthew 15"],["Joshua 8","Psalm 139","Jeremiah 2","Matthew 16"],["Joshua 9","Psalms 140–141","Jeremiah 3","Matthew 17"],["Joshua 10","Psalms 142–143","Jeremiah 4","Matthew 18"],["Joshua 11","Psalm 144","Jeremiah 5","Matthew 19"],["Joshua 12–13","Psalm 145","Jeremiah 6","Matthew 20"],["Joshua 14–15","Psalms 146–147","Jeremiah 7","Matthew 21"],["Joshua 16–17","Psalm 148","Jeremiah 8","Matthew 22"],["Joshua 18–19","Psalms 149–150","Jeremiah 9","Matthew 23"],["Joshua 20–21","Acts 1","Jeremiah 10","Matthew 24"],["Joshua 22","Acts 2","Jeremiah 11","Matthew 25"],["Joshua 23","Acts 3","Jeremiah 12","Matthew 26"],["Joshua 24","Acts 4","Jeremiah 13","Matthew 27"],["Judges 1","Acts 5","Jeremiah 14","Matthew 28"],["Judges 2","Acts 6","Jeremiah 15","Mark 1"],["Judges 3","Acts 7","Jeremiah 16","Mark 2"],["Judges 4","Acts 8","Jeremiah 17","Mark 3"],["Judges 5","Acts 9","Jeremiah 18","Mark 4"],["Judges 6","Acts 10","Jeremiah 19","Mark 5"],["Judges 7","Acts 11","Jeremiah 20","Mark 6"],["Judges 8","Acts 12","Jeremiah 21","Mark 7"],["Judges 9","Acts 13","Jeremiah 22","Mark 8"],["Judges 10–11:11","Acts 14","Jeremiah 23","Mark 9"],["Judges 11:12–40","Acts 15","Jeremiah 24","Mark 10"],["Judges 12","Acts 16","Jeremiah 25","Mark 11"],["Judges 13","Acts 17","Jeremiah 26","Mark 12"],["Judges 14","Acts 18","Jeremiah 27","Mark 13"],["Judges 15","Acts 19","Jeremiah 28","Mark 14"],["Judges 16","Acts 20","Jeremiah 29","Mark 15"],["Judges 17","Acts 21","Jeremiah 30–31","Mark 16"],["Judges 18","Acts 22","Jeremiah 32","Psalms 1–2"],["Judges 19","Acts 23","Jeremiah 33","Psalms 3–4"],["Judges 20","Acts 24","Jeremiah 34","Psalms 5–6"],["Judges 21","Acts 25","Jeremiah 35","Psalms 7–8"],["Ruth 1","Acts 26","Jeremiah 36, 45","Psalm 9"],["Ruth 2","Acts 27","Jeremiah 37","Psalm 10"],["Ruth 3–4","Acts 28","Jeremiah 38","Psalms 11–12"],["1 Samuel 1","Romans 1","Jeremiah 39","Psalms 13–14"],["1 Samuel 2","Romans 2","Jeremiah 40","Psalms 15–16"],["1 Samuel 3","Romans 3","Jeremiah 41","Psalm 17"],["1 Samuel 4","Romans 4","Jeremiah 42","Psalm 18"],["1 Samuel 5–6","Romans 5","Jeremiah 43","Psalm 19"],["1 Samuel 7–8","Romans 6","Jeremiah 44","Psalms 20–21"],["1 Samuel 9","Romans 7","Jeremiah 46","Psalm 22"],["1 Samuel 10","Romans 8","Jeremiah 47","Psalms 23–24"],["1 Samuel 11","Romans 9","Jeremiah 48","Psalm 25"],["1 Samuel 12","Romans 10","Jeremiah 49","Psalms 26–27"],["1 Samuel 13","Romans 11","Jeremiah 50","Psalms 28–29"],["1 Samuel 14","Romans 12","Jeremiah 51","Psalm 30"],["1 Samuel 15","Romans 13","Jeremiah 52","Psalm 31"],["1 Samuel 16","Romans 14","Lamentations 1","Psalm 32"],["1 Samuel 17","Romans 15","Lamentations 2","Psalm 33"],["1 Samuel 18","Romans 16","Lamentations 3","Psalm 34"],["1 Samuel 19","1 Corinthians 1","Lamentations 4","Psalm 35"],["1 Samuel 20","1 Corinthians 2","Lamentations 5","Psalm 36"],["1 Samuel 21–22","1 Corinthians 3","Ezekiel 1","Psalm 37"],["1 Samuel 23","1 Corinthians 4","Ezekiel 2","Psalm 38"],["1 Samuel 24","1 Corinthians 5","Ezekiel 3","Psalm 39"],["1 Samuel 25","1 Corinthians 6","Ezekiel 4","Psalms 40–41"],["1 Samuel 26","1 Corinthians 7","Ezekiel 5","Psalms 42–43"],["1 Samuel 27","1 Corinthians 8","Ezekiel 6","Psalm 44"],["1 Samuel 28","1 Corinthians 9","Ezekiel 7","Psalm 45"],["1 Samuel 29–30","1 Corinthians 10","Ezekiel 8","Psalms 46–47"],["1 Samuel 31","1 Corinthians 11","Ezekiel 9","Psalm 48"],["2 Samuel 1","1 Corinthians 12","Ezekiel 10","Psalm 49"],["2 Samuel 2","1 Corinthians 13","Ezekiel 11","Psalm 50"],["2 Samuel 3","1 Corinthians 14","Ezekiel 12","Psalm 51"],["2 Samuel 4–5","1 Corinthians 15","Ezekiel 13","Psalms 52–54"],["2 Samuel 6","1 Corinthians 16","Ezekiel 14","Psalm 55"],["2 Samuel 7","2 Corinthians 1","Ezekiel 15","Psalms 56–57"],["2 Samuel 8–9","2 Corinthians 2","Ezekiel 16","Psalms 58–59"],["2 Samuel 10","2 Corinthians 3","Ezekiel 17","Psalms 60–61"],["2 Samuel 11","2 Corinthians 4","Ezekiel 18","Psalms 62–63"],["2 Samuel 12","2 Corinthians 5","Ezekiel 19","Psalms 64–65"],["2 Samuel 13","2 Corinthians 6","Ezekiel 20","Psalms 66–67"],["2 Samuel 14","2 Corinthians 7","Ezekiel 21","Psalm 68"],["2 Samuel 15","2 Corinthians 8","Ezekiel 22","Psalm 69"],["2 Samuel 16","2 Corinthians 9","Ezekiel 23","Psalms 70–71"],["2 Samuel 17","2 Corinthians 10","Ezekiel 24","Psalm 72"],["2 Samuel 18","2 Corinthians 11","Ezekiel 25","Psalm 73"],["2 Samuel 19","2 Corinthians 12","Ezekiel 26","Psalm 74"],["2 Samuel 20","2 Corinthians 13","Ezekiel 27","Psalms 75–76"],["2 Samuel 21","Galatians 1","Ezekiel 28","Psalm 77"],["2 Samuel 22","Galatians 2","Ezekiel 29","Psalm 78:1–37"],["2 Samuel 23","Galatians 3","Ezekiel 30","Psalm 78:38–72"],["2 Samuel 24","Galatians 4","Ezekiel 31","Psalm 79"],["1 Kings 1","Galatians 5","Ezekiel 32","Psalm 80"],["1 Kings 2","Galatians 6","Ezekiel 33","Psalms 81–82"],["1 Kings 3","Ephesians 1","Ezekiel 34","Psalms 83–84"],["1 Kings 4–5","Ephesians 2","Ezekiel 35","Psalm 85"],["1 Kings 6","Ephesians 3","Ezekiel 36","Psalm 86"],["1 Kings 7","Ephesians 4","Ezekiel 37","Psalms 87–88"],["1 Kings 8","Ephesians 5","Ezekiel 38","Psalm 89"],["1 Kings 9","Ephesians 6","Ezekiel 39","Psalm 90"],["1 Kings 10","Philippians 1","Ezekiel 40","Psalm 91"],["1 Kings 11","Philippians 2","Ezekiel 41","Psalms 92–93"],["1 Kings 12","Philippians 3","Ezekiel 42","Psalm 94"],["1 Kings 13","Philippians 4","Ezekiel 43","Psalms 95–96"],["1 Kings 14","Colossians 1","Ezekiel 44","Psalms 97–98"],["1 Kings 15","Colossians 2","Ezekiel 45","Psalms 99–101"],["1 Kings 16","Colossians 3","Ezekiel 46","Psalm 102"],["1 Kings 17","Colossians 4","Ezekiel 47","Psalm 103"],["1 Kings 18","1 Thessalonians 1","Ezekiel 48","Psalm 104"],["1 Kings 19","1 Thessalonians 2","Daniel 1","Psalm 105"],["1 Kings 20","1 Thessalonians 3","Daniel 2","Psalm 106"],["1 Kings 21","1 Thessalonians 4","Daniel 3","Psalm 107"],["1 Kings 22","1 Thessalonians 5","Daniel 4","Psalms 108–109"],["2 Kings 1","2 Thessalonians 1","Daniel 5","Psalms 110–111"],["2 Kings 2","2 Thessalonians 2","Daniel 6","Psalms 112–113"],["2 Kings 3","2 Thessalonians 3","Daniel 7","Psalms 114–115"],["2 Kings 4","1 Timothy 1","Daniel 8","Psalm 116"],["2 Kings 5","1 Timothy 2","Daniel 9","Psalms 117–118"],["2 Kings 6","1 Timothy 3","Daniel 10","Psalm 119:1–24"],["2 Kings 7","1 Timothy 4","Daniel 11","Psalm 119:25–48"],["2 Kings 8","1 Timothy 5","Daniel 12","Psalm 119:49–72"],["2 Kings 9","1 Timothy 6","Hosea 1","Psalm 119:73–96"],["2 Kings 10","2 Timothy 1","Hosea 2","Psalm 119:97–120"],["2 Kings 11–12","2 Timothy 2","Hosea 3–4","Psalm 119:121–144"],["2 Kings 13","2 Timothy 3","Hosea 5–6","Psalm 119:145–176"],["2 Kings 14","2 Timothy 4","Hosea 7","Psalms 120–122"],["2 Kings 15","Titus 1","Hosea 8","Psalms 123–125"],["2 Kings 16","Titus 2","Hosea 9","Psalms 126–128"],["2 Kings 17","Titus 3","Hosea 10","Psalms 129–131"],["2 Kings 18","Philemon 1","Hosea 11","Psalms 132–134"],["2 Kings 19","Hebrews 1","Hosea 12","Psalms 135–136"],["2 Kings 20","Hebrews 2","Hosea 13","Psalms 137–138"],["2 Kings 21","Hebrews 3","Hosea 14","Psalm 139"],["2 Kings 22","Hebrews 4","Joel 1","Psalms 140–141"],["2 Kings 23","Hebrews 5","Joel 2","Psalm 142"],["2 Kings 24","Hebrews 6","Joel 3","Psalm 143"],["2 Kings 25","Hebrews 7","Amos 1","Psalm 144"],["1 Chronicles 1–2","Hebrews 8","Amos 2","Psalm 145"],["1 Chronicles 3–4","Hebrews 9","Amos 3","Psalms 146–147"],["1 Chronicles 5–6","Hebrews 10","Amos 4","Psalms 148–150"],["1 Chronicles 7–8","Hebrews 11","Amos 5","Luke 1:1–38"],["1 Chronicles 9–10","Hebrews 12","Amos 6","Luke 1:39–80"],["1 Chronicles 11–12","Hebrews 13","Amos 7","Luke 2"],["1 Chronicles 13–14","James 1","Amos 8","Luke 3"],["1 Chronicles 15","James 2","Amos 9","Luke 4"],["1 Chronicles 16","James 3","Obadiah 1","Luke 5"],["1 Chronicles 17","James 4","Jonah 1","Luke 6"],["1 Chronicles 18","James 5","Jonah 2","Luke 7"],["1 Chronicles 19–20","1 Peter 1","Jonah 3","Luke 8"],["1 Chronicles 21","1 Peter 2","Jonah 4","Luke 9"],["1 Chronicles 22","1 Peter 3","Micah 1","Luke 10"],["1 Chronicles 23","1 Peter 4","Micah 2","Luke 11"],["1 Chronicles 24–25","1 Peter 5","Micah 3","Luke 12"],["1 Chronicles 26–27","2 Peter 1","Micah 4","Luke 13"],["1 Chronicles 28","2 Peter 2","Micah 5","Luke 14"],["1 Chronicles 29","2 Peter 3","Micah 6","Luke 15"],["2 Chronicles 1","1 John 1","Micah 7","Luke 16"],["2 Chronicles 2","1 John 2","Nahum 1","Luke 17"],["2 Chronicles 3–4","1 John 3","Nahum 2","Luke 18"],["2 Chronicles 5–6:11","1 John 4","Nahum 3","Luke 19"],["2 Chronicles 6:12–42","1 John 5","Habakkuk 1","Luke 20"],["2 Chronicles 7","2 John 1","Habakkuk 2","Luke 21"],["2 Chronicles 8","3 John 1","Habakkuk 3","Luke 22"],["2 Chronicles 9","Jude 1","Zephaniah 1","Luke 23"],["2 Chronicles 10","Revelation 1","Zephaniah 2","Luke 24"],["2 Chronicles 11–12","Revelation 2","Zephaniah 3","John 1"],["2 Chronicles 13","Revelation 3","Haggai 1","John 2"],["2 Chronicles 14–15","Revelation 4","Haggai 2","John 3"],["2 Chronicles 16","Revelation 5","Zechariah 1","John 4"],["2 Chronicles 17","Revelation 6","Zechariah 2","John 5"],["2 Chronicles 18","Revelation 7","Zechariah 3","John 6"],["2 Chronicles 19–20","Revelation 8","Zechariah 4","John 7"],["2 Chronicles 21","Revelation 9","Zechariah 5","John 8"],["2 Chronicles 22–23","Revelation 10","Zechariah 6","John 9"],["2 Chronicles 24","Revelation 11","Zechariah 7","John 10"],["2 Chronicles 25","Revelation 12","Zechariah 8","John 11"],["2 Chronicles 26","Revelation 13","Zechariah 9","John 12"],["2 Chronicles 27–28","Revelation 14","Zechariah 10","John 13"],["2 Chronicles 29","Revelation 15","Zechariah 11","John 14"],["2 Chronicles 30","Revelation 16","Zechariah 12–13:1","John 15"],["2 Chronicles 31","Revelation 17","Zechariah 13:2–9","John 16"],["2 Chronicles 32","Revelation 18","Zechariah 14","John 17"],["2 Chronicles 33","Revelation 19","Malachi 1","John 18"],["2 Chronicles 34","Revelation 20","Malachi 2","John 19"],["2 Chronicles 35","Revelation 21","Malachi 3","John 20"],["2 Chronicles 36","Revelation 22","Malachi 4","John 21"]];
 
+// Strive — the traveler on the Pilgrim's Road. Baruch's updated character (4 Nov 2026, evening):
+// the hooded swordsman, sword drawn and held low, cut out of a black background. 420 px tall so
+// it stays crisp at 3x on a phone. Decoration only: every use is aria-hidden.
+const TRAVELER_SRC = 'data:image/webp;base64,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';
+const TRAVELER_ASPECT = 0.5333;
+
 // Strive — local-first data layer. Schema v2 (Phase 1). iCloud sync plugs in later.
 const KEY = 'strive-v1';
 const BACKUP_KEY = 'strive-v1-backup';           // raw pre-migration snapshot, written once, never overwritten
@@ -1392,10 +1492,87 @@ function save() {
 const saveListeners = [];
 function onSaved(fn) { saveListeners.push(fn); }
 
+// ⛑⛑ SAVE HEALTH (22 Sep 2026, reliability item 1). A failed save used to be a console.warn and
+// nothing else: the listeners still fired, sync still pushed and recorded "in sync", and on the next
+// open the phone loaded the OLDER copy from disk while believing it was current — so his next edit
+// pushed that older copy over the good one in the cloud. Storage filling up (Safari gives this origin
+// roughly 5 MB, shared with the ESV cache and the safety copies) makes that a when, not an if.
+// Now:
+//   · a QUOTA failure first frees space through the registered evictors (the ESV cache — the one
+//     thing here that can simply be fetched again) and retries;
+//   · whatever the outcome, saveHealth() says so and onSaveHealth listeners hear every change of it
+//     (the app shows a banner that stays up until a save succeeds);
+//   · the save listeners still fire, so sync still gets the work to the cloud — and sync reads
+//     saveHealth() to record that the cloud is AHEAD of this device's disk (see pushedUnsaved in sync.js).
+// ⚑ Safety copies (pre-import / pre-v3) are NOT evicted automatically: they are his data, not a cache.
+let saveOk = true, saveError = null, saveFailedAt = 0;
+const healthListeners = [];
+function onSaveHealth(fn) { healthListeners.push(fn); }
+function saveHealth() { return { ok: saveOk, error: saveError, at: saveFailedAt }; }
+const evictors = [];
+function registerEvictor(name, fn) { evictors.push([name, fn]); }
+function isQuotaError(e) {
+  if (!e) return false;
+  return e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22 || e.code === 1014;
+}
+// Returns null on success, else the error. Only a quota error triggers eviction; anything else
+// (storage blocked, private mode) is reported as it is — evicting would not help.
+function writeWithEviction(key, json) {
+  let ev = 0;
+  for (let attempt = 0; attempt < 64; attempt++) {
+    try { localStorage.setItem(key, json); return null; }
+    catch (e) {
+      if (!isQuotaError(e)) return e;
+      let freed = false;
+      while (ev < evictors.length && !freed) {
+        try { freed = !!evictors[ev][1](); } catch (x) { freed = false; }
+        if (!freed) ev++;
+      }
+      if (!freed) return e;
+    }
+  }
+  return new Error('save retry limit');
+}
+function setSaveHealth(ok, err) {
+  const was = saveOk;
+  saveOk = ok;
+  saveError = ok ? null : String((err && (err.name || err.message)) || err);
+  if (!ok) saveFailedAt = Date.now();
+  if (was !== ok) healthListeners.forEach(f => { try { f(saveHealth()); } catch (e) { console.warn('save health listener failed', e); } });
+}
 function saveNow() {
   clearTimeout(saveTimer);
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { console.warn('save failed', e); }
+  saveTimer = null;
+  let err = null;
+  try { err = writeWithEviction(KEY, JSON.stringify(state)); } catch (e) { err = e; }
+  if (err) console.warn('save failed', err);
+  setSaveHealth(!err, err);
   saveListeners.forEach(f => { try { f(); } catch (e) { console.warn('save listener failed', e); } });
+  return !err;
+}
+// ⛑ Reliability item 2 — a save still waiting on its 300 ms debounce is written NOW. Called when the
+// app is hidden or closed, so the last card he rated is on disk before iOS can suspend the page.
+function saveFlush() {
+  if (saveTimer === null) return false;
+  saveNow();
+  return true;
+}
+// What this origin's localStorage holds, in characters (≈ bytes for this data), by kind — for the
+// Storage line in Settings.
+function storageReport() {
+  const out = { state: 0, bible: 0, copies: 0, other: 0, total: 0 };
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      const n = k.length + (localStorage.getItem(k) || '').length;
+      if (k === KEY) out.state += n;
+      else if (k === 'strive-esv-v1') out.bible += n;
+      else if (k === BACKUP_KEY || k === PRE_IMPORT_KEY || k === PRE_V3_KEY) out.copies += n;
+      else out.other += n;
+      out.total += n;
+    }
+  } catch (e) { /* storage unreadable — report what was counted */ }
+  return out;
 }
 
 function deepMerge(target, src) {
@@ -1774,7 +1951,33 @@ function esvSaveCache() {
 }
 function esvKey() { return (state.settings.esvKey || '').trim(); }
 function setEsvKey(k) { state.settings.esvKey = (k || '').trim(); save(); }
-function esvChapterCached(book, ch) { return esvLoadCache()[book + ' ' + ch] || null; }
+function esvChapterCached(book, ch) {
+  const e = esvLoadCache()[book + ' ' + ch] || null;
+  if (e) e.used = Date.now();   // in memory only — lets eviction spare what this sitting is reading
+  return e;
+}
+// ⛑ Reliability item 1 — THE CACHE MAKES ROOM FOR HIS DATA. When a save of the live state hits the
+// storage quota, store.js calls this (via registerEvictor) and retries. It drops the least recently
+// used quarter of the cached chapters (at least one); a dropped chapter is simply fetched again the next
+// time it is opened online. Returns false when there is nothing left to drop, so store.js moves on.
+function esvEvictOldest(frac = 0.25) {
+  const c = esvLoadCache();
+  const keys = Object.keys(c);
+  if (!keys.length) return false;
+  const age = k => (c[k] && (c[k].used || c[k].ts)) || 0;
+  keys.sort((a, b) => age(a) - age(b));
+  const n = Math.max(1, Math.ceil(keys.length * frac));
+  keys.slice(0, n).forEach(k => { delete c[k]; });
+  try {
+    if (Object.keys(c).length) localStorage.setItem(ESV_CACHE_KEY, JSON.stringify(c));
+    else localStorage.removeItem(ESV_CACHE_KEY);
+  } catch (e) {
+    try { localStorage.removeItem(ESV_CACHE_KEY); } catch (x) { /* nothing more to free */ }
+    Object.keys(c).forEach(k => { delete c[k]; });
+  }
+  return true;
+}
+registerEvictor('esv-cache', () => esvEvictOldest());
 function esvParseVerses(text) {
   // "[1] In the beginning... [2] And..." -> {1:'...', 2:'...'}
   const out = {};
@@ -9908,6 +10111,693 @@ async function restore(id) {
 }
 
 const BK = {KEEP_DAYS,KEEP_EACH_EVENT,KEEP_WEEKS,KIND_LABEL,keepIds,list,maybeDaily,restore,snapshot,supported};
+// Strive — the Pilgrim's Road: chapter-level memorization and review state (4 Nov 2026).
+//
+// ⚑ WHAT THIS IS. Every chapter he is learning or keeping sits in one of three zones:
+//   ACTIVE    being learned. Ten CLEAN runs graduate it — and every clean run counts, even several
+//             in one evening (his ruling, 4 Nov: "it can be done more than once in a day").
+//   MATURING  date-driven. Twice a week for four weeks (8 clean touches), then once a week for
+//             four weeks (4). A chapter that stumbles when it is due repeats that stage.
+//   ROTATION  the long loop. One book (or chunk of a big book) per sitting, in a fixed order,
+//             progress carried over between days, no deadline per book. It never exits. The loop
+//             moves on only after a CLEAN run of each chapter (his ruling, 4 Nov).
+//
+// ⚑ THE TWO ANSWERS ARE CLEAN AND REDO (4 Nov; "Shaky" is retired as confusing). Clean = the run
+// counted. Redo = it did not; it is kept, the chapter stays due, and on a Maturing chapter a Redo when
+// due restarts that stage. In the data a Redo is simply a touch with clean:false.
+//
+// ⚑⚑ THE SCHEDULE IS A PURE FUNCTION OF THE EVIDENCE AND TODAY'S DATE. Nothing here stores "what is
+// due" or a queue position. The only things written are facts — a touch (this chapter, this day,
+// clean or shaky), a manual zone override, a record of verses learned — and every zone, count, due
+// date, rotation stop and lap is derived from them by replaying them in order. So a missed week
+// cannot leave a backlog: the derivation simply finds that a maturing chapter is due (once), that
+// the rotation is still at the stop it was at, and carries on. And two devices can merge their
+// evidence by union (sync.js) without either one's idea of "the queue" overwriting the other's.
+//
+// ⚑ FIXED BEHAVIOURS ARE CONSTANTS, NOT SETTINGS (his standing preference). The one exception is
+// the manual promote/demote on a chapter, because he sometimes judges a chapter more or less solid
+// than the count says.
+
+
+
+// ---------------------------------------------------------------- constants
+const ACTIVE_TOUCHES = 10;
+// Maturing stages: `need` clean touches, each at least `gap` days after the previous counted one.
+// A gap of 3 is "twice a week"; 7 is "once a week". Four weeks of each.
+const MATURE_STAGES = [{ need: 8, gap: 3, label: 'twice a week' }, { need: 4, gap: 7, label: 'once a week' }];
+// Big books are sat in chunks; their chapters are still tracked one by one.
+const CHUNKS = {
+  '1 Corinthians': [[1, 4], [5, 8], [9, 12], [13, 16]],
+  'Hebrews': [[1, 4], [5, 9], [10, 13]]
+};
+const NT_ORDER = ['Matthew', 'Mark', 'Luke', 'John', 'Acts', 'Romans', '1 Corinthians', '2 Corinthians',
+  'Galatians', 'Ephesians', 'Philippians', 'Colossians', '1 Thessalonians', '2 Thessalonians', '1 Timothy',
+  '2 Timothy', 'Titus', 'Philemon', 'Hebrews', 'James', '1 Peter', '2 Peter', '1 John', '2 John', '3 John',
+  'Jude', 'Revelation'];
+// His ruling (3 Nov): the FIRST lap starts at 1 Timothy and Ephesians comes last. Later laps run in
+// canonical order from the first book in the loop.
+const LAP1_ORDER = ['1 Timothy', '2 Timothy', 'Titus', 'Hebrews', 'James', '1 Peter', '1 Corinthians', 'Ephesians'];
+const SEED_DAY = '2026-11-03';
+// His starting state, 3 Nov 2026. `n` = clean touches already earned (1 Corinthians 1 had three).
+const SEED_ROTATION_BOOKS = ['Ephesians', '1 Timothy', '2 Timothy', 'Titus', 'James', '1 Peter'];
+const SEED_EXTRA = [
+  ...[1, 2, 3, 4, 5, 6, 7].map(ch => ({ book: 'Hebrews', ch, zone: 'rotation' })),
+  { book: 'Hebrews', ch: 8, zone: 'active', n: 0 },
+  { book: '1 Corinthians', ch: 1, zone: 'active', n: 3 },
+  { book: '1 Corinthians', ch: 2, zone: 'active', n: 0 }
+];
+// His own recovery estimates (hours per whole book, 3 Nov). Used only until review times exist.
+const SEED_HOURS = { '1 Timothy': 2, '2 Timothy': 2, 'Titus': 2, 'James': 1, '1 Peter': 3, 'Ephesians': 1 };
+const DEFAULT_CHAPTER_MIN = 10;
+
+// ---------------------------------------------------------------- store
+const bookByName = name => allBooks.find(b => b.name === name) || null;
+const chKey = (book, ch) => book + '|' + ch;
+function splitChKey(k) { const i = k.lastIndexOf('|'); return { book: k.slice(0, i), ch: Number(k.slice(i + 1)) }; }
+const chLabel = (book, ch) => book + ' ' + ch;
+
+function seedChapters() {
+  const out = {};
+  SEED_ROTATION_BOOKS.forEach(name => {
+    const b = bookByName(name);
+    if (b) b.verses.forEach((_, ci) => { out[chKey(name, ci + 1)] = { zone: 'rotation', n: 0 }; });
+  });
+  SEED_EXTRA.forEach(s => { out[chKey(s.book, s.ch)] = { zone: s.zone, n: s.n || 0 }; });
+  return out;
+}
+
+function roadStore() {
+  if (!state.road || typeof state.road !== 'object') state.road = {};
+  const r = state.road;
+  // ⚑ THE SEED IS DETERMINISTIC (no random ids, no timestamps of its own), so two devices that each
+  // seed before their first sync hold identical seeds and nothing has to reconcile them.
+  if (!r.seed) r.seed = { day: SEED_DAY, chapters: seedChapters() };
+  if (!Array.isArray(r.touches)) r.touches = [];
+  if (!Array.isArray(r.overrides)) r.overrides = [];
+  if (!Array.isArray(r.verses)) r.verses = [];
+  if (!r.done || typeof r.done !== 'object') r.done = {};
+  if (!r.todoist || typeof r.todoist !== 'object') r.todoist = {};
+  if (!r.todoist.tasks || typeof r.todoist.tasks !== 'object') r.todoist.tasks = {};
+  if (!r.plan || typeof r.plan !== 'object') r.plan = { days: {}, starts: {} };
+  if (!r.plan.days) r.plan.days = {};
+  if (!r.plan.starts) r.plan.starts = {};
+  if (!r.planDay || typeof r.planDay !== 'object') r.planDay = {};
+  return r;
+}
+
+const dayStartTs = dk => { const [y, m, d] = dk.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
+
+// ---------------------------------------------------------------- writing evidence
+// One touch = one run-through of the whole chapter. `clean` false = shaky. `src` says where it
+// came from ('flash' | 'typing' | 'manual' | 'todoist'); `sid` ties it to a sitting so a re-entrant
+// summary cannot record the same sitting twice.
+function recordTouch(book, ch, clean, src = 'manual', { ts = Date.now(), sid = null } = {}) {
+  const r = roadStore();
+  if (sid) {
+    const prev = r.touches.find(t => t.sid === sid && t.book === book && t.ch === ch);
+    if (prev) { prev.clean = !!clean; prev.ts = ts; prev.day = keyForTs(ts); save(); return prev; }
+  }
+  const t = { id: uid(), book, ch, day: keyForTs(ts), ts, clean: !!clean, src };
+  if (sid) t.sid = sid;
+  r.touches.push(t);
+  save();
+  return t;
+}
+function touchForSitting(book, ch, sid) {
+  return sid ? roadStore().touches.find(t => t.sid === sid && t.book === book && t.ch === ch) || null : null;
+}
+function removeTouch(id) { const r = roadStore(); r.touches = r.touches.filter(t => t.id !== id); save(); }
+
+// Manual promote/demote. Also how a chapter joins the road (zone 'active').
+function setZone(book, ch, zone, ts = Date.now()) {
+  if (!['active', 'maturing', 'rotation', 'off'].includes(zone)) return null;
+  const o = { id: uid(), book, ch, zone, ts, day: keyForTs(ts) };
+  roadStore().overrides.push(o);
+  save();
+  return o;
+}
+
+// "Record verses" — he says which verses he learned today. The caller also ticks them memorized
+// (scripture.js owns that); this keeps the day's record for the goal meter and enrols the chapter
+// as Active if the road does not know it yet.
+function recordVerses(book, ch, from, to, ts = Date.now()) {
+  const n = Math.max(0, to - from + 1);
+  const r = roadStore();
+  const e = { id: uid(), book, ch, from, to, n, ts, day: keyForTs(ts) };
+  r.verses.push(e);
+  if (!isTracked(book, ch, ts)) setZone(book, ch, 'active', ts);
+  save();
+  return e;
+}
+function versesRecorded(fromDay, toDay = fromDay) {
+  return roadStore().verses.filter(e => e.day >= fromDay && e.day <= toDay).reduce((a, e) => a + e.n, 0);
+}
+
+// ---------------------------------------------------------------- deriving one chapter
+function eventsFor(book, ch) {
+  const r = roadStore();
+  const ev = [];
+  r.touches.forEach(t => { if (t.book === book && t.ch === ch) ev.push({ t: 'touch', ts: t.ts, day: t.day, clean: t.clean }); });
+  r.overrides.forEach(o => { if (o.book === book && o.ch === ch) ev.push({ t: 'zone', ts: o.ts, day: o.day, zone: o.zone }); });
+  return ev.sort((a, b) => a.ts - b.ts);
+}
+
+function enterZone(s, zone, day, ts) {
+  s.zone = zone;
+  s.since = ts;
+  if (zone === 'active') { s.count = 0; s.days = new Set(); }
+  if (zone === 'maturing') { s.stage = 0; s.stageCount = 0; s.last = day; s.gradDay = day; }
+  if (zone === 'rotation') { s.rotationSince = ts; }
+}
+
+// The chapter's state as of `asOfTs` (default now). Returns null for a chapter the road does not track.
+function chapterState(book, ch, asOfTs = Date.now()) {
+  const r = roadStore();
+  const seed = r.seed.chapters[chKey(book, ch)];
+  const s = { book, ch, key: chKey(book, ch), zone: null, count: 0, days: new Set(), since: null };
+  const seedTs = dayStartTs(r.seed.day);
+  if (seed && seedTs <= asOfTs) {
+    enterZone(s, seed.zone, r.seed.day, -Infinity);
+    if (seed.zone === 'active') s.count = seed.n || 0;
+    if (seed.zone === 'rotation') s.rotationSince = -Infinity;
+  }
+  for (const e of eventsFor(book, ch)) {
+    if (e.ts > asOfTs) break;
+    if (e.t === 'zone') {
+      if (e.zone === 'off') { s.zone = null; continue; }
+      enterZone(s, e.zone, e.day, e.ts);
+      continue;
+    }
+    if (!s.zone) continue;                 // a touch on a chapter the road does not track
+    s.lastTouch = e.day;
+    if (s.zone === 'active') {
+      // ⚑ ONLY CLEAN — BUT EVERY CLEAN RUN, several a day included (his ruling, 4 Nov, reversing the
+      // one-per-day rule of the first build). Maturing is where the days must be separate.
+      if (!e.clean) continue;
+      s.days.add(e.day);
+      s.count++;
+      if (s.count >= ACTIVE_TOUCHES) enterZone(s, 'maturing', e.day, e.ts);
+    } else if (s.zone === 'maturing') {
+      const st = MATURE_STAGES[s.stage];
+      const due = addDaysKey(s.last, st.gap);
+      if (e.day < due) continue;           // early: a fine review, but not one of the scheduled touches
+      if (!e.clean) { s.stageCount = 0; s.last = e.day; continue; }   // stumbled when due → repeat the stage
+      s.stageCount++;
+      s.last = e.day;
+      if (s.stageCount >= st.need) {
+        if (s.stage + 1 < MATURE_STAGES.length) { s.stage++; s.stageCount = 0; }
+        else enterZone(s, 'rotation', e.day, e.ts);
+      }
+    }
+  }
+  if (!s.zone) return null;
+  const out = { book, ch, key: s.key, zone: s.zone, since: s.since, lastTouch: s.lastTouch || null };
+  if (s.zone === 'active') { out.count = s.count; out.need = ACTIVE_TOUCHES; out.touchedDays = [...s.days]; }
+  if (s.zone === 'maturing') {
+    const st = MATURE_STAGES[s.stage];
+    out.stage = s.stage; out.stageCount = s.stageCount; out.stageNeed = st.need; out.stageLabel = st.label;
+    out.due = addDaysKey(s.last, st.gap);
+    out.gradDay = s.gradDay;
+    // touches done across both stages, for the twelve-step trail
+    out.trailDone = s.stage * MATURE_STAGES[0].need + s.stageCount;
+    out.trailNeed = MATURE_STAGES.reduce((a, x) => a + x.need, 0);
+  }
+  if (s.zone === 'rotation') out.rotationSince = s.rotationSince;
+  return out;
+}
+function isTracked(book, ch, asOfTs = Date.now()) { return !!chapterState(book, ch, asOfTs); }
+
+// Every chapter the road has ever heard of.
+function knownChapterKeys() {
+  const r = roadStore();
+  const set = new Set(Object.keys(r.seed.chapters));
+  r.overrides.forEach(o => set.add(chKey(o.book, o.ch)));
+  return [...set];
+}
+function allChapters(asOfTs = Date.now()) {
+  return knownChapterKeys().map(k => { const { book, ch } = splitChKey(k); return chapterState(book, ch, asOfTs); }).filter(Boolean);
+}
+const byCanon = (a, b) => (NT_ORDER.indexOf(a.book) - NT_ORDER.indexOf(b.book)) || (a.ch - b.ch);
+
+// ---------------------------------------------------------------- the rotation (the Circuit)
+function stopsFrom(chapters, lapIndex) {
+  const byBook = {};
+  chapters.forEach(c => { (byBook[c.book] = byBook[c.book] || []).push(c.ch); });
+  const books = Object.keys(byBook);
+  const canon = books.slice().sort((a, b) => NT_ORDER.indexOf(a) - NT_ORDER.indexOf(b));
+  let order;
+  if (lapIndex === 0) {
+    order = LAP1_ORDER.filter(b => byBook[b]).concat(canon.filter(b => !LAP1_ORDER.includes(b)));
+  } else order = canon;
+  const stops = [];
+  order.forEach(book => {
+    const chs = byBook[book].slice().sort((a, b) => a - b);
+    const chunks = CHUNKS[book];
+    if (!chunks) { stops.push({ id: book, book, chs, label: book }); return; }
+    chunks.forEach(([a, z]) => {
+      const part = chs.filter(c => c >= a && c <= z);
+      if (!part.length) return;
+      const lo = part[0], hi = part[part.length - 1];
+      stops.push({ id: book + ' ' + a + '-' + z, book, chs: part, label: book + ' ' + (lo === hi ? lo : lo + '–' + hi) });
+    });
+  });
+  return stops;
+}
+// first CLEAN run of each chapter at or after a moment — a Redo does not move the circuit (4 Nov)
+function firstTouchAfter(book, ch, fromTs, toTs) {
+  let best = null;
+  for (const t of roadStore().touches) {
+    if (t.book !== book || t.ch !== ch || !t.clean || t.ts < fromTs || t.ts > toTs) continue;
+    if (!best || t.ts < best.ts) best = t;
+  }
+  return best;
+}
+
+// Replay the laps up to `asOfTs`. A chapter joins the loop at the first lap that begins after it
+// reached Rotation, so a lap already under way is never made longer behind his back.
+function circuit(asOfTs = Date.now()) {
+  const laps = [];
+  let lapStart = dayStartTs(roadStore().seed.day);
+  for (let guard = 0; guard < 1000; guard++) {
+    const set = allChapters(asOfTs).filter(c => c.zone === 'rotation' && (c.rotationSince === -Infinity || c.rotationSince <= lapStart));
+    const stops = stopsFrom(set, laps.length);
+    if (!stops.length) return { laps, current: null, stops: [], lapStart, lapIndex: laps.length };
+    let lapEnd = -Infinity, open = false;
+    const detail = stops.map(st => {
+      const touched = st.chs.map(ch => firstTouchAfter(st.book, ch, lapStart, asOfTs));
+      const doneChs = st.chs.filter((ch, i) => touched[i]);
+      const done = doneChs.length === st.chs.length;
+      const doneTs = done ? Math.max(...touched.map(t => t.ts)) : null;
+      if (done) lapEnd = Math.max(lapEnd, doneTs); else open = true;
+      return { ...st, done, doneTs, doneChs };
+    });
+    if (open) {
+      const current = detail.find(s => !s.done);
+      return { laps, current, stops: detail, lapStart, lapIndex: laps.length };
+    }
+    laps.push({ n: laps.length + 1, start: lapStart, end: lapEnd, days: diffDaysKeys(keyForTs(lapStart), keyForTs(lapEnd)) + 1 });
+    lapStart = lapEnd + 1;
+  }
+  return { laps, current: null, stops: [], lapStart, lapIndex: laps.length };
+}
+
+// ---------------------------------------------------------------- time estimates
+// From his own logged review times when there are any; his recovery estimates otherwise.
+function chapterSecs(book, ch) {
+  const times = ((state.scripture && state.scripture.reviewTimes) || {})[book] || [];
+  const own = times.filter(t => t.scope && t.scope.kind === 'chapter' && t.scope.ch === ch && t.secs > 0).slice(-3);
+  if (own.length) return own.reduce((a, t) => a + t.secs, 0) / own.length;
+  const b = bookByName(book);
+  const nCh = b ? b.verses.length : 1;
+  const whole = times.filter(t => !t.scope && t.secs > 0).slice(-1)[0];
+  if (whole) return whole.secs / nCh;
+  if (SEED_HOURS[book]) return SEED_HOURS[book] * 3600 / nCh;
+  return DEFAULT_CHAPTER_MIN * 60;
+}
+function estimateMins(book, chs) { return Math.max(1, Math.round(chs.reduce((a, ch) => a + chapterSecs(book, ch), 0) / 60)); }
+
+// ---------------------------------------------------------------- today's list
+// done for today = a CLEAN run today; a Redo leaves it on the list
+const touchedOn = (book, ch, day) => roadStore().touches.some(t => t.book === book && t.ch === ch && t.day === day && t.clean);
+function markDone(itemKey, day = todayKey()) {
+  const r = roadStore();
+  (r.done[day] = r.done[day] || {})[itemKey] = Date.now();
+  // the record is per day by construction; keep a fortnight of it and no more
+  Object.keys(r.done).forEach(k => { if (k < addDaysKey(day, -14)) delete r.done[k]; });
+  save();
+}
+function unmarkDone(itemKey, day = todayKey()) { const d = roadStore().done[day]; if (d) { delete d[itemKey]; save(); } }
+const doneMarked = (itemKey, day) => !!(roadStore().done[day] || {})[itemKey];
+
+function roadChapterRange(book, chs) {
+  const s = chs.slice().sort((a, b) => a - b);
+  const contiguous = s.every((c, i) => i === 0 || c === s[i - 1] + 1);
+  if (s.length === 1) return book + ' ' + s[0];
+  return contiguous ? book + ' ' + s[0] + '–' + s[s.length - 1] : book + ' ' + s.join(', ');
+}
+
+// ⚑ THE ACTIVE PATTERN, within one book: the newest chapter alone while it is new, then paired
+// with the chapter before it, then the whole run being learned together.
+function activeItemChapters(newest, run, prevExists) {
+  if (newest.count < 3) return [newest.ch];
+  if (newest.count < 6 || run.length === 1) return prevExists ? [newest.ch - 1, newest.ch] : [newest.ch];
+  return run.map(c => c.ch);
+}
+
+// What to do today, in order: maturing chapters due, then the active chapters, then the current
+// rotation stop. Each item: {key, kind, title, sub, book, chs, mins, done}.
+function upNextItems(today = todayKey(), nowTs = Date.now()) {
+  const items = [];
+  const chapters = allChapters(nowTs);
+  // 1 · maturing due
+  chapters.filter(c => c.zone === 'maturing' && c.due <= today).sort(byCanon).forEach(c => {
+    const key = 'm:' + c.key;
+    const week = Math.min(8, Math.floor(diffDaysKeys(c.gradDay, today) / 7) + 1);
+    items.push({ key, kind: 'maturing', book: c.book, chs: [c.ch], title: chLabel(c.book, c.ch),
+      sub: 'maturing · week ' + week + ' · ' + c.stageLabel, mins: estimateMins(c.book, [c.ch]),
+      done: doneMarked(key, today) || touchedOn(c.book, c.ch, today) });
+  });
+  // 2 · today's new verses, from the weekly plan
+  const port = planPortion(today);
+  if (port) {
+    const key = 'n:' + port.book;
+    items.push({ key, kind: 'new', book: port.book, chs: port.chs, keys: port.keys, title: port.label,
+      sub: 'new verses · ' + port.keys.length + ' today', mins: Math.max(5, port.keys.length * 5),
+      done: doneMarked(key, today) || port.keys.every(k => verseMemorized(k)) });
+  }
+  // 3 · active, one item per book
+  const activeByBook = {};
+  chapters.filter(c => c.zone === 'active').forEach(c => { (activeByBook[c.book] = activeByBook[c.book] || []).push(c); });
+  Object.keys(activeByBook).sort((a, b) => NT_ORDER.indexOf(a) - NT_ORDER.indexOf(b)).forEach(book => {
+    const run = activeByBook[book].sort((a, b) => a.ch - b.ch);
+    const newest = run[run.length - 1];
+    const prevExists = newest.ch > 1 && (run.some(c => c.ch === newest.ch - 1) || !!chapterState(book, newest.ch - 1, nowTs));
+    const chs = activeItemChapters(newest, run, prevExists);
+    const key = 'a:' + book + ':' + chs.join('.');
+    const counts = run.filter(c => chs.includes(c.ch)).map(c => `${c.count} of ${ACTIVE_TOUCHES}`);
+    items.push({ key, kind: 'active', book, chs, title: roadChapterRange(book, chs),
+      sub: 'run it clean · ' + (counts.length === 1 ? counts[0] : counts.join(' · ')),
+      mins: estimateMins(book, chs),
+      done: doneMarked(key, today) || chs.every(ch => touchedOn(book, ch, today)) });
+  });
+  // 3 · the rotation stop that was current when the day began
+  const startOfDay = dayStartTs(today);
+  const atDawn = circuit(startOfDay - 1);
+  const now = circuit(nowTs);
+  const stop = atDawn.current || now.current;
+  if (stop) {
+    const key = 'r:' + stop.id + ':' + atDawn.lapIndex;
+    const live = (now.stops || []).find(s => s.id === stop.id);
+    const doneChs = live && now.lapIndex === atDawn.lapIndex ? live.doneChs.length : stop.chs.length;
+    const remaining = stop.chs.filter(ch => !(live && live.doneChs.includes(ch)));
+    items.push({ key, kind: 'rotation', book: stop.book, chs: stop.chs, title: stop.label,
+      sub: 'on the circuit · ' + doneChs + ' of ' + stop.chs.length + ' chapter' + (stop.chs.length === 1 ? '' : 's'),
+      mins: estimateMins(stop.book, remaining.length ? remaining : stop.chs),
+      done: doneMarked(key, today) || now.lapIndex !== atDawn.lapIndex || !!(live && live.done) });
+  }
+  return items;
+}
+
+// ---------------------------------------------------------------- the Road (memorization progress)
+function bookHeld(name) {
+  const b = bookByName(name);
+  if (!b) return { done: 0, total: 0, chapters: 0, chaptersHeld: 0 };
+  const p = (state.scripture.progress || {})[name] || {};
+  let done = 0, total = 0, chaptersHeld = 0;
+  b.verses.forEach((_, ci) => {
+    let cd = 0, ct = 0;
+    for (const v of chapterVerses(b, ci)) { ct++; if (p[ci + '_' + v]) cd++; }
+    done += cd; total += ct;
+    if (ct && cd === ct) chaptersHeld++;
+  });
+  return { done, total, chapters: b.verses.length, chaptersHeld };
+}
+function ntProgress() {
+  let done = 0, total = 0;
+  NT_ORDER.forEach(n => { const h = bookHeld(n); done += h.done; total += h.total; });
+  return { done, total, pct: total ? done / total : 0 };
+}
+// The book he is "in": the book whose Active chapters he touched most recently; on a tie (the
+// starting state, nothing touched yet) the one with the least done, which is the one he is newest in.
+function currentBookName(nowTs = Date.now()) {
+  const act = allChapters(nowTs).filter(c => c.zone === 'active');
+  if (act.length) {
+    const books = {};
+    act.forEach(c => {
+      const b = books[c.book] = books[c.book] || { name: c.book, last: '', count: 0 };
+      if (c.lastTouch && c.lastTouch > b.last) b.last = c.lastTouch;
+      b.count += c.count;
+    });
+    return Object.values(books).sort((a, b) => (b.last > a.last ? 1 : b.last < a.last ? -1 : 0) || a.count - b.count)[0].name;
+  }
+  const withAny = NT_ORDER.filter(n => bookHeld(n).done > 0);
+  return withAny[withAny.length - 1] || null;
+}
+// Books shown on the Road: every NT book he holds anything of, in canonical order, plus the next one.
+function roadBooks() {
+  const held = NT_ORDER.filter(n => bookHeld(n).done > 0 || allChapters().some(c => c.book === n));
+  if (!held.length) return [];
+  const first = NT_ORDER.indexOf(held[0]);
+  const last = NT_ORDER.indexOf(held[held.length - 1]);
+  return NT_ORDER.slice(first, Math.min(NT_ORDER.length, last + 1));
+}
+
+// The verse keys a Begin launches with: every verse of the item's chapters.
+// ⚑ A REVIEW DRILLS WHAT HE HOLDS. A chapter being learned is only partly memorized, so Begin opens
+// its memorized verses; a chapter with none memorized yet opens whole. New verses open exactly
+// today's portion.
+function itemVerseKeys(item) {
+  if (item.kind === 'new' && Array.isArray(item.keys)) return item.keys.slice();
+  const b = bookByName(item.book);
+  if (!b) return [];
+  const all = [], held = [];
+  item.chs.forEach(ch => {
+    for (const v of chapterVerses(b, ch - 1)) {
+      const k = 'bible:' + item.book + ':' + ch + '#' + v;
+      all.push(k);
+      if (verseMemorized(k)) held.push(k);
+    }
+  });
+  return held.length ? held : all;
+}
+
+// ---------------------------------------------------------------- the weekly memorization plan
+// ⚑ HIS RULINGS (4 Nov, by voice). He sets it once: for each weekday a book and a number of new
+// verses, and a starting point per book. Then:
+//   · it keeps rolling, week after week, from wherever he really is — no setup each Sunday;
+//   · each day's portion starts at the NEXT VERSE HE HAS NOT MEMORIZED in that book (from the
+//     starting point on), so a missed day never stacks: the same verses simply show again;
+//   · the daily amount is FIXED: twenty verses in one day changes where tomorrow starts, never how many.
+const verseKey = (book, ch, v) => 'bible:' + book + ':' + ch + '#' + v;
+function verseMemorized(key) {
+  const m = /^bible:(.+):(\d+)#(\d+)$/.exec(key);
+  if (!m) return false;
+  const p = ((state.scripture && state.scripture.progress) || {})[m[1]] || {};
+  return !!p[(Number(m[2]) - 1) + '_' + Number(m[3])];
+}
+// days: {0..6: {book, n}} (0 = Sunday) · starts: {book: {ch, v}}
+function setPlan(days, starts) {
+  const r = roadStore();
+  r.plan = { days: {}, starts: {} };
+  Object.keys(days || {}).forEach(d => {
+    const e = days[d];
+    if (e && bookByName(e.book) && Number(e.n) > 0) r.plan.days[d] = { book: e.book, n: Math.round(Number(e.n)) };
+  });
+  Object.keys(starts || {}).forEach(b => {
+    const st = starts[b];
+    if (st && Number(st.ch) >= 1) r.plan.starts[b] = { ch: Number(st.ch), v: Math.max(1, Number(st.v) || 1) };
+  });
+  r.planDay = {};
+  save();
+  return r.plan;
+}
+function roadPlan() { return roadStore().plan; }
+const weekdayOf = dk => { const [y, m, d] = dk.split('-').map(Number); return new Date(y, m - 1, d).getDay(); };
+// The first `n` unmemorized verses at or after the book's starting point, across chapter breaks.
+function nextUnmemorized(book, n, start = null) {
+  const b = bookByName(book);
+  if (!b || !(n > 0)) return [];
+  const st = start || roadPlan().starts[book] || { ch: 1, v: 1 };
+  const out = [];
+  for (let ci = Math.max(0, st.ch - 1); ci < b.verses.length && out.length < n; ci++) {
+    for (const v of chapterVerses(b, ci)) {
+      if (ci === st.ch - 1 && v < st.v) continue;
+      const k = verseKey(book, ci + 1, v);
+      if (!verseMemorized(k)) out.push(k);
+      if (out.length >= n) break;
+    }
+  }
+  return out;
+}
+function portionLabel(book, keys) {
+  const pts = keys.map(k => { const m = /:(\d+)#(\d+)$/.exec(k); return [Number(m[1]), Number(m[2])]; });
+  const [c0, v0] = pts[0], [c1, v1] = pts[pts.length - 1];
+  if (c0 === c1) return book + ' ' + c0 + ':' + v0 + (v1 !== v0 ? '–' + v1 : '');
+  return book + ' ' + c0 + ':' + v0 + '–' + c1 + ':' + v1;
+}
+// Today's portion. ⚑ FROZEN FOR THE DAY once it is first worked out, so memorizing today's verses
+// marks today done instead of rolling the list on to tomorrow's verses in front of him.
+function planPortion(today = todayKey()) {
+  const r = roadStore();
+  const e = r.plan.days[weekdayOf(today)];
+  if (!e) return null;
+  let snap = r.planDay[today];
+  if (!snap || snap.book !== e.book || !Array.isArray(snap.keys) || !snap.keys.length) {
+    const keys = nextUnmemorized(e.book, e.n);
+    if (!keys.length) return null;          // the book is finished
+    snap = r.planDay[today] = { book: e.book, keys };
+    Object.keys(r.planDay).forEach(k => { if (k < addDaysKey(today, -14)) delete r.planDay[k]; });
+    save();
+  }
+  const chs = [...new Set(snap.keys.map(k => Number(/:(\d+)#/.exec(k)[1])))];
+  return { book: snap.book, keys: snap.keys.slice(), chs, label: portionLabel(snap.book, snap.keys) };
+}
+
+// ---------------------------------------------------------------- the weekly goal
+// ⚑ 20 VERSES A WEEK, counted from SUNDAY 8 NOV 2026, weeks Sunday to Saturday. What he is behind or
+// ahead carries forward with NO CAP (his ruling): two missed weeks read 40 behind. `countFn(from, to)`
+// is the app's own "memorized" count (scripture.js versesMarked), so this meter and "memorized this
+// week" can never disagree.
+const WEEK_GOAL = 20;
+const GOAL_START = '2026-11-08';
+function goalStatus(countFn, today = todayKey()) {
+  const ws = (() => { const d = weekdayOf(today); return addDaysKey(today, -d); })();
+  const week = countFn(ws, today);
+  if (today < GOAL_START) return { started: false, week, target: WEEK_GOAL, carry: 0 };
+  const completed = Math.floor(diffDaysKeys(GOAL_START, ws) / 7);
+  const before = completed > 0 ? countFn(GOAL_START, addDaysKey(ws, -1)) : 0;
+  const carry = before - WEEK_GOAL * completed;
+  return { started: true, week, carry, target: Math.max(0, WEEK_GOAL - carry) };
+}
+
+// ---------------------------------------------------------------- sync
+// ⚑ THE ROAD'S EVIDENCE IS APPEND-ONLY, LIKE THE REVIEW EVIDENCE, so a conflict merges it by union
+// rather than letting one device's whole blob replace the other's. Called from sync.js.
+function mergeRoadEvidence(into, from) {
+  const a = into.road, b = from && from.road;
+  if (!b) return 0;
+  if (!a) { into.road = JSON.parse(JSON.stringify(b)); return 1; }
+  let n = 0;
+  ['touches', 'overrides', 'verses'].forEach(k => {
+    if (!Array.isArray(a[k])) a[k] = [];
+    const have = new Set(a[k].map(x => x.id));
+    (b[k] || []).forEach(x => { if (x && x.id && !have.has(x.id)) { a[k].push(x); n++; } });
+    a[k].sort((x, y) => (x.ts || 0) - (y.ts || 0));
+  });
+  if (!a.done) a.done = {};
+  Object.keys(b.done || {}).forEach(day => { a.done[day] = { ...(b.done[day] || {}), ...(a.done[day] || {}) }; });
+  return n;
+}
+
+
+const RO = {ACTIVE_TOUCHES,CHUNKS,GOAL_START,LAP1_ORDER,MATURE_STAGES,NT_ORDER,SEED_DAY,SEED_HOURS,WEEK_GOAL,activeItemChapters,allChapters,bookHeld,byCanon,chKey,chLabel,chapterState,circuit,currentBookName,estimateMins,goalStatus,isTracked,itemVerseKeys,knownChapterKeys,markDone,mergeRoadEvidence,nextUnmemorized,ntProgress,planPortion,recordTouch,recordVerses,removeTouch,roadBooks,roadPlan,roadStore,setPlan,setZone,splitChKey,touchForSitting,unmarkDone,upNextItems,verseKey,verseMemorized,versesRecorded};
+// Strive — Up next and Todoist (4 Nov 2026).
+//
+// ⚑ WHAT IT DOES. Each of today's Up next items becomes a Todoist task (due today, label "strive").
+// Doing an item in Strive closes its task; completing a task in Todoist takes the item off Up next.
+// So the list at the top of Study and the list in Todoist shrink together, and both are empty when
+// the day's Scripture work is done.
+//
+// ⚑ WHAT COMPLETING IT IN TODOIST MEANS (his ruling, 4 Nov): exactly what the circle on the Up next
+// row means — CLEAN. An Active or Maturing chapter gets a clean run; the circuit stop gets a clean run
+// of its remaining chapters, so the circuit moves on; new verses are marked memorized. The app
+// registers that one handler (setTickHandler), so a tick here and a tap there can never differ.
+//
+// ⚑ STRIVE NEVER NEEDS TODOIST. With no token, or offline, or with Todoist refusing, Up next works
+// exactly the same; the sync simply does not happen and Settings says why.
+
+
+
+const TD_API = 'https://api.todoist.com/api/v1';
+const TD_LABEL = 'strive';
+const TD_MIN_GAP_MS = 60 * 1000;
+let tdBusy = false, tdLastRun = 0;
+let tdTick = null;
+function setTickHandler(fn) { tdTick = typeof fn === 'function' ? fn : null; }
+
+function todoistToken() { return ((state.settings && state.settings.todoistToken) || '').trim(); }
+function setTodoistToken(t) { state.settings.todoistToken = (t || '').trim(); save(); }
+function todoistStatus() { return roadStore().todoist.status || null; }
+function tdSetStatus(ok, msg) { roadStore().todoist.status = { ok, msg, at: Date.now() }; save(); }
+
+async function tdFetch(path, { method = 'GET', body = null } = {}, fetchImpl = globalThis.fetch) {
+  const res = await fetchImpl(TD_API + path, {
+    method,
+    headers: { Authorization: 'Bearer ' + todoistToken(), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!res.ok) throw new Error('Todoist ' + res.status);
+  if (res.status === 204) return null;
+  const txt = await res.text();
+  return txt ? JSON.parse(txt) : null;
+}
+
+// every open task carrying our label (the list endpoint pages with a cursor)
+async function openTaskIds(fetchImpl) {
+  const ids = new Set();
+  let cursor = null;
+  for (let i = 0; i < 20; i++) {
+    const q = '/tasks?label=' + encodeURIComponent(TD_LABEL) + '&limit=200' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+    const r = await tdFetch(q, {}, fetchImpl);
+    const list = Array.isArray(r) ? r : (r && r.results) || [];
+    list.forEach(t => ids.add(String(t.id)));
+    cursor = r && r.next_cursor;
+    if (!cursor) break;
+  }
+  return ids;
+}
+
+const taskContent = it => it.title + ' — ' + it.sub;
+
+// One pass. Safe to call often: it is throttled, never runs twice at once, and never throws.
+// Returns {changed} so the caller knows whether to redraw Up next.
+async function syncTodoist({ force = false, today = todayKey(), fetchImpl = globalThis.fetch } = {}) {
+  if (!todoistToken() || typeof fetchImpl !== 'function') return { changed: false, skipped: true };
+  if (tdBusy || (!force && Date.now() - tdLastRun < TD_MIN_GAP_MS)) return { changed: false, skipped: true };
+  tdBusy = true; tdLastRun = Date.now();
+  let changed = false;
+  try {
+    const td = roadStore().todoist;
+    const map = td.tasks[today] = td.tasks[today] || {};
+    const items = upNextItems(today);
+    const pending = new Map(items.filter(i => !i.done).map(i => [i.key, i]));
+
+    // 1 · tasks from earlier days: carry a still-pending item's task to today; drop the rest
+    for (const day of Object.keys(td.tasks)) {
+      if (day >= today) continue;
+      for (const [key, id] of Object.entries(td.tasks[day])) {
+        try {
+          if (pending.has(key) && !map[key]) { await tdFetch('/tasks/' + id, { method: 'POST', body: { due_date: today } }, fetchImpl); map[key] = id; }
+          else await tdFetch('/tasks/' + id, { method: 'DELETE' }, fetchImpl);
+        } catch (e) { /* already gone on Todoist's side — nothing to carry */ }
+      }
+      delete td.tasks[day];
+    }
+
+    // 2 · what he completed in Todoist since last time comes off Up next
+    const open = await openTaskIds(fetchImpl);
+    for (const [key, id] of Object.entries(map)) {
+      if (open.has(String(id))) continue;
+      const it = items.find(i => i.key === key);
+      delete map[key];
+      if (!it || it.done) continue;
+      if (tdTick) tdTick(it, 'todoist');
+      else if (it.kind === 'active' || it.kind === 'maturing') it.chs.forEach(ch => recordTouch(it.book, ch, true, 'todoist'));
+      markDone(key, today);
+      changed = true;
+    }
+
+    // 3 · what he did in Strive closes its task; what is still to do gets one
+    const fresh = changed ? upNextItems(today) : items;
+    for (const it of fresh) {
+      const id = map[it.key];
+      if (it.done && id) { await tdFetch('/tasks/' + id + '/close', { method: 'POST' }, fetchImpl); delete map[it.key]; }
+      else if (!it.done && !id) {
+        const t = await tdFetch('/tasks', { method: 'POST', body: { content: taskContent(it), due_date: today, labels: [TD_LABEL], description: 'From Strive · ' + it.mins + ' min' } }, fetchImpl);
+        if (t && t.id != null) map[it.key] = String(t.id);
+      }
+    }
+    // an item that left today's list for another reason (graduated, moved on) loses its task too
+    for (const [key, id] of Object.entries(map)) {
+      if (!fresh.some(i => i.key === key)) { try { await tdFetch('/tasks/' + id, { method: 'DELETE' }, fetchImpl); } catch (e) { /* gone already */ } delete map[key]; }
+    }
+    tdSetStatus(true, 'In step with Todoist');
+  } catch (e) {
+    tdSetStatus(false, (e && e.message) || 'Todoist could not be reached');
+  } finally {
+    tdBusy = false;
+    save();
+  }
+  return { changed };
+}
+
+// Settings' "Save & test": one read, no writes.
+async function testTodoist(fetchImpl = globalThis.fetch) {
+  try { await openTaskIds(fetchImpl); tdSetStatus(true, 'Token works'); return true; }
+  catch (e) { tdSetStatus(false, (e && e.message) || 'Todoist could not be reached'); return false; }
+}
+
+const TD = {TD_LABEL,setTickHandler,setTodoistToken,syncTodoist,testTodoist,todoistStatus,todoistToken};
 // Strive — cross-device sync (Phase 2). Whole-state blob → Supabase, last-write-wins
 // with a conflict guard. Dependency-free: raw fetch against Supabase Auth + REST.
 // Because the entire state object syncs as one blob, later schema additions never
@@ -9916,8 +10806,11 @@ const BK = {KEEP_DAYS,KEEP_EACH_EVENT,KEEP_WEEKS,KIND_LABEL,keepIds,list,maybeDa
 // Per-device keys (NOT inside synced state, by design):
 //   strive-sync-cfg     {url, anonKey}
 //   strive-sync-session {access_token, refresh_token, expiresAt, userId, email}
-//   strive-sync-meta    {lastRemoteTs, dirty}
+//   strive-sync-meta    {lastRemoteTs, dirty, pushedUnsaved}
+//                       pushedUnsaved: the cloud holds work this device could NOT write to its own
+//                       storage — the next open pulls it back rather than trusting the disk copy.
 //   strive-device-id    random id, tags pushes for the conflict prompt
+
 
 
 
@@ -9947,7 +10840,7 @@ function setConfig(url, anonKey) {
 }
 function getSession() { return readJson(SES_KEY); }
 function setSession(s) { writeJson(SES_KEY, s); }
-function meta() { return readJson(META_KEY) || { lastRemoteTs: 0, dirty: false }; }
+function meta() { return readJson(META_KEY) || { lastRemoteTs: 0, dirty: false, pushedUnsaved: false }; }
 function setMeta(m) { writeJson(META_KEY, m); }
 function deviceId() {
   let d = localStorage.getItem(DEV_KEY);
@@ -9974,7 +10867,7 @@ function onStatusChange(fn) { onChange = fn; }
 function onPulled(fn) { onPulledCb = fn; }
 function changed() { if (onChange) { try { onChange(status()); } catch (e) {} } }
 
-async function req(path, { method = 'GET', body = null, auth = true, timeout = 12000 } = {}) {
+async function req(path, { method = 'GET', body = null, auth = true, timeout = 12000, prefer = null } = {}) {
   const cfg = getConfig();
   if (!cfg) throw new Error('not-configured');
   const headers = { apikey: cfg.anonKey, 'Content-Type': 'application/json' };
@@ -9983,6 +10876,7 @@ async function req(path, { method = 'GET', body = null, auth = true, timeout = 1
     headers.Authorization = 'Bearer ' + tok;
   }
   if (method === 'POST' && path.startsWith('/rest/')) headers.Prefer = 'resolution=merge-duplicates,return=minimal';
+  if (prefer) headers.Prefer = prefer;
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeout);
   let res;
@@ -10058,18 +10952,42 @@ async function fetchRemote() {
   const rows = await req('/rest/v1/' + TABLE + '?select=data,ts,device&limit=1');
   return rows && rows.length ? rows[0] : null;
 }
-async function pushNow() {
+// ⛑⛑ RELIABILITY ITEM 3 (22 Sep 2026) — A PUSH ONLY LANDS ON THE COPY IT WAS BASED ON.
+// The push used to be an unconditional upsert: it never checked whether the cloud had changed since
+// this device last looked. Two devices pushing close together, or one whose clock ran behind, simply
+// overwrote the other — no prompt, no review merge. Now every push that replaces an existing row is a
+// compare-and-swap: PATCH ... WHERE ts = <the ts this device last saw>. If another device got there
+// first, zero rows match, nothing is written, and the caller re-runs the sync cycle, which sees the new
+// cloud copy and goes through the pull / merge-and-prompt path like any other change.
+// ⚑ The new ts is always ABOVE the one it replaces, whatever this device's clock says, so ts is a
+// version number as well as a time and "the cloud moved" is simply ts !== lastRemoteTs.
+// Returns true when written, false when the cloud had moved (nothing written).
+async function pushNow(expectedTs = null) {
   const s = getSession();
-  if (!s) return;
-  const ts = Date.now();
-  await req('/rest/v1/' + TABLE + '?on_conflict=user_id', {
-    method: 'POST',
-    body: [{ user_id: s.userId, data: state, ts, device: deviceId() }]
-  });
-  setMeta({ lastRemoteTs: ts, dirty: false });
+  if (!s) return true;
+  const ts = Math.max(Date.now(), (Number(expectedTs) || 0) + 1);
+  if (expectedTs === null) {
+    // no row yet — the first push from any device creates it
+    await req('/rest/v1/' + TABLE + '?on_conflict=user_id', {
+      method: 'POST',
+      body: [{ user_id: s.userId, data: state, ts, device: deviceId() }]
+    });
+  } else {
+    const rows = await req('/rest/v1/' + TABLE + '?user_id=eq.' + encodeURIComponent(s.userId) + '&ts=eq.' + Number(expectedTs) + '&select=ts', {
+      method: 'PATCH',
+      body: { data: state, ts, device: deviceId() },
+      prefer: 'return=representation'
+    });
+    if (!Array.isArray(rows) || !rows.length) return false;
+  }
+  // ⛑ ITEM 1 — if this device's own save is failing, the cloud is now AHEAD of its disk. Say so, so
+  // the next open pulls this copy back instead of trusting the older one on disk.
+  setMeta({ lastRemoteTs: ts, dirty: false, pushedUnsaved: !saveHealth().ok });
   lastError = null;
   changed();
+  return true;
 }
+const RETRY = 'retry';
 
 // ⚑⚑ A5 (16 Sep) — TWO DEVICES' REVIEW WORK IS NEVER THROWN AWAY BY A SYNC CHOICE.
 // The trigger for the whole Ephesians episode was Baruch moving between phone and iPad. A conflict
@@ -10173,6 +11091,8 @@ function mergeReviewEvidence(into, from) {
   // unfinished decks
   const fi = into.flashInFlight || (into.flashInFlight = {}), ff = from.flashInFlight || {};
   for (const id in ff) if (ff[id] && (!fi[id] || (ff[id].savedAt || 0) > (fi[id].savedAt || 0))) { fi[id] = syncClone(ff[id]); out.decks++; }
+  // the Pilgrim's Road: touches, zone moves and verse records are append-only too (4 Nov 2026)
+  try { out.road = mergeRoadEvidence(into, from); } catch (e) { out.road = 0; }
   return out;
 }
 let lastMerge = null;
@@ -10182,7 +11102,8 @@ function applyRemote(row) {
   if (!looksEmpty()) BK.snapshot('before-sync');
   applying = true;
   try { applyRemoteState(row.data); } finally { applying = false; }
-  setMeta({ lastRemoteTs: row.ts, dirty: false });
+  // a pull whose local save failed leaves the disk behind the cloud too — flag it the same way
+  setMeta({ lastRemoteTs: row.ts, dirty: false, pushedUnsaved: !saveHealth().ok });
   lastError = null;
   changed();
   if (onPulledCb) { try { onPulledCb(); } catch (e) {} }
@@ -10203,44 +11124,21 @@ function looksEmpty(st = state) {
 
 // ---- the sync cycle ----
 // confirmFn(message) → Promise<bool> | bool — UI supplies window.confirm; tests supply stubs.
-async function syncNow({ confirmFn = (m) => confirm(m), interactive = false } = {}) {
+// ⛑ ITEM 1 — the first sync after the app opens is the one that may find this device's disk BEHIND the
+// cloud (pushedUnsaved). Later syncs in the same sitting work from memory, which is current.
+let firstSyncThisOpen = true;
+function _resetOpenForTests() { firstSyncThisOpen = true; }
+// background: true — the app is being hidden or closed. Nothing may ask him a question then; a sync
+// that would need to prompt stops, leaves the device dirty, and the prompt comes at the next open.
+async function syncNow({ confirmFn = (m) => confirm(m), interactive = false, background = false } = {}) {
   if (syncing || !isConfigured() || !isSignedIn()) return 'skipped';
   syncing = true;
   try {
-    const m = meta();
-    const remote = await fetchRemote();
-
-    if (!remote) {                                   // brand-new cloud
-      await pushNow();
-      return 'pushed-first';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const r = await syncOnce({ confirmFn, background });
+      if (r !== RETRY) return r;
     }
-    if (!m.lastRemoteTs) {                           // first link on this device
-      if (looksEmpty()) { applyRemote(remote); return 'pulled-first'; }
-      const useCloud = await confirmFn(
-        'Cloud data exists (last saved ' + new Date(remote.ts).toLocaleString() + ' by device "' + (remote.device || '?') + '").\n\n' +
-        'OK = REPLACE this device with the cloud copy.\nCancel = keep this device’s data and OVERWRITE the cloud.\n\n' +
-        'Either way, Scripture reviews from both are kept.');
-      if (useCloud) { await takeCloudKeepingReviews(remote); return 'pulled-first'; }
-      await keepLocalKeepingReviews(remote); return 'pushed-first';
-    }
-    if (remote.ts === m.lastRemoteTs) {              // cloud unchanged since we last saw it
-      if (m.dirty) { await pushNow(); return 'pushed'; }
-      return 'in-sync';
-    }
-    if (remote.ts > m.lastRemoteTs) {                // cloud moved ahead
-      if (!m.dirty) { applyRemote(remote); return 'pulled'; }
-      // both sides changed since last sync → conflict guard; user picks, cloud offered first (LWW default)
-      const keepCloud = await confirmFn(
-        'Both this device and another changed since the last sync.\n\n' +
-        'OK = use the cloud copy (' + new Date(remote.ts).toLocaleString() + ', device "' + (remote.device || '?') + '").\n' +
-        'Cancel = keep THIS device and overwrite the cloud.\n\n' +
-        'Either way, Scripture reviews, review times and practice from BOTH devices are kept. Other recent changes on the side you don’t pick are lost.');
-      if (keepCloud) { await takeCloudKeepingReviews(remote); return 'pulled-conflict'; }
-      await keepLocalKeepingReviews(remote); return 'pushed-conflict';
-    }
-    // remote.ts < lastRemoteTs — clock skew or restored cloud; treat our copy as source
-    await pushNow();
-    return 'pushed';
+    throw new Error('The cloud copy kept changing during sync — try Sync now again');
   } catch (e) {
     lastError = e.message;
     changed();
@@ -10249,6 +11147,52 @@ async function syncNow({ confirmFn = (m) => confirm(m), interactive = false } = 
   } finally {
     syncing = false;
   }
+}
+async function syncOnce({ confirmFn, background }) {
+    const m = meta();
+    const remote = await fetchRemote();
+    const recovering = firstSyncThisOpen && !!m.pushedUnsaved;
+    firstSyncThisOpen = false;
+
+    if (!remote) {                                   // brand-new cloud
+      if (!(await pushNow(null))) return RETRY;
+      return 'pushed-first';
+    }
+    if (!m.lastRemoteTs) {                           // first link on this device
+      if (looksEmpty()) { applyRemote(remote); return 'pulled-first'; }
+      if (background) return 'deferred';
+      const useCloud = await confirmFn(
+        'Cloud data exists (last saved ' + new Date(remote.ts).toLocaleString() + ' by device "' + (remote.device || '?') + '").\n\n' +
+        'OK = REPLACE this device with the cloud copy.\nCancel = keep this device’s data and OVERWRITE the cloud.\n\n' +
+        'Either way, Scripture reviews from both are kept.');
+      if (useCloud) { if (!(await takeCloudKeepingReviews(remote))) return RETRY; return 'pulled-first'; }
+      if (!(await keepLocalKeepingReviews(remote))) return RETRY;
+      return 'pushed-first';
+    }
+    if (remote.ts === m.lastRemoteTs) {              // cloud unchanged since we last saw it
+      // ⛑ ITEM 1 — the last sitting pushed work its own disk could not keep. The cloud copy is the
+      // current one; the disk copy that just loaded is older. Take the cloud's, before anything this
+      // open has done could be pushed over it.
+      if (recovering && remote.device === deviceId()) { applyRemote(remote); return 'recovered'; }
+      if (m.dirty) { if (!(await pushNow(m.lastRemoteTs))) return RETRY; return 'pushed'; }
+      return 'in-sync';
+    }
+    {                                                // cloud moved (another device, or a restored cloud)
+      // ⚑ The old "remote.ts < lastRemoteTs → clock skew → push over it" branch is gone: that silently
+      // overwrote another device's work whenever its clock ran behind this one's. Any difference now
+      // means the cloud changed, and it is handled the same way whichever direction the number moved.
+      if (!m.dirty) { applyRemote(remote); return 'pulled'; }
+      if (background) return 'deferred';
+      // both sides changed since last sync → conflict guard; user picks, cloud offered first (LWW default)
+      const keepCloud = await confirmFn(
+        'Both this device and another changed since the last sync.\n\n' +
+        'OK = use the cloud copy (' + new Date(remote.ts).toLocaleString() + ', device "' + (remote.device || '?') + '").\n' +
+        'Cancel = keep THIS device and overwrite the cloud.\n\n' +
+        'Either way, Scripture reviews, review times and practice from BOTH devices are kept. Other recent changes on the side you don’t pick are lost.');
+      if (keepCloud) { if (!(await takeCloudKeepingReviews(remote))) return RETRY; return 'pulled-conflict'; }
+      if (!(await keepLocalKeepingReviews(remote))) return RETRY;
+      return 'pushed-conflict';
+    }
 }
 
 // The two ways out of a conflict. Both merge the other side's review evidence first, and both push,
@@ -10261,12 +11205,29 @@ async function takeCloudKeepingReviews(remote) {
   // they tie the merged entries to their passes and rebuild the totals.
   applying = true;
   try { runRepairs(); } finally { applying = false; }
-  await pushNow();
+  if (await pushNow(remote.ts)) return true;
+  // Another device wrote while this was merging. What is on screen is the cloud copy WITH this device's
+  // reviews merged in — mark it dirty so the retry treats it as a change to reconcile, not to discard.
+  setMeta({ ...meta(), dirty: true });
+  return false;
 }
 async function keepLocalKeepingReviews(remote) {
   applying = true;
   try { lastMerge = mergeReviewEvidence(state, remote.data); runRepairs(); } finally { applying = false; }
-  await pushNow();
+  return pushNow(remote.ts);
+}
+
+// ⛑ RELIABILITY ITEM 2 (22 Sep 2026) — THE APP IS GOING AWAY: WRITE IT DOWN, THEN TRY TO SEND IT.
+// Saves waited 300 ms and pushes 3 s, and nothing hurried either when he swiped the app away — so the
+// last card he rated could miss the disk, and the last change could stay on this device until he next
+// opened it here, setting up a conflict on the other one. The local write is synchronous and certain;
+// the push is best effort (iOS may suspend the page before it finishes), and the dirty flag makes the
+// next open send it if it did not get out. It never prompts: a conflict waits for the next open.
+function syncOnHide() {
+  saveFlush();
+  clearTimeout(pushTimer);
+  if (!meta().dirty || !isConfigured() || !isSignedIn()) return Promise.resolve('skipped');
+  return syncNow({ background: true });
 }
 
 function schedulePush() {
@@ -10288,7 +11249,7 @@ function init() {
   if (isConfigured() && isSignedIn()) syncNow();
 }
 
-const SY = {deviceId,getConfig,getSession,init,isConfigured,isSignedIn,looksEmpty,mergeReviewEvidence,onPulled,onStatusChange,schedulePush,setConfig,signIn,signOut,signUp,status,syncNow};
+const SY = {_resetOpenForTests,deviceId,getConfig,getSession,init,isConfigured,isSignedIn,looksEmpty,mergeReviewEvidence,onPulled,onStatusChange,schedulePush,setConfig,signIn,signOut,signUp,status,syncNow,syncOnHide};
 // Strive — Phase 6.1: vision-model table-of-contents extraction.
 //
 // Why this exists: R3's Tesseract path reads the characters roughly correctly and then
@@ -10483,6 +11444,9 @@ const VIS = {setVisionKey,visionKey,visionReady,visionScanToc};
 
 
 
+
+
+
 load();
 SC.ensureKeys();
 
@@ -10490,7 +11454,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20260919-0332'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20260919-0332';
+const BUILD_ID = '20261104-2019'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20261104-2019';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -10506,7 +11470,11 @@ function toast(msg) {
   clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2200);
 }
 function setHeader(title, { back = false, action = null } = {}) {
-  document.getElementById('h-title').textContent = title;
+  const ht = document.getElementById('h-title');
+  ht.textContent = title;
+  ht.classList.remove('h-mode');
+  ht.removeAttribute('role');
+  ht.removeAttribute('aria-label');
   const b = document.getElementById('h-back');
   b.style.display = back ? 'block' : 'none';
   // You sits where Back sits: a root screen shows the avatar, a screen with somewhere to go back to
@@ -10577,7 +11545,38 @@ function render(screen, pushToStack = true) {
   closeSheets();         // ⚑ a sheet cannot survive a navigation — see the note above
   main().innerHTML = '';
   main().scrollTop = 0;
-  screen();
+  runScreen(screen);
+}
+// ⛑⛑ RELIABILITY ITEM 4 (22 Sep 2026) — A SCREEN THAT THROWS SHOWS AN ERROR, NOT A BLANK PAGE.
+// render() and rerender() clear the page and then draw; a screen that threw left it empty, with no
+// way to tell a crash from a screen with nothing on it. Every draw now goes through runScreen, which
+// catches a synchronous throw or a rejected async screen and puts up a card that says so and offers a
+// way out. ⚑ The test harness sets STRIVE_RETHROW_SCREEN_ERRORS (dom-shim.mjs), so a broken screen
+// still CRASHES a suite exactly as before — the card must never turn a failing screen into a pass.
+function runScreen(screen) {
+  try {
+    const r = screen();
+    if (r && typeof r.then === 'function') r.catch(screenFailed);
+  } catch (e) { screenFailed(e); }
+  applyModeTitle();
+}
+function screenFailed(e) {
+  console.error('screen failed', e);
+  try {
+    setImmersive(false);
+    closeSheets();
+    const m = main();
+    m.innerHTML = '';
+    const card = h(`<div class="card screen-error"><h3>This screen hit an error</h3>
+      <div class="muted se-msg">${esc(String((e && e.message) || e))}</div>
+      <div class="muted se-note">Your saved data is not touched by a screen failing to draw. Going back usually works; if it keeps happening, note what you tapped.</div>
+      <button class="btn secondary" id="se-home">Back to Study</button>
+      <button class="btn secondary" id="se-reload">Reload the app</button></div>`).firstElementChild;
+    card.querySelector('#se-home').onclick = () => switchTab('home');
+    card.querySelector('#se-reload').onclick = () => { try { location.reload(); } catch (x) { /* nothing to do */ } };
+    m.append(card);
+  } catch (x) { /* the error card itself could not draw — nothing further to try */ }
+  if (globalThis.STRIVE_RETHROW_SCREEN_ERRORS) throw e;
 }
 // Floating close ✕ for training-session screens (fade / typer / flashcards / scramble).
 // Top-right corner, exits straight to that mode's summary/scorecard. The review Timer keeps its
@@ -10770,7 +11769,7 @@ function rerender() {
   const s = stack[stack.length - 1];
   if (typeof s !== 'function') { switchTab(activeTab); return; }
   screenHeld = false;
-  setImmersive(false); main().innerHTML = ''; s();
+  setImmersive(false); main().innerHTML = ''; runScreen(s);
 }
 // Marks a pushed screen as a practice SETUP screen, so a session's exit knows whether there is a
 // picker between it and the place he launched from.
@@ -10800,7 +11799,38 @@ function goBack() {
 // keep pop-history, which is the right behavior for a launched-and-return flow.
 function navToParent(fn) { stack[stack.length - 1] = fn; render(fn, false); }
 function headerBack() { if (typeof backTarget === 'function') navToParent(backTarget); else goBack(); }
+// ⚑⚑ STRIVE AND STRIVE FITNESS (his ruling, 4 Nov evening). Tapping the title at the top of a tab
+// flips the whole app between two modes, and the bottom bar changes with it:
+//   Strive          Study (the dashboard) · ＋ · Road
+//   Strive Fitness  Level (the fitness level and its domains) · ＋ · Training (the hub; log a workout)
+// The mode is kept on THIS device (localStorage, like the theme), so the app opens where he left it.
+// Plan, You and the ＋ fan belong to both modes and do not change it.
+const MODE_KEY = 'strive-mode';
+const MODE_OF_TAB = { home: 'study', road: 'study', level: 'fitness', fitness: 'fitness' };
+const MODE_TITLE = { study: 'Strive', fitness: 'Strive Fitness' };
+const MODE_FIRST_TAB = { study: 'home', fitness: 'level' };
+function appMode() { try { return localStorage.getItem(MODE_KEY) === 'fitness' ? 'fitness' : 'study'; } catch (e) { return 'study'; } }
+function setAppMode(mode) {
+  try { localStorage.setItem(MODE_KEY, mode); } catch (e) { /* a preference, never load-bearing */ }
+  const nav = document.querySelector('nav.tabbar');
+  if (nav) nav.setAttribute('data-mode', mode);
+}
+// On a tab's root screen the title is the mode's name, and tapping it flips the mode.
+function applyModeTitle() {
+  const t = document.getElementById('h-title');
+  if (!t || stack.length > 1 || !MODE_OF_TAB[activeTab]) return;
+  const mode = MODE_OF_TAB[activeTab];
+  t.textContent = MODE_TITLE[mode];
+  t.classList.add('h-mode');
+  t.setAttribute('role', 'button');
+  t.setAttribute('aria-label', MODE_TITLE[mode] + ' — switch to ' + MODE_TITLE[mode === 'study' ? 'fitness' : 'study']);
+}
+function flipMode() {
+  const next = MODE_OF_TAB[activeTab] === 'fitness' ? 'study' : 'fitness';
+  switchTab(MODE_FIRST_TAB[next]);
+}
 function switchTab(tab) {
+  if (MODE_OF_TAB[tab]) setAppMode(MODE_OF_TAB[tab]);
   activeTab = tab;
   setImmersive(false);
   stack.length = 0;
@@ -11181,6 +12211,8 @@ function currentBookSection() {
 //     logged and keeps its numbers.
 function dashboard() {
   setHeader('Strive');
+  // ⚑ UP NEXT SITS AT THE TOP OF STUDY (his ruling, 4 Nov) and is not drawn at all once the day is done.
+  { const un = upNextCard(); if (un) main().append(un); roadKickTodoist(); }
   main().append(dailyVerseCard());
   main().append(checkinStrip());
   const g = SC.globalStats();
@@ -11200,6 +12232,7 @@ function dashboard() {
       <div class="d-week">
         <div class="big">${wkNew.toLocaleString()}</div>
         <div class="muted">memorized this week</div>
+        <div class="d-goal">${esc(roadGoalNote())}</div>
       </div>
       <div class="d-totals">
         <div class="d-tot" id="d-sc-verses"><span class="v">${g.done.toLocaleString()}</span><span class="l">verses</span></div>
@@ -17860,7 +18893,7 @@ function typerScreen(d, queue, qi0, results, intent = 'practice', opts = {}) {
       carrier: results, mode: 'typer', intent,
       score: avgOf(results.map(r => r.acc)),
       items: results.map(r => ({ n: r.n, label: 'Q' + r.n, val: r.acc, tag: '%' }))
-    });
+    }, { roadAsk: isCreed ? null : typerRoadAsk(d, results) });
   };
   if (!queue[qi0]) { finishSession(); return; }
 
@@ -19156,6 +20189,7 @@ function flashEnd(d, session) {
     ...(finished && session.deckSize - done > 0 ? [`${session.deckSize - done} card${session.deckSize - done === 1 ? '' : 's'} not reached.`] : [])
   ], done, null, {   // B1 — the headline counts cards reviewed, rated or not
     paused: !finished,
+    roadAsk: flashRoadAsk(d, session),   // the Road: Clean / Shaky for each chapter he went all the way through
     // B8 — ending on purpose is the only way a partial chapter gets logged, and it asks first
     endDeck: finished ? null : () => {
       if (!confirm('End this deck? Your place won\'t be kept, and the time since the last finished chapter can only be logged as a partial chapter.')) return;
@@ -19633,6 +20667,7 @@ function practiceSummary(d, mode, lines, count, stats = null, opts = {}) {
     lines.forEach(l => card.append(h(`<div style="font-size:13px;padding:4px 0;border-bottom:1px solid var(--line)">${esc(l)}</div>`)));
     wrap.append(card);
   }
+  if (opts.roadAsk && ((opts.roadAsk.chs && opts.roadAsk.chs.length) || opts.roadAsk.newItem)) wrap.append(roadAskCard(opts.roadAsk));
   // ⚑ `logReview` — the deck's one route into the Scripture review tracker, and it is a BUTTON
   // because he ruled that it must be: the clock runs on every sitting, and only a sitting he
   // submits becomes a review time. Once filed it says so and cannot be pressed again.
@@ -19726,8 +20761,10 @@ function ftHub(body) {
         ? a.live.unlockedCount + ' of 7 domains unlocked'
         : all != null ? `Nothing in the last 12 months — all-time you were <b>${all}</b>` : 'Not enough data yet'}</div>
     </div>`);
-  card.firstElementChild.onclick = () => ftGo('level');
-  body.append(card);
+  card.firstElementChild.onclick = () => switchTab('level');
+  // ⚑ 4 Nov — Level is its own tab in Strive Fitness, so the Training hub does not repeat the ring.
+  // Reached as anything other than the Training tab's root (an old path), it still shows it.
+  if (!(activeTab === 'fitness' && stack.length <= 1)) body.append(card);
   body.append(ftTodayCard());
 
   // ⚑ THE SPLIT IS DERIVED FROM `FT_GROUPS`, NOT FROM AN INDEX, AND THAT WAS A LIVE BUG.
@@ -19828,7 +20865,7 @@ function fitnessHome() {
   // ⚑ NAV (16 Sep) — the hub IS the Fitness tab now. As the tab root it has no Back; reached from
   // elsewhere it pops. A sub-screen pops straight onto a hub beneath it, and otherwise goes up to one.
   const below = stack[stack.length - 2];
-  setHeader(label, { back: onHub ? stack.length > 1 : (below && below._ftHub ? true : () => ftScreen('hub')) });
+  setHeader(label, { back: stack.length <= 1 ? false : onHub ? true : (below && below._ftHub ? true : () => ftScreen('hub')) });
   const wrap = document.createElement('div');
   const body = document.createElement('div');
   wrap.append(body);
@@ -24488,6 +25525,7 @@ function youProfile() {
       : 'Automatic copies aren\'t available in this browser — use Export all data to keep a copy.'}</div>
     <div class="bk-list" id="s-bk-list"></div>
     <div class="muted" id="s-bk-last" style="font-size:11px;margin:8px 2px 0">Last exported file on this device: ${lastExp ? esc(new Date(lastExp).toLocaleDateString()) + (expDays === 0 ? ' (today)' : expDays === 1 ? ' (yesterday)' : ' (' + expDays + ' days ago)') : 'never'}</div>
+    <div class="muted" id="s-storage" style="font-size:11px;margin:4px 2px 0">${storageLine()}</div>
     <button class="btn secondary" id="s-export">Export all data</button>
     <button class="btn secondary" id="s-import">Import backup / old app export</button>
     <input type="file" id="s-file" accept=".json" style="display:none">
@@ -24559,6 +25597,7 @@ function youProfile() {
     catch (e) { esvStatus.textContent = e.message === 'bad-key' ? '✗ Key rejected — double-check it at api.esv.org' : '✗ Could not verify (offline?) — key saved anyway'; }
   };
   wrap.append(esvC);
+  wrap.append(todoistSettingsCard());
 
   // Phase 6.1 — vision key for TOC scanning
   const visC = h(`<div class="card"><h3>Table-of-contents scanning</h3>
@@ -24745,6 +25784,8 @@ const PLUS_ICONS = {
   creeds:   '<path d="M0 -13.2 A11.8 11.8 0 0 1 0 4.8 A11.8 11.8 0 0 1 0 -13.2 Z"/><path d="M0 -13.2 A11.8 11.8 0 0 1 0 4.8 A11.8 11.8 0 0 1 0 -13.2 Z" transform="rotate(120)"/><path d="M0 -13.2 A11.8 11.8 0 0 1 0 4.8 A11.8 11.8 0 0 1 0 -13.2 Z" transform="rotate(240)"/>',
   reading:  '<path d="M-11 -8 Q-5 -10 0 -7 Q5 -10 11 -8 L11 8 Q5 6 0 9 Q-5 6 -11 8 Z"/><path d="M0 -7 V9"/>',
   training: '<path d="M-7 0 H7 M-7 -8 V8 M-10 -5 V5 M7 -8 V8 M10 -5 V5"/>',
+  road:     '<path d="M-5 -12 C-5 -5 5 -6 5 0 C5 6 -5 5 -5 12"/><path d="M3 -12 C3 -8 9 -7 9 -3 M-9 3 C-9 7 -3 8 -3 12" stroke-width="1.4"/>',
+  level:    '<path d="M0 -10.5 A10.5 10.5 0 1 1 -9.1 5.2"/><path d="M-9.1 5.2 A10.5 10.5 0 0 1 0 -10.5" stroke-width="1" opacity=".45"/><path d="M-4 1 L-1 4 L5 -3"/>',
   health:   '<path d="M-12 0 H-6 L-3 -7 L2 7 L5 0 H12"/>',
   // ⚑⚑ FOLIO MARKS, NOT EMOJI (18 Sep, his ask: "we shouldn't be using that"). An emoji codepoint is
   // painted by the SYSTEM — in colour, at a weight and size nothing in this app controls. That is
@@ -25387,31 +26428,691 @@ function enablePlusReorder(list) {
 // Areas + Settings tabs removed — the dashboard is the hub, Settings lives in You/Profile (avatar).
 // ⚑ NAV (16 Sep): Study · ＋ · Fitness in the bar; Plan is the calendar coin in the header, top right.
 // His words: "one dashboard on the left of the plus and one on the right of it."
-const TABS = { home: dashboard, fitness: fitnessTab, plan: plan };
+// ===== The Pilgrim's Road (4 Nov 2026) — Up next, the Road, the Circuit, Record verses, the plan =====
+// The engine is road.js; Todoist is todoist.js. Everything here only draws and records.
+//
+// ⚑ UP NEXT TAKES NO SPACE WHEN IT IS EMPTY (his words: "that section gets smaller and can be
+// completely empty and taking no space when everything from that day has been completed").
+// ⚑ HIS RULINGS OF 4 NOV (afternoon, by voice): tapping an item STARTS it; a small circle on the LEFT
+// of each row marks it done and counts as Clean; the two answers are Clean and Redo ("Shaky" is gone);
+// the traveler is small and walks the path itself.
+const ROAD_TRAVELER_PX = 30;         // on-screen height on a phone; he asked to compare 30 and 40
+var roadVisHooked = false;           // var, not let: the dashboard can draw before this line runs
+var roadPendingNew = null;           // the new-verses item a Begin launched, until its summary asks
+var roadNewAnswers = {};             // sid → {ans, marked} for the new-verses row on a summary
+
+function roadFmtMins(m) {
+  if (m < 60) return m + ' min';
+  const hrs = Math.floor(m / 60), rest = m % 60;
+  return hrs + ' h' + (rest ? ' ' + rest + ' min' : '');
+}
+function roadBook(name) { return allBooks.find(b => b.name === name) || null; }
+
+function upNextCard() {
+  let items;
+  try { items = RO.upNextItems(); } catch (e) { console.warn('up next failed', e); return null; }
+  const left = items.filter(i => !i.done);
+  roadHookVisibility();
+  if (!left.length) return null;
+  const mins = left.reduce((a, i) => a + i.mins, 0);
+  const card = h(`<div class="card road-upnext" id="d-upnext">
+      <div class="ru-head"><span class="ru-label">Up next</span><span class="ru-time">about ${roadFmtMins(mins)}</span></div>
+      ${left.map(i => `<div class="ru-row" data-k="${esc(i.key)}">
+          <button class="ru-check" data-a="done" aria-label="Mark ${esc(i.title)} done"><span></span></button>
+          <button class="ru-main" data-a="go"><span class="ru-title">${esc(i.title)}</span><span class="ru-sub">${esc(i.sub)}</span></button>
+        </div>`).join('')}
+      <div class="ru-actions"><button class="btn" id="ru-begin">Begin</button><button class="btn secondary" id="ru-rec">Record verses</button></div>
+      <button class="ru-road" id="ru-road">The Road ›</button>
+    </div>`).firstElementChild;
+  card.querySelectorAll('.ru-row').forEach(r => {
+    const it = left.find(i => i.key === r.dataset.k);
+    if (!it) return;
+    r.querySelector('[data-a=go]').onclick = e => roadBegin(it, e.currentTarget);
+    r.querySelector('[data-a=done]').onclick = () => {
+      r.classList.add('ru-done');
+      roadCompleteItem(it, 'manual');
+      toast(it.kind === 'new' ? 'Memorized — ' + it.title : it.title + ' — clean');
+      roadAfterChange();
+    };
+  });
+  card.querySelector('#ru-begin').onclick = e => roadBegin(left[0], e.currentTarget);
+  card.querySelector('#ru-rec').onclick = () => recordVersesSheet();
+  card.querySelector('#ru-road').onclick = () => switchTab('road');
+  return card;
+}
+// Run Todoist in the background; redraw Study only if it changed what Up next shows.
+function roadKickTodoist(force = false) {
+  if (!TD.todoistToken()) return;
+  TD.syncTodoist({ force }).then(r => {
+    if (r && r.changed && activeTab === 'home' && stack.length <= 1) rerender();
+  }).catch(() => { /* syncTodoist never throws; belt and braces */ });
+}
+function roadHookVisibility() {
+  if (roadVisHooked || typeof document.addEventListener !== 'function') return;
+  roadVisHooked = true;
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') roadKickTodoist(); });
+}
+function roadAfterChange() {
+  if (activeTab === 'home' && stack.length <= 1) rerender();
+  roadKickTodoist(true);
+}
+
+// ⚑ ONE MEANING FOR "DONE", WHEREVER IT COMES FROM — the circle on the row, or a tick in Todoist.
+// It is Clean: a clean run of an Active or Maturing chapter; a clean run of the circuit stop's
+// remaining chapters (so the circuit moves on); the new verses marked memorized.
+function roadCompleteItem(item, src = 'manual') {
+  if (item.kind === 'new') {
+    roadMarkVerses(item.book, item.keys || [], true);
+  } else if (item.kind === 'rotation') {
+    const c = RO.circuit();
+    const live = (c.stops || []).find(s => s.book === item.book && s.chs.join() === item.chs.join());
+    const have = new Set(live ? live.doneChs : []);
+    item.chs.filter(ch => !have.has(ch)).forEach(ch => RO.recordTouch(item.book, ch, true, src));
+  } else {
+    item.chs.forEach(ch => RO.recordTouch(item.book, ch, true, src));
+  }
+  RO.markDone(item.key);
+}
+TD.setTickHandler((item, src) => roadCompleteItem(item, src));
+
+// Mark (or un-mark) verses memorized. Marking also logs them as recorded (which puts a new chapter on
+// the road as Active). Returns the keys it actually changed, so an undo touches only those.
+function roadMarkVerses(book, keys, on) {
+  const b = roadBook(book);
+  if (!b) return [];
+  const changed = [];
+  const byCh = {};
+  keys.forEach(k => {
+    const m = /:(\d+)#(\d+)$/.exec(k);
+    if (!m) return;
+    const ch = Number(m[1]), v = Number(m[2]);
+    if (SC.verseDone(b, ch - 1, v) === on) return;
+    SC.toggleVerse(b, ch - 1, v);
+    changed.push(k);
+    (byCh[ch] = byCh[ch] || []).push(v);
+  });
+  if (on) Object.keys(byCh).forEach(ch => {
+    const vs = byCh[ch].sort((x, y) => x - y);
+    RO.recordVerses(book, Number(ch), vs[0], vs[vs.length - 1]);
+  });
+  return changed;
+}
+
+// Begin = the existing flashcard deck, in written order, on exactly this item's verses.
+function roadBegin(item, btn) {
+  const b = roadBook(item.book);
+  if (!b) return;
+  const keys = RO.itemVerseKeys(item);
+  if (!keys.length) { toast('No verses in ' + item.title); return; }
+  roadPendingNew = item.kind === 'new' ? { item, keys } : null;
+  const t = { kind: 'book', book: b, mod: null, a: { cycleStart: 0 }, keys, title: item.title, intent: RV.TRAIN };
+  launchScopeMode(t, 'flash', 'whole', RV.TRAIN, btn || null, 'inorder');
+}
+
+// ⚑ THE END OF A SITTING ASKS, ONCE (his ruling): Clean or Redo for each chapter he went all the way
+// through, and for today's new verses if this sitting was them. Typing at or above his threshold
+// arrives already answered Clean; he can change it.
+function roadAskCard(ask) {
+  const n = ask.chs.length + (ask.newItem ? 1 : 0);
+  const card = h(`<div class="card road-ask"><h3>The Road</h3>
+      <div class="muted" style="font-size:11px;margin-bottom:6px">How did ${n === 1 ? 'it' : 'they'} go? Clean counts. Redo means it needs doing again${ask.newItem ? ' — new verses are marked memorized only when Clean' : ''}.</div>
+    </div>`).firstElementChild;
+  const pair = (label) => h(`<div class="ra-row"><span class="ra-ch">${esc(label)}</span>
+      <button class="pill" data-c="1">Clean</button><button class="pill" data-c="0">Redo</button></div>`).firstElementChild;
+  if (ask.newItem) {
+    const it = ask.newItem;
+    const row = pair('New: ' + it.title);
+    const paint = () => {
+      const a = roadNewAnswers[ask.sid];
+      row.querySelectorAll('[data-c]').forEach(b => b.classList.toggle('on', !!a && (b.dataset.c === '1') === (a.ans === 'clean')));
+    };
+    row.querySelectorAll('[data-c]').forEach(b => b.onclick = () => {
+      const prev = roadNewAnswers[ask.sid];
+      if (b.dataset.c === '1') {
+        if (!(prev && prev.ans === 'clean')) {
+          const marked = roadMarkVerses(it.book, it.keys || [], true);
+          RO.markDone(it.key);
+          roadNewAnswers[ask.sid] = { ans: 'clean', marked };
+        }
+      } else {
+        // ⚑ REDO MEANS NOT MEMORIZED — including verses the deck itself marked off a 5. Today's portion was
+        // worked out from verses he had NOT memorized, so taking all of them back off is exact.
+        roadMarkVerses(it.book, it.keys || [], false);
+        RO.unmarkDone(it.key);
+        roadNewAnswers[ask.sid] = { ans: 'redo', marked: [] };
+      }
+      paint();
+      roadKickTodoist(true);
+    });
+    paint();
+    card.append(row);
+  }
+  ask.chs.forEach(ch => {
+    const row = pair(ask.book + ' ' + ch);
+    const paint = () => {
+      const t = RO.touchForSitting(ask.book, ch, ask.sid);
+      row.querySelectorAll('[data-c]').forEach(b => b.classList.toggle('on', !!t && (b.dataset.c === '1') === t.clean));
+    };
+    row.querySelectorAll('[data-c]').forEach(b => b.onclick = () => {
+      RO.recordTouch(ask.book, ch, b.dataset.c === '1', ask.src || 'flash', { sid: ask.sid });
+      paint();
+      roadKickTodoist(true);
+    });
+    paint();
+    card.append(row);
+  });
+  return card;
+}
+// Is this sitting the new-verses item Begin launched? Only if it covered all of those verses.
+function roadNewFor(book, doneKeys) {
+  const p = roadPendingNew;
+  if (!p || p.item.book !== book) return null;
+  return p.keys.every(k => doneKeys.has(k)) ? p.item : null;
+}
+// Chapters of a flashcard deck he went all the way through this sitting (and, if this was today's
+// new verses, that item).
+function flashRoadAsk(d, session) {
+  if (!d || !d.bible || !d.bible.book) return null;
+  const done = new Set(Object.keys(session.exit).concat(Object.keys(session.passed || {})).map(String));
+  const byCh = {};
+  const doneKeys = new Set();
+  Object.values(session.byN || {}).forEach(it => {
+    const ci = flashChapterOf(d, it);
+    if (ci == null) return;
+    (byCh[ci] = byCh[ci] || []).push(String(it.n));
+    if (done.has(String(it.n))) doneKeys.add(RV.coverageKey(prDocId(d, it), prN(it)));
+  });
+  const newItem = roadNewFor(d.bible.book, doneKeys);
+  const chs = newItem ? [] : Object.keys(byCh).map(Number).sort((a, b) => a - b)
+    .filter(ci => byCh[ci].every(n => done.has(n)))
+    .map(ci => ci + 1)
+    .filter(ch => RO.isTracked(d.bible.book, ch));
+  const sid = session._sid || ('flash:' + d.id + ':' + (session.clock && session.clock.startedAt));
+  return chs.length || newItem ? { book: d.bible.book, chs, sid, src: 'flash', newItem } : null;
+}
+// Chapters a typing sitting covered completely. Every verse at or above his threshold → Clean,
+// recorded now; one typed through below it is asked, like flashcards.
+function typerRoadAsk(d, results) {
+  if (!d || !d.bible || !d.bible.book) return null;
+  const book = d.bible.book, b = roadBook(book);
+  if (!b) return null;
+  const sid = results._sid || ('typer:' + d.id + ':' + Date.now());
+  const min = typerMemorizedMin();
+  const acc = {};
+  results.forEach(r => { if (r.key) acc[r.key] = r.acc; });
+  const newItem = roadNewFor(book, new Set(Object.keys(acc)));   // typing: Clean only at or above his threshold
+  if (newItem) {
+    if (newItem.keys.every(k => acc[k] >= min) && !roadNewAnswers[sid]) {
+      const marked = roadMarkVerses(book, newItem.keys, true);
+      RO.markDone(newItem.key);
+      roadNewAnswers[sid] = { ans: 'clean', marked };
+    }
+    return { book, chs: [], sid, src: 'typing', newItem };
+  }
+  const byCh = {};
+  Object.keys(acc).forEach(k => {
+    const m = /:(\d+)#(\d+)$/.exec(k);
+    if (m) (byCh[Number(m[1])] = byCh[Number(m[1])] || {})[Number(m[2])] = acc[k];
+  });
+  const chs = [];
+  Object.keys(byCh).map(Number).sort((a, x) => a - x).forEach(ch => {
+    if (!RO.isTracked(book, ch)) return;
+    const vs = [...chapterVerses(b, ch - 1)];
+    if (!vs.length || !vs.every(v => byCh[ch][v] != null)) return;
+    chs.push(ch);
+    if (vs.every(v => byCh[ch][v] >= min) && !RO.touchForSitting(book, ch, sid)) RO.recordTouch(book, ch, true, 'typing', { sid });
+  });
+  return chs.length ? { book, chs, sid, src: 'typing' } : null;
+}
+
+// ---------- the weekly goal ----------
+// "of 24 · 4 behind", "of 17 · 3 ahead", or just "of 20" before Sunday 8 Nov.
+function roadGoal() { return RO.goalStatus((a, z) => SC.versesMarked(a, z)); }
+function roadGoalNote(g = roadGoal()) {
+  const side = !g.started || g.carry === 0 ? '' : g.carry < 0 ? ` · ${-g.carry} behind` : ` · ${g.carry} ahead`;
+  return `of ${g.target}${side}`;
+}
+
+// ---------- Record verses ----------
+function recordVersesSheet() {
+  const cur = RO.currentBookName() || 'Hebrews';
+  const ntBooks = RO.NT_ORDER.map(roadBook).filter(Boolean);
+  const firstOpen = b => {
+    for (let ci = 0; ci < b.verses.length; ci++) for (const v of chapterVerses(b, ci)) if (!SC.verseDone(b, ci, v)) return { ch: ci + 1, v };
+    return { ch: 1, v: 1 };
+  };
+  openSheet('Record verses', (body, close) => {
+    const g = roadGoal();
+    body.append(h(`<div class="muted" style="font-size:13px;margin:0 2px 10px">This week ${g.week} ${roadGoalNote(g)}</div>`));
+    const f = h(`<div class="rv-form">
+        <select id="rv-book">${ntBooks.map(b => `<option${b.name === cur ? ' selected' : ''}>${esc(b.name)}</option>`).join('')}</select>
+        <div class="row" style="gap:8px;flex-wrap:nowrap;margin-top:8px">
+          <label class="rv-f">Chapter<input id="rv-ch" type="number" inputmode="numeric" min="1"></label>
+          <label class="rv-f">From<input id="rv-from" type="number" inputmode="numeric" min="1"></label>
+          <label class="rv-f">To<input id="rv-to" type="number" inputmode="numeric" min="1"></label>
+        </div></div>`).firstElementChild;
+    body.append(f);
+    const sel = f.querySelector('#rv-book'), chI = f.querySelector('#rv-ch'), fromI = f.querySelector('#rv-from'), toI = f.querySelector('#rv-to');
+    const bookName = () => sel.value || cur;
+    const fill = () => { const b = roadBook(bookName()); if (!b) return; const o = firstOpen(b); chI.value = o.ch; fromI.value = o.v; toI.value = o.v; };
+    sel.onchange = fill; fill();
+    const go = h(`<button class="btn" style="margin-top:12px">Record</button>`).firstChild;
+    go.onclick = () => {
+      const b = roadBook(bookName()), ch = Number(chI.value), from = Number(fromI.value), to = Number(toI.value || fromI.value);
+      if (!b || !(ch >= 1 && ch <= b.verses.length)) { toast('No chapter ' + chI.value + ' in ' + bookName()); return; }
+      const vs = [...chapterVerses(b, ch - 1)].filter(v => v >= from && v <= to);
+      if (!vs.length || to < from) { toast('Those verses are not in ' + b.name + ' ' + ch); return; }
+      vs.forEach(v => { if (!SC.verseDone(b, ch - 1, v)) SC.toggleVerse(b, ch - 1, v); });
+      RO.recordVerses(b.name, ch, from, to);
+      toast(`Recorded ${vs.length} verse${vs.length === 1 ? '' : 's'} — ${b.name} ${ch}:${from}${to > from ? '–' + to : ''}`);
+      close(); roadAfterChange();
+    };
+    body.append(go);
+  });
+}
+
+// ---------- the weekly memorization plan ----------
+const ROAD_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function roadPlanSummary() {
+  const p = RO.roadPlan(), rows = [];
+  let i = 0;
+  while (i < 7) {
+    const e = p.days[i];
+    if (!e) { i++; continue; }
+    let j = i;
+    while (j + 1 < 7 && p.days[j + 1] && p.days[j + 1].book === e.book && p.days[j + 1].n === e.n) j++;
+    rows.push(`${ROAD_DOW[i]}${j > i ? '–' + ROAD_DOW[j] : ''} · ${e.book} · ${e.n} a day`);
+    i = j + 1;
+  }
+  return rows;
+}
+function roadPlanSheet() {
+  const p = RO.roadPlan();
+  const ntBooks = RO.NT_ORDER.map(roadBook).filter(Boolean);
+  openSheet('Weekly plan', (body, close) => {
+    body.append(h(`<div class="muted" style="font-size:12px;margin:0 2px 10px;line-height:1.5">New verses for each day of the week. Each day starts at the next verse you haven't memorized; a missed day doesn't stack, and the amount never changes when you get ahead.</div>`));
+    const rows = h(`<div class="rp-days">${ROAD_DOW.map((d, i) => {
+      const e = p.days[i] || {};
+      return `<div class="rp-row"><span class="rp-d">${d}</span>
+        <select data-d="${i}"><option value="">—</option>${ntBooks.map(b => `<option${b.name === e.book ? ' selected' : ''}>${esc(b.name)}</option>`).join('')}</select>
+        <input data-n="${i}" type="number" inputmode="numeric" min="0" value="${e.n || ''}" placeholder="0" aria-label="${d} verses"></div>`;
+    }).join('')}</div>`).firstElementChild;
+    body.append(rows);
+    const startsBox = h(`<div class="rp-starts"></div>`).firstElementChild;
+    body.append(startsBox);
+    const chosen = () => [...new Set([...rows.querySelectorAll('select')].map(s => s.value || (s.querySelector('option[selected]') || {}).textContent || '').filter(v => v && v !== '—'))];
+    const drawStarts = () => {
+      const keep = {};
+      startsBox.querySelectorAll('[data-sb]').forEach(r => { keep[r.dataset.sb] = { ch: r.querySelector('[data-a=ch]').value, v: r.querySelector('[data-a=v]').value }; });
+      startsBox.innerHTML = '';
+      chosen().forEach(name => {
+        const b = roadBook(name);
+        const nx = RO.nextUnmemorized(name, 1, p.starts[name] || { ch: 1, v: 1 })[0];
+        const m = nx ? /:(\d+)#(\d+)$/.exec(nx) : null;
+        const st = keep[name] || p.starts[name] || { ch: m ? m[1] : 1, v: m ? m[2] : 1 };
+        startsBox.append(h(`<div class="rp-row" data-sb="${esc(name)}"><span class="rp-d wide">${esc(name)} from</span>
+          <input data-a="ch" type="number" inputmode="numeric" min="1" max="${b ? b.verses.length : 1}" value="${st.ch}" aria-label="chapter">
+          <input data-a="v" type="number" inputmode="numeric" min="1" value="${st.v}" aria-label="verse"></div>`));
+      });
+    };
+    rows.querySelectorAll('select').forEach(s => s.onchange = drawStarts);
+    drawStarts();
+    const saveBtn = h(`<button class="btn" style="margin-top:12px">Save plan</button>`).firstChild;
+    saveBtn.onclick = () => {
+      const days = {}, starts = {};
+      rows.querySelectorAll('select').forEach(s => {
+        const d = s.dataset.d, book = s.value || '';
+        const n = Number(rows.querySelector(`[data-n="${d}"]`).value);
+        if (book && book !== '—' && n > 0) days[d] = { book, n };
+      });
+      startsBox.querySelectorAll('[data-sb]').forEach(r => { starts[r.dataset.sb] = { ch: Number(r.querySelector('[data-a=ch]').value), v: Number(r.querySelector('[data-a=v]').value) }; });
+      RO.setPlan(days, starts);
+      toast(Object.keys(days).length ? 'Weekly plan saved' : 'Weekly plan cleared');
+      close(); roadAfterChange();
+      if (stack.length > 1) rerender();
+    };
+    body.append(saveBtn);
+  });
+}
+
+// ---------- the Road ----------
+function roadScreen() {
+  setHeader('The Road', { back: stack.length > 1 });
+  const wrap = document.createElement('div');
+  wrap.className = 'road-screen';
+  const nt = RO.ntProgress();
+  const g = roadGoal();
+  const curName = RO.currentBookName();
+  wrap.append(h(`<div class="road-top">
+      <div><div class="road-eyebrow">New Testament by forty</div>
+        <div class="road-week">${g.week} ${roadGoalNote(g)} this week</div>
+        <div class="road-meter"><div style="width:${Math.min(100, g.target ? g.week / g.target * 100 : 100)}%"></div></div></div>
+      <div class="road-nt"><div class="road-meter small"><div style="width:${(nt.pct * 100).toFixed(1)}%"></div></div>
+        <div class="muted">${Math.round(nt.pct * 100)}% of the road</div></div>
+    </div>`));
+  if (curName) {
+    const b = roadBook(curName), held = RO.bookHeld(curName);
+    const act = RO.allChapters().filter(c => c.book === curName && c.zone === 'active').map(c => c.ch);
+    const camp = act.length ? Math.max(...act) : null;
+    const ticks = b.verses.map((_, ci) => {
+      const st = SC.chapterStats(b, ci);
+      return `<span class="road-tick${st.total && st.done === st.total ? ' on' : ''}${camp === ci + 1 ? ' now' : ''}"></span>`;
+    }).join('');
+    wrap.append(h(`<div class="road-here">
+        <div class="road-eyebrow">You are here</div>
+        <div class="road-here-row"><h2>${esc(curName)}</h2><span class="muted">${held.chaptersHeld} of ${held.chapters} chapters</span></div>
+        <div class="road-ticks">${ticks}</div>
+        ${camp ? `<div class="muted road-note">Chapter ${camp} is your camp now.</div>` : ''}
+      </div>`));
+  }
+  wrap.append(roadMap(curName));
+  const camps = RO.allChapters().filter(c => c.zone === 'active').sort(RO.byCanon);
+  const cc = h(`<div class="road-camps"><div class="road-sec"><h3>Camps</h3><span class="muted">ten clean runs, then on to maturing</span></div></div>`).firstElementChild;
+  if (!camps.length) cc.append(h(`<div class="muted" style="padding:10px 0">No chapter is being learned right now. Record verses to start one.</div>`));
+  camps.forEach(c => {
+    const shown = Math.min(c.count, c.need);
+    const row = h(`<button class="road-camp"><span class="rc-name"><span>${esc(c.book + ' ' + c.ch)}</span><span class="muted">${shown} of ${c.need}</span></span>
+        <span class="road-pips">${Array.from({ length: c.need }, (_, i) => `<span class="road-pip${i < shown ? ' on' : ''}"></span>`).join('')}</span></button>`).firstElementChild;
+    row.onclick = () => roadZoneSheet(c);
+    cc.append(row);
+  });
+  wrap.append(cc);
+  // the weekly plan
+  const pl = roadPlanSummary();
+  const pc = h(`<div class="road-camps"><div class="road-sec"><h3>Weekly plan</h3><span class="muted">new verses each day</span></div>
+      ${pl.length ? pl.map(l => `<div class="road-plan-row">${esc(l)}</div>`).join('') : '<div class="muted" style="padding:10px 0">No plan yet. Set one and today\'s new verses appear in Up next.</div>'}
+    </div>`).firstElementChild;
+  const edit = h(`<button class="btn secondary">${pl.length ? 'Edit the plan' : 'Set a weekly plan'}</button>`).firstChild;
+  edit.onclick = () => roadPlanSheet();
+  pc.append(edit);
+  wrap.append(pc);
+  const toCircuit = h(`<button class="btn secondary">The Circuit ›</button>`).firstChild;
+  toCircuit.onclick = () => render(circuitScreen);
+  wrap.append(toCircuit);
+  const rec = h(`<button class="btn secondary">Record verses</button>`).firstChild;
+  rec.onclick = () => recordVersesSheet();
+  wrap.append(rec);
+  main().append(wrap);
+}
+
+// The traveler as an SVG <image>, feet on (fx, fy). `perPx` = SVG units per screen pixel.
+function roadTravelerSvg(fx, fy, perPx) {
+  const hU = ROAD_TRAVELER_PX * perPx, wU = hU * TRAVELER_ASPECT;
+  return `<image class="road-traveler" href="${TRAVELER_SRC}" x="${(fx - wU / 2).toFixed(1)}" y="${(fy - hU + 2).toFixed(1)}" width="${wU.toFixed(1)}" height="${hU.toFixed(1)}" aria-hidden="true"/>`;
+}
+const roadBez = (p0, p1, p2, p3, t) => { const u = 1 - t; return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3; };
+
+// The winding road through the books, inked where he holds them. ⚑ THE TRAVELER STANDS AT THE END OF
+// THE INK (his ruling, 4 Nov): small, on the path itself, a little further along as the book fills.
+function roadMap(curName) {
+  const books = RO.roadBooks();
+  const box = document.createElement('div');
+  box.className = 'road-map';
+  if (!books.length) { box.append(h(`<div class="muted" style="padding:14px 0">The road starts with the first verse you record.</div>`)); return box; }
+  const geo = roadGeometry(books);
+  const { VW, H, pts } = geo;
+  const full = geo.fullD;
+  let svg = `<svg viewBox="0 0 ${VW} ${H}" width="100%" role="img" aria-label="A road through the New Testament. The traveler is at ${esc(curName || 'the start')}." style="display:block;width:100%;height:auto">`;
+  if (full) {
+    svg += `<path d="${full}" fill="none" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" style="stroke:var(--line)"/>`;
+    svg += `<path d="${full}" fill="none" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" style="stroke:var(--bg)"/>`;
+  }
+  const heldFrac = name => { const hd = RO.bookHeld(name); return hd.total ? hd.done / hd.total : 0; };
+  books.forEach((b, i) => {
+    if (i === 0) return;
+    const f = heldFrac(b);
+    if (f > 0) svg += `<path d="${geo.segD(i - 1)}" pathLength="100" stroke-dasharray="${(f * 100).toFixed(1)} 100" fill="none" stroke-width="9" stroke-linecap="round" style="stroke:var(--gold)"/>`;
+  });
+  const last = pts[pts.length - 1];
+  const tailX = last.x < VW / 2 ? last.x + 48 : last.x - 48;
+  svg += `<path d="M${last.x},${last.y} C${last.x},${last.y + 25} ${tailX},${last.y + 28} ${tailX},${last.y + 53}" fill="none" stroke-width="2" stroke-dasharray="3 6" stroke-linecap="round" style="stroke:var(--text-3)"/>`;
+  books.forEach((b, i) => {
+    const { x, y, left } = pts[i], f = heldFrac(b), cur = b === curName;
+    if (cur) svg += `<circle cx="${x}" cy="${y}" r="14" stroke-width="1.5" style="fill:var(--bg);stroke:var(--text)"/><circle cx="${x}" cy="${y}" r="8" stroke-width="2" fill="none" style="stroke:var(--gold)"/>`;
+    else if (f >= 1) svg += `<circle cx="${x}" cy="${y}" r="9" stroke-width="1.5" style="fill:var(--gold);stroke:var(--text)"/>`;
+    else svg += `<circle cx="${x}" cy="${y}" r="9" stroke-width="1.5" style="fill:var(--bg);stroke:var(--text)"/>${f > 0 ? `<circle cx="${x}" cy="${y}" r="4" style="fill:var(--gold)"/>` : ''}`;
+    const lx = left ? x - (cur ? 24 : 18) : x + (cur ? 24 : 18), anchor = left ? 'end' : 'start';
+    const hd = RO.bookHeld(b);
+    const sub = cur || (f > 0 && f < 1) ? `${hd.chaptersHeld} of ${hd.chapters}` : '';
+    svg += `<text x="${lx}" y="${y + 5}" text-anchor="${anchor}" font-size="${cur ? 18 : 16}"${cur ? ' font-weight="600"' : ''} style="fill:var(--text)">${esc(b)}</text>`;
+    if (sub) svg += `<text x="${lx}" y="${y + 21}" text-anchor="${anchor}" font-size="12.5" style="fill:var(--gold)">${sub}</text>`;
+  });
+  const tailLeft = tailX < VW / 2;
+  svg += `<text x="${tailLeft ? tailX - 14 : tailX + 14}" y="${last.y + 50}" text-anchor="${tailLeft ? 'end' : 'start'}" font-size="13" font-style="italic" style="fill:var(--text-2)">on toward Revelation</text>`;
+  const ci = books.indexOf(curName);
+  if (ci >= 0) {
+    // along the stretch into this book, as far as the ink reaches (by length, as the ink is drawn)
+    const at = ci > 0 ? geo.pointAt(ci - 1, Math.max(0.04, Math.min(1, heldFrac(curName)))) : pts[ci];
+    svg += roadTravelerSvg(at.x, at.y, VW / 342);
+  }
+  svg += '</svg>';
+  box.append(h(svg));
+  return box;
+}
+
+// ⚑ THE ROAD IS NOT A LADDER (his note, 4 Nov: "not so perfect and uniform … let the length of each
+// section be determined by number of chapters"). Each stretch is as long as the book it leads INTO
+// has chapters — Philemon is a step, Matthew a long walk. Long stretches bend once more on the way
+// down. The wander is seeded by the book's name, so the road is the same road every time it draws.
+const ROAD_LEG_MIN = 50, ROAD_LEG_PER_CH = 10, ROAD_LEG_MAX = 230;
+function roadSeed(str, k) {
+  let x = 2166136261 ^ k;
+  for (let i = 0; i < str.length; i++) { x ^= str.charCodeAt(i); x = Math.imul(x, 16777619); }
+  x ^= x >>> 13; x = Math.imul(x, 0x5bd1e995); x ^= x >>> 15;
+  return ((x >>> 0) % 10000) / 10000;
+}
+function roadGeometry(books) {
+  const VW = 400, Y0 = 50, LW = n => n.length * 8.4 + 24;   // the label's rough width at 16px, plus its gap
+  const pts = [];
+  books.forEach((b, i) => {
+    const left = i % 2 === 0;
+    const r = roadSeed(b, 1);
+    const ch = RO.bookHeld(b).chapters || 1;
+    const leg = Math.min(ROAD_LEG_MAX, Math.max(ROAD_LEG_MIN, 30 + ch * ROAD_LEG_PER_CH));
+    const y = i === 0 ? Y0 : pts[i - 1].y + leg;
+    // each column is a band, not a line; the label decides how far out a node may sit
+    let x = left ? 104 + r * 68 : 226 + r * 70;
+    x = left ? Math.max(x, Math.min(172, LW(b))) : Math.min(x, Math.max(228, VW - LW(b)));
+    pts.push({ x: Math.round(x), y: Math.round(y), left });
+  });
+  // a stretch is one or two cubics; every joint has a vertical tangent, so the road never kinks
+  const cubic = (a, b, k) => { const hh = b.y - a.y; return [a, { x: a.x, y: a.y + hh * k }, { x: b.x, y: b.y - hh * k }, b]; };
+  const legs = [];
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i], b = pts[i + 1], name = books[i + 1], dy = b.y - a.y;
+    const k1 = 0.36 + roadSeed(name, 2) * 0.2;
+    if (dy < 110) { legs.push([cubic(a, b, k1)]); continue; }
+    // a long walk swings out past the straight line between its ends, toward the open side
+    const swing = (24 + roadSeed(name, 3) * 34) * (roadSeed(name, 4) < 0.5 ? -1 : 1);
+    const mx = Math.max(90, Math.min(VW - 90, (a.x + b.x) / 2 + swing));
+    const m = { x: Math.round(mx), y: Math.round(a.y + dy * (0.42 + roadSeed(name, 5) * 0.16)) };
+    // through the bend the road keeps its heading (the line from end to end), so it flows, not hooks
+    const dx = b.x - a.x, len = Math.hypot(dx, dy), tx = dx / len, ty = dy / len;
+    const l1 = Math.hypot(m.x - a.x, m.y - a.y) * 0.42, l2 = Math.hypot(b.x - m.x, b.y - m.y) * 0.42;
+    const k2 = 0.34 + roadSeed(name, 6) * 0.2;
+    legs.push([
+      [a, { x: a.x, y: a.y + (m.y - a.y) * k1 }, { x: m.x - tx * l1, y: m.y - ty * l1 }, m],
+      [m, { x: m.x + tx * l2, y: m.y + ty * l2 }, { x: b.x, y: b.y - (b.y - m.y) * k2 }, b],
+    ]);
+  }
+  const f1 = n => +n.toFixed(1);
+  const cD = c => `C${f1(c[1].x)},${f1(c[1].y)} ${f1(c[2].x)},${f1(c[2].y)} ${c[3].x},${c[3].y}`;
+  const segD = i => `M${pts[i].x},${pts[i].y} ` + legs[i].map(cD).join(' ');
+  const fullD = legs.length ? `M${pts[0].x},${pts[0].y} ` + legs.map(l => l.map(cD).join(' ')).join(' ') : '';
+  // the point a fraction of the way along a stretch BY LENGTH, so the traveler meets the ink's end
+  const pointAt = (i, frac) => {
+    const samp = [];
+    legs[i].forEach(c => { for (let s = samp.length ? 1 : 0; s <= 32; s++) { const t = s / 32; samp.push({ x: roadBez(c[0].x, c[1].x, c[2].x, c[3].x, t), y: roadBez(c[0].y, c[1].y, c[2].y, c[3].y, t) }); } });
+    const cum = [0];
+    for (let j = 1; j < samp.length; j++) cum.push(cum[j - 1] + Math.hypot(samp[j].x - samp[j - 1].x, samp[j].y - samp[j - 1].y));
+    const want = cum[cum.length - 1] * frac;
+    let j = 1; while (j < cum.length - 1 && cum[j] < want) j++;
+    const span = cum[j] - cum[j - 1] || 1, u = (want - cum[j - 1]) / span;
+    return { x: samp[j - 1].x + (samp[j].x - samp[j - 1].x) * u, y: samp[j - 1].y + (samp[j].y - samp[j - 1].y) * u };
+  };
+  const H = pts[pts.length - 1].y + 66;
+  return { VW, H, pts, segD, fullD, pointAt };
+}
+
+// ---------- the Circuit ----------
+function circuitScreen() {
+  setHeader('The Circuit', { back: true });
+  const wrap = document.createElement('div');
+  wrap.className = 'road-screen';
+  const c = RO.circuit();
+  const lapN = c.laps.length + 1;
+  const stops = c.stops || [];
+  const doneN = stops.filter(s => s.done).length;
+  wrap.append(h(`<div class="road-top"><div><div class="road-eyebrow">Long rotation</div>
+      <div class="road-week">Lap ${lapN} · ${doneN} of ${stops.length} stops</div></div>
+      <div class="road-nt muted">${c.current ? 'now at ' + esc(c.current.label) : ''}</div></div>`));
+  if (stops.length) {
+    const VW = 420, VH = 380, R = 95, CX = 210, CY = 190;
+    let svg = `<svg viewBox="0 0 ${VW} ${VH}" width="100%" style="display:block;width:100%;height:auto" role="img" aria-label="The circuit: ${stops.length} stops, lap ${lapN}${c.current ? ', now at ' + esc(c.current.label) : ''}.">`;
+    svg += `<circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke-width="13" style="stroke:var(--line)"/><circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke-width="9" style="stroke:var(--bg)"/>`;
+    const ang = i => -Math.PI / 2 + i * 2 * Math.PI / stops.length;
+    const at = i => { const a = ang(i); return [CX + R * Math.cos(a), CY + R * Math.sin(a), a]; };
+    stops.forEach((s, i) => {
+      if (!s.done) return;
+      const [x0, y0] = at(i), [x1, y1] = at(i + 1 === stops.length ? 0 : i + 1);
+      svg += `<path d="M${x0.toFixed(1)},${y0.toFixed(1)} A${R},${R} 0 0 1 ${x1.toFixed(1)},${y1.toFixed(1)}" fill="none" stroke-width="9" style="stroke:var(--gold)"/>`;
+    });
+    stops.forEach((s, i) => {
+      const [x, y, a] = at(i);
+      const cur = c.current && s.id === c.current.id;
+      svg += cur
+        ? `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="12" stroke-width="1.5" style="fill:var(--bg);stroke:var(--text)"/><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="7" stroke-width="2" fill="none" style="stroke:var(--gold)"/>`
+        : `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="9" stroke-width="1.5" style="fill:${s.done ? 'var(--gold)' : 'var(--bg)'};stroke:var(--text)"/>`;
+      // the label of the stop he is standing on lifts clear of him when it sits above the ring
+      const lift = cur && Math.sin(a) < -0.3 ? ROAD_TRAVELER_PX * (VW / 342) * 0.95 : 0;
+      const lx = CX + (R + 24) * Math.cos(a), ly = CY + (R + 24) * Math.sin(a) + (Math.sin(a) < -0.7 ? -14 : Math.sin(a) > 0.7 ? 8 : 0) - lift;
+      const anchor = Math.abs(Math.cos(a)) < 0.3 ? 'middle' : Math.cos(a) > 0 ? 'start' : 'end';
+      const est = RO.estimateMins(s.book, s.chs);
+      svg += `<text x="${lx.toFixed(1)}" y="${(ly + 2).toFixed(1)}" text-anchor="${anchor}" font-size="15"${cur ? ' font-weight="600"' : ''} style="fill:var(--text)">${esc(s.label)}</text>`;
+      svg += `<text x="${lx.toFixed(1)}" y="${(ly + 17).toFixed(1)}" text-anchor="${anchor}" font-size="12" style="fill:${cur ? 'var(--gold)' : 'var(--text-2)'}">${s.done ? 'done' : cur ? s.doneChs.length + ' of ' + s.chs.length + ' ch' : 'about ' + roadFmtMins(est)}</text>`;
+    });
+    svg += `<text x="${CX}" y="${CY - 4}" text-anchor="middle" font-size="30" font-weight="500" style="fill:var(--text)">Lap ${lapN}</text>`;
+    svg += `<text x="${CX}" y="${CY + 18}" text-anchor="middle" font-size="14" style="fill:var(--text-2)">${stops.length} stops</text>`;
+    // ⚑ he walks the ring: at his stop, a little further along as its chapters are run clean
+    const ci = c.current ? stops.findIndex(s => s.id === c.current.id) : -1;
+    if (ci >= 0) {
+      const s = stops[ci];
+      const frac = s.chs.length ? s.doneChs.length / s.chs.length : 0;
+      const a = ang(ci) + frac * 2 * Math.PI / stops.length;
+      svg += roadTravelerSvg(CX + R * Math.cos(a), CY + R * Math.sin(a), VW / 342);
+    }
+    svg += '</svg>';
+    const box = h(`<div class="road-map"></div>`).firstElementChild;
+    box.append(h(svg));
+    wrap.append(box);
+  } else wrap.append(h(`<div class="muted" style="padding:14px 4px">No books are on the circuit yet. A chapter joins after it finishes maturing.</div>`));
+
+  const lt = h(`<div class="road-camps"><div class="road-sec"><h3>Lap times</h3><span class="muted">they should get shorter</span></div></div>`).firstElementChild;
+  if (!c.laps.length) lt.append(h(`<div class="muted" style="padding:10px 0">Lap ${lapN} is under way. Each finished lap is listed here in days. If laps stop shrinking, that is the sign to add review time.</div>`));
+  else {
+    const most = Math.max(...c.laps.map(l => l.days));
+    c.laps.slice().reverse().forEach(l => lt.append(h(`<div class="road-lap"><span>Lap ${l.n}</span><span class="road-meter"><span style="width:${(l.days / most * 100).toFixed(1)}%"></span></span><span class="muted">${l.days} day${l.days === 1 ? '' : 's'}</span></div>`)));
+  }
+  wrap.append(lt);
+
+  const mat = RO.allChapters().filter(x => x.zone === 'maturing').sort(RO.byCanon);
+  const mc = h(`<div class="road-camps"><div class="road-sec"><h3>Maturing</h3><span class="muted">eight weeks, then the circuit</span></div></div>`).firstElementChild;
+  if (!mat.length) mc.append(h(`<div class="muted" style="padding:10px 0">No chapter is maturing yet. A chapter arrives here after ten clean runs.</div>`));
+  mat.forEach(x => {
+    const due = x.due <= todayKey();
+    const row = h(`<button class="road-camp"><span class="rc-name"><span>${esc(x.book + ' ' + x.ch)}</span><span class="muted"${due ? ' style="color:var(--gold)"' : ''}>${due ? 'due today' : 'next ' + shortDate(x.due)}</span></span>
+        <span class="road-pips">${Array.from({ length: x.trailNeed }, (_, i) => `<span class="road-pip${i < x.trailDone ? ' on' : ''}${i === x.trailDone && due ? ' due' : ''}${i === 8 ? ' gap' : ''}"></span>`).join('')}</span></button>`).firstElementChild;
+    row.onclick = () => roadZoneSheet(x);
+    mc.append(row);
+  });
+  wrap.append(mc);
+  main().append(wrap);
+}
+
+// Manual promote/demote — the one override he asked to keep.
+function roadZoneSheet(c) {
+  const names = { active: 'Learning (Active)', maturing: 'Maturing', rotation: 'The circuit', off: 'Off the road' };
+  openSheet(c.book + ' ' + c.ch, (body, close) => {
+    body.append(h(`<div class="muted" style="font-size:13px;margin:0 2px 10px">Now: ${names[c.zone]}. Move it if you judge it more or less solid than the count says.</div>`));
+    ['active', 'maturing', 'rotation', 'off'].filter(z => z !== c.zone).forEach(z => {
+      const b = h(`<button class="btn secondary">${names[z]}</button>`).firstChild;
+      b.onclick = () => {
+        if (!confirm(`Move ${c.book} ${c.ch} to ${names[z]}? Its count starts again there.`)) return;
+        RO.setZone(c.book, c.ch, z);
+        close(); rerender();
+      };
+      body.append(b);
+    });
+  });
+}
+
+// ---------- Settings: Todoist ----------
+function todoistSettingsCard() {
+  const st = TD.todoistStatus();
+  const card = h(`<div class="card"><h3>Todoist</h3>
+    <div class="muted" style="font-size:11px;margin-bottom:8px">Puts today's Up next into Todoist as tasks labelled "strive". Finish one in either place and it comes off both; ticking one in Todoist counts as Clean, the same as the circle in Strive. Your token is in Todoist under Settings → Integrations → Developer.</div>
+    <input id="s-td" placeholder="Todoist API token" value="${esc(TD.todoistToken())}" autocapitalize="off" autocorrect="off" style="width:100%;padding:12px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:13px;margin-bottom:8px">
+    <button class="btn secondary" id="s-td-save">Save & test token</button>
+    <div class="muted" id="s-td-status" style="font-size:11px;margin-top:6px">${st ? (st.ok ? '✓ ' : '✗ ') + esc(st.msg) : TD.todoistToken() ? 'Token saved.' : 'No token — Up next stays in Strive only.'}</div>
+  </div>`).firstElementChild;
+  const status = card.querySelector('#s-td-status');
+  card.querySelector('#s-td-save').onclick = async () => {
+    TD.setTodoistToken(card.querySelector('#s-td').value);
+    if (!TD.todoistToken()) { status.textContent = 'Token cleared — Up next stays in Strive only.'; return; }
+    status.textContent = 'Testing token…';
+    const good = await TD.testTodoist();
+    status.textContent = good ? '✓ Token works — syncing today\'s Up next' : '✗ ' + ((TD.todoistStatus() || {}).msg || 'Could not reach Todoist');
+    if (good) roadKickTodoist(true);
+  };
+  return card;
+}
+
+const roadTab = () => roadScreen();
+const levelTab = () => ftScreen('level');
+levelTab._ftLevel = true;
+const TABS = { home: dashboard, road: roadTab, level: levelTab, fitness: fitnessTab, plan: plan };
 const PLAN_ICON = '<path d="M-10 -7 H10 V10 H-10 Z"/><path d="M-10 -2 H10"/><path d="M-5 -11 V-4 M5 -11 V-4"/><path d="M0 1.5 L3 4.5 L0 7.5 L-3 4.5 Z" fill="currentColor" stroke="none"/>';
 applyTheme();   // before the first screen draws, so nothing flashes the wrong paper
+// ⛑ RELIABILITY ITEM 1 (22 Sep 2026) — A FAILED SAVE IS SAID OUT LOUD. store.js reports every change in
+// save health; while saves are failing this banner stays up (it cannot be dismissed — the condition is
+// the thing to fix), and it goes away by itself the moment a save succeeds.
+// ⛑ RELIABILITY ITEM 1 — what is using this device's storage. Safari gives the app roughly 5 MB.
+function storageLine() {
+  const r = storageReport(), mb = n => (n / 1048576).toFixed(2) + ' MB';
+  const hh = saveHealth();
+  return `Storage on this device: ${mb(r.total)} of about 5 MB — your data ${mb(r.state)} · saved Bible text ${mb(r.bible)} · safety copies ${mb(r.copies)}${hh.ok ? '' : ' · <b style="color:var(--danger)">saving is failing</b>'}`;
+}
+function saveAlarm(hh) {
+  let el = document.getElementById('save-alarm');
+  if (hh.ok) { if (el) el.remove(); return; }
+  const full = /quota/i.test(hh.error || '');
+  const where = SY.isSignedIn() ? 'on screen and in the cloud' : 'on screen only';
+  const html = `<div id="save-alarm" class="save-alarm" role="alert">
+    <div class="sa-txt"><b>Strive cannot save on this device.</b> ${full
+      ? 'Its storage is full.'
+      : 'The browser refused the save (' + esc(hh.error || 'unknown') + ').'} Your latest changes are held ${where}. Export a backup now; the Backup card in your profile shows what is using the space.</div>
+    <button class="pill" id="sa-export">Export backup</button></div>`;
+  if (!el) { el = h(html).firstElementChild; document.body.append(el); }
+  const b = el.querySelector('#sa-export');
+  if (b) b.onclick = () => exportAll();
+}
+function reportUncaught(msg) {
+  if (!msg || /^Script error\.?$/i.test(msg)) return;   // cross-origin noise (the OCR CDN) — nothing to act on
+  try { toast('Something went wrong: ' + msg); } catch (x) { /* no toast host yet */ }
+}
 document.addEventListener('DOMContentLoaded', () => {
   applyTheme();
   watchDeviceTheme(() => rerender());
-  document.getElementById('h-back').onclick = headerBack;
-  const av = document.getElementById('h-avatar');
-  if (av) av.onclick = () => render(youProfile);
-  const hp = document.getElementById('h-plan');
-  if (hp) {
-    hp.innerHTML = `<svg class="plus-ico" viewBox="-14 -14 28 28" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PLAN_ICON}</svg>`;
-    hp.onclick = () => switchTab('plan');
+  // ⛑⛑ RELIABILITY ITEM 4 (22 Sep 2026) — THE SAFETY NETS START BEFORE ANYTHING IS DRAWN. Sync, the
+  // daily backup and the service worker used to start AFTER switchTab('home'), in the same handler with
+  // no guard: one exception in the dashboard and all three were silently never started. They go first
+  // now, and nothing after them can stop them.
+  if (typeof window !== 'undefined' && window.addEventListener) {
+    window.addEventListener('error', e => reportUncaught(e && (e.message || (e.error && e.error.message))));
+    window.addEventListener('unhandledrejection', e => reportUncaught(e && e.reason && (e.reason.message || String(e.reason))));
   }
-  document.querySelectorAll('nav.tabbar button[data-ico]').forEach(b => {
-    const ic = b.querySelector('.ico');
-    if (ic) ic.innerHTML = plusIconSvg(b.dataset.ico, 21);
-  });
-  document.querySelectorAll('nav.tabbar button:not(.tab-plus)').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
-  wirePlusFan();
-  // H2 (17 Sep) — the timer's old copy in synced state (written every tick, never read) is dropped.
-  if (state.fitness && Object.prototype.hasOwnProperty.call(state.fitness, 'timerSession')) { delete state.fitness.timerSession; save(); }
-  switchTab('home');
-  // ⚑ iOS killed the app mid-workout → it opens on the running timer, not the dashboard.
-  resumeLiveTimer();
+  onSaveHealth(saveAlarm);
+  if (!saveHealth().ok) saveAlarm(saveHealth());
   // ⚑ A5 — A DECK OPEN ON SCREEN IS NOT CARRIED ACROSS A PULL. The deck in memory was built from the
   // state that was just replaced; carrying on would build on another device's past (the stale iPad
   // deck that finished 37 hours late). Leave it; reopening offers the deck back with what changed.
@@ -25429,12 +27130,36 @@ document.addEventListener('DOMContentLoaded', () => {
     toast('Synced from cloud');
     rerender();
   });
-  SY.init();
+  try { SY.init(); } catch (e) { console.error('sync failed to start', e); }
   // ⚑ H1 — the day's automatic copy: now, when he comes back to the app, and hourly while it stays open.
   BK.maybeDaily();
   document.addEventListener('visibilitychange', () => { if (!document.hidden) BK.maybeDaily(); });
   setInterval(() => BK.maybeDaily(), 60 * 60 * 1000);
   
+  // ⛑ RELIABILITY ITEM 2 — hidden or closed: the pending save is written now and the push is tried now.
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') SY.syncOnHide(); });
+  window.addEventListener('pagehide', () => { SY.syncOnHide(); });
+  document.getElementById('h-back').onclick = headerBack;
+  const ht = document.getElementById('h-title');   // guarded like the others: a missing node must not stop the wiring below
+  if (ht) ht.onclick = () => { if (ht.classList.contains('h-mode')) flipMode(); };
+  const av = document.getElementById('h-avatar');
+  if (av) av.onclick = () => render(youProfile);
+  const hp = document.getElementById('h-plan');
+  if (hp) {
+    hp.innerHTML = `<svg class="plus-ico" viewBox="-14 -14 28 28" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PLAN_ICON}</svg>`;
+    hp.onclick = () => switchTab('plan');
+  }
+  document.querySelectorAll('nav.tabbar button[data-ico]').forEach(b => {
+    const ic = b.querySelector('.ico');
+    if (ic) ic.innerHTML = plusIconSvg(b.dataset.ico, 21);
+  });
+  document.querySelectorAll('nav.tabbar button:not(.tab-plus)').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+  wirePlusFan();
+  // H2 (17 Sep) — the timer's old copy in synced state (written every tick, never read) is dropped.
+  if (state.fitness && Object.prototype.hasOwnProperty.call(state.fitness, 'timerSession')) { delete state.fitness.timerSession; save(); }
+  try { switchTab(MODE_FIRST_TAB[appMode()]); } catch (e) { screenFailed(e); }
+  // ⚑ iOS killed the app mid-workout → it opens on the running timer, not the dashboard.
+  try { resumeLiveTimer(); } catch (e) { console.error('timer resume failed', e); if (globalThis.STRIVE_RETHROW_SCREEN_ERRORS) throw e; }
 });
 
 </script>
