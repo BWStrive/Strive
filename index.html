@@ -10397,6 +10397,26 @@ function planFrontier() {
   return out;
 }
 
+// ⚑⚑ ONCE ON THE ROAD, ALWAYS ON THE ROAD (16 Nov). His report: "I've memorized 1 Cor 3 … 1 Cor 3 is not
+// showing up under maturing." 1 Corinthians 3 was on the road only as the weekly plan's current
+// chapter, and the last verses were ticked by the deck (a 5 marks a verse memorized), so nothing was
+// ever recorded; when 3:23 was ticked the plan moved to chapter 4 and chapter 3 fell off the road
+// altogether. Now every NT chapter he has recorded verses in, or memorized a verse in since the road
+// began, is on the road for good — whichever door the verse came through — and its zone is derived
+// as for any other learning chapter. Only "Take it off the road" takes it off.
+function learnedSinceRoad() {
+  const r = roadStore();
+  const seedTs = dayStartTs(r.seed.day);
+  const out = new Set();
+  r.verses.forEach(e => { if (NT_ORDER.includes(e.book)) out.add(chKey(e.book, e.ch)); });
+  const log = (state.scripture && state.scripture.memLog) || {};
+  for (const book in log) {
+    if (!NT_ORDER.includes(book)) continue;
+    for (const k in log[book]) if (log[book][k] >= seedTs) out.add(chKey(book, Number(k.split('_')[0]) + 1));
+  }
+  return out;
+}
+
 function enterZone(s, zone, day, ts, o = {}) {
   s.zone = zone;
   s.since = ts;
@@ -10429,7 +10449,7 @@ function chapterState(book, ch, asOfTs = Date.now()) {
     enterZone(s, seed.zone, r.seed.day, -Infinity);
     if (seed.zone === 'active') s.count = seed.n || 0;
     if (seed.zone === 'rotation') s.rotationSince = -Infinity;
-  } else if (planFrontier().has(chKey(book, ch))) {
+  } else if (planFrontier().has(chKey(book, ch)) || learnedSinceRoad().has(chKey(book, ch))) {
     enterZone(s, 'learning', r.seed.day, -Infinity);
   }
   for (const e of eventsFor(book, ch)) {
@@ -10492,6 +10512,7 @@ function knownChapterKeys() {
   const set = new Set(Object.keys(r.seed.chapters));
   r.overrides.forEach(o => set.add(chKey(o.book, o.ch)));
   planFrontier().forEach(k => set.add(k));
+  learnedSinceRoad().forEach(k => set.add(k));
   return [...set];
 }
 function allChapters(asOfTs = Date.now()) {
@@ -11800,7 +11821,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20261108-2103'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20261108-2103';
+const BUILD_ID = '20261116-0559'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20261116-0559';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
