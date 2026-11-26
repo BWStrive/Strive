@@ -806,6 +806,9 @@ header.topbar .h-plus span { font-size: 19px; line-height: 1; margin-top: -1px; 
   border-right: 1.5px solid var(--gold); border-bottom: 1.5px solid var(--gold); transform: translateY(-3px) rotate(45deg); }
 /* ---- Up next under his three headers; the start, stage and log sheets (8 Nov 2026) ---- */
 .road-upnext .ru-group { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--text-2); padding: 12px 0 2px; border-bottom: 1px solid var(--line); }
+.road-upnext .ru-step { font-size: 11px; color: var(--text-3); padding: 8px 0 0 2px; white-space: nowrap; }
+.road-upnext .ru-gstop { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; white-space: nowrap; }
+.road-upnext .ru-gnote { letter-spacing: 0; text-transform: none; font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; }
 .road-upnext .ru-dots { flex: none; width: 36px; height: 40px; margin-right: -8px; border: 0; background: none; color: var(--text-2); font: inherit; font-size: 18px; line-height: 1; cursor: pointer; padding: 0; }
 .road-upnext .ru-actions { align-items: center; }
 .road-upnext .ru-actions .btn { flex: 0 1 auto; padding-left: 18px; padding-right: 18px; }
@@ -10185,9 +10188,20 @@ const BK = {KEEP_DAYS,KEEP_EACH_EVENT,KEEP_WEEKS,KIND_LABEL,keepIds,list,maybeDa
 //             progress carried over between days, no deadline per book. It never exits. The loop
 //             moves on only after a CLEAN run of each chapter (his ruling, 4 Nov).
 //
-// ⚑ THE TWO ANSWERS ARE CLEAN AND REDO (4 Nov; "Shaky" is retired as confusing). Clean = the run
-// counted. Redo = it did not; it is kept, the chapter stays due, and on a Maturing chapter a Redo when
-// due restarts that stage. In the data a Redo is simply a touch with clean:false.
+// ⚑ THE TWO ANSWERS ARE CLEAN AND SEND BACK (26 Nov; it was "Redo" from 4 Nov, "Shaky" before that).
+// Clean = the run counted. In the data a Send back is simply a touch with clean:false.
+//
+// ⚑⚑ SEND BACK RULES (his rulings, 26 Nov 2026 — they apply to days from SEND_BACK_FROM on):
+//   THE TEN RUNS  a Send back does not count (no penalty, it just doesn't add). Two missed days in a
+//                 row cost one banked run (3 of 10 → 2 of 10 when the second missed day ends), and
+//                 every missed day after that costs another. Every day of the week counts.
+//   LATER ON      a Send back on twice a week, once a week or the circuit sends the chapter back to
+//                 THREE CLEAN RUNS ON THREE DAYS IN A ROW. Miss a day during those three and the count
+//                 goes back to zero (no forgiveness). Then it climbs: two weeks twice a week, two weeks
+//                 once a week, back into the circuit. Another Send back on the way up starts the three
+//                 runs over again.
+//   Before 26 Nov a Redo kept the rules it was made under (on Maturing, when due, it repeated the stage;
+//   on the circuit it only left the chapter due), so his history is not rewritten.
 //
 // ⚑⚑ THE SCHEDULE IS A PURE FUNCTION OF THE EVIDENCE AND TODAY'S DATE. Nothing here stores "what is
 // due" or a queue position. The only things written are facts — a touch (this chapter, this day,
@@ -10208,6 +10222,12 @@ const ACTIVE_TOUCHES = 10;
 // Maturing stages: `need` clean touches, each at least `gap` days after the previous counted one.
 // A gap of 3 is "twice a week"; 7 is "once a week". Four weeks of each.
 const MATURE_STAGES = [{ need: 8, gap: 3, label: 'twice a week' }, { need: 4, gap: 7, label: 'once a week' }];
+// ⚑ SEND BACK (26 Nov): three clean runs on three days in a row, then the short climb back.
+const SEND_BACK_FROM = '2026-11-26';
+const SENT_BACK_DAYS = 3;
+const CLIMB_STAGES = [{ need: 4, gap: 3, label: 'twice a week' }, { need: 2, gap: 7, label: 'once a week' }];
+const stagesOf = s => (s.climb ? CLIMB_STAGES : MATURE_STAGES);
+const maxKey = (a, b) => (a > b ? a : b);
 // Big books are sat in chunks; their chapters are still tracked one by one.
 const CHUNKS = {
   '1 Corinthians': [[1, 4], [5, 8], [9, 12], [13, 16]],
@@ -10291,11 +10311,17 @@ const dayStartTs = dk => { const [y, m, d] = dk.split('-').map(Number); return n
 // One touch = one run-through of the whole chapter. `clean` false = shaky. `src` says where it
 // came from ('flash' | 'typing' | 'manual' | 'todoist'); `sid` ties it to a sitting so a re-entrant
 // summary cannot record the same sitting twice.
-function recordTouch(book, ch, clean, src = 'manual', { ts = Date.now(), sid = null } = {}) {
+// ⚑ `undone` (26 Nov): he tapped Clean off again at the end of a sitting. The touch is kept (the record
+// is append-only for sync) but counts as nothing at all — not a run, and above all not a Send back.
+function recordTouch(book, ch, clean, src = 'manual', { ts = Date.now(), sid = null, undone = false } = {}) {
   const r = roadStore();
   if (sid) {
     const prev = r.touches.find(t => t.sid === sid && t.book === book && t.ch === ch);
-    if (prev) { prev.clean = !!clean; prev.ts = ts; prev.day = keyForTs(ts); save(); return prev; }
+    if (prev) {
+      prev.clean = !!clean && !undone; prev.ts = ts; prev.day = keyForTs(ts);
+      if (undone) prev.undone = true; else delete prev.undone;
+      save(); return prev;
+    }
   }
   const t = { id: uid(), book, ch, day: keyForTs(ts), ts, clean: !!clean, src };
   if (sid) t.sid = sid;
@@ -10312,9 +10338,10 @@ function removeTouch(id) { const r = roadStore(); r.touches = r.touches.filter(t
 // road on its own (zone 'memorizing', not manual). A manual override can also SET the count:
 // `n` clean runs of ten, or a maturing `stage` and `stageCount`.
 function setZone(book, ch, zone, ts = Date.now(), extra = {}) {
-  if (!['memorizing', 'active', 'maturing', 'rotation', 'off'].includes(zone)) return null;
+  if (!['memorizing', 'active', 'sentback', 'maturing', 'rotation', 'off'].includes(zone)) return null;
   const o = { id: uid(), book, ch, zone, ts, day: keyForTs(ts) };
   if (extra.manual) o.manual = true;
+  if (extra.climb) o.climb = true;
   ['n', 'stage', 'stageCount'].forEach(k => { if (Number.isFinite(extra[k])) o[k] = Math.max(0, Math.round(extra[k])); });
   roadStore().overrides.push(o);
   save();
@@ -10344,8 +10371,8 @@ function versesRecorded(fromDay, toDay = fromDay) {
 function eventsFor(book, ch) {
   const r = roadStore();
   const ev = [];
-  r.touches.forEach(t => { if (t.book === book && t.ch === ch) ev.push({ t: 'touch', ts: t.ts, day: t.day, clean: t.clean }); });
-  r.overrides.forEach(o => { if (o.book === book && o.ch === ch) ev.push({ t: 'zone', ts: o.ts, day: o.day, zone: o.zone, manual: !!o.manual, n: o.n, stage: o.stage, stageCount: o.stageCount }); });
+  r.touches.forEach(t => { if (t.book === book && t.ch === ch && !t.undone) ev.push({ t: 'touch', ts: t.ts, day: t.day, clean: t.clean }); });
+  r.overrides.forEach(o => { if (o.book === book && o.ch === ch) ev.push({ t: 'zone', ts: o.ts, day: o.day, zone: o.zone, manual: !!o.manual, n: o.n, stage: o.stage, stageCount: o.stageCount, climb: !!o.climb }); });
   // ⚑ on the same millisecond a stage set by hand comes first: a run logged straight after setting the
   // count must land on top of it, not be wiped by it (test-road-ui caught this one in four)
   return ev.sort((a, b) => (a.ts - b.ts) || ((a.t === 'zone' ? 0 : 1) - (b.t === 'zone' ? 0 : 1)));
@@ -10420,14 +10447,21 @@ function learnedSinceRoad() {
 function enterZone(s, zone, day, ts, o = {}) {
   s.zone = zone;
   s.since = ts;
-  if (zone === 'learning') { s.count = 0; s.days = new Set(); s.manualMem = !!o.manualMem; s.enterTs = ts; }
-  if (zone === 'active') { s.count = Number.isFinite(o.n) ? Math.min(o.n, ACTIVE_TOUCHES - 1) : 0; s.days = new Set(); }
+  if (zone === 'learning') { s.count = 0; s.days = new Set(); s.manualMem = !!o.manualMem; s.enterTs = ts; s.actDay = null; }
+  if (zone === 'active') { s.count = Number.isFinite(o.n) ? Math.min(o.n, ACTIVE_TOUCHES - 1) : 0; s.days = new Set(); s.actDay = day; }
+  if (zone === 'sentback') {
+    s.sbCount = Number.isFinite(o.n) ? Math.min(o.n, SENT_BACK_DAYS - 1) : 0;
+    s.sbLast = s.sbCount > 0 ? day : null;
+    s.sentDay = day;
+  }
   if (zone === 'maturing') {
-    s.stage = Number.isFinite(o.stage) ? Math.min(o.stage, MATURE_STAGES.length - 1) : 0;
-    s.stageCount = Number.isFinite(o.stageCount) ? Math.min(o.stageCount, MATURE_STAGES[s.stage].need - 1) : 0;
+    s.climb = !!o.climb;
+    const stages = stagesOf(s);
+    s.stage = Number.isFinite(o.stage) ? Math.min(o.stage, stages.length - 1) : 0;
+    s.stageCount = Number.isFinite(o.stageCount) ? Math.min(o.stageCount, stages[s.stage].need - 1) : 0;
     s.last = day;
     // the "week N" of a stage set by hand: as if he had kept the schedule to get there
-    s.gradDay = addDaysKey(day, -(MATURE_STAGES.slice(0, s.stage).reduce((a, x) => a + x.need * x.gap, 0) + s.stageCount * MATURE_STAGES[s.stage].gap));
+    s.gradDay = addDaysKey(day, -(stages.slice(0, s.stage).reduce((a, x) => a + x.need * x.gap, 0) + s.stageCount * stages[s.stage].gap));
   }
   if (zone === 'rotation') { s.rotationSince = ts; }
 }
@@ -10436,6 +10470,19 @@ function activeTouch(s, e) {
   s.count++;
   if (s.count >= ACTIVE_TOUCHES) enterZone(s, 'maturing', e.day, e.ts);
 }
+// ⚑⚑ THE TEN RUNS DECAY (26 Nov). A day is MISSED when it ends with no run of the chapter at all — a
+// Send back is a run (it doesn't count, but it is no penalty either). The first missed day in a row is
+// free; each one after it costs a banked run. Only days from SEND_BACK_FROM on can be missed, and the
+// day in progress never is. `s.actDay` is the last day he ran it (or the day its ten runs began).
+function missedDays(fromDay, uptoDay) {          // missed days strictly between fromDay and uptoDay
+  return Math.max(0, diffDaysKeys(maxKey(addDaysKey(fromDay, 1), SEND_BACK_FROM), uptoDay));
+}
+function decay(s, uptoDay) {
+  if (s.actDay == null) return;
+  const cost = Math.max(0, missedDays(s.actDay, uptoDay) - 1);
+  if (cost) s.count = Math.max(0, s.count - cost);
+}
+function runDay(s, day) { decay(s, day); s.actDay = day; }
 
 // The chapter's state as of `asOfTs` (default now). Returns null for a chapter the road does not track.
 function chapterState(book, ch, asOfTs = Date.now()) {
@@ -10444,6 +10491,7 @@ function chapterState(book, ch, asOfTs = Date.now()) {
   const s = { book, ch, key: chKey(book, ch), zone: null, count: 0, days: new Set(), since: null };
   const seedTs = dayStartTs(r.seed.day);
   const comp = chapterCompletion(book, ch);
+  const compDay = comp == null ? null : comp === -Infinity ? r.seed.day : keyForTs(comp);
   if (seed && seedTs <= asOfTs) {
     // ⚑ his own starting state of 3 Nov is taken as he gave it: those chapters were finished
     enterZone(s, seed.zone, r.seed.day, -Infinity);
@@ -10465,41 +10513,76 @@ function chapterState(book, ch, asOfTs = Date.now()) {
     }
     if (!s.zone) continue;                 // a touch on a chapter the road does not track
     s.lastTouch = e.day;
+    const sendBack = !e.clean && e.day >= SEND_BACK_FROM;
     if (s.zone === 'learning') {
-      if (!e.clean || comp == null || e.ts <= comp) continue;      // not yet a run of the whole chapter
+      if (comp == null || e.ts <= comp) continue;                   // not yet a run of the whole chapter
       if (s.manualMem && comp < s.enterTs) continue;                // he put a finished chapter back by hand
-      activeTouch(s, e);
+      if (s.actDay == null || s.actDay < compDay) s.actDay = compDay; // its ten runs began the day it was finished
+      runDay(s, e.day);
+      if (e.clean) activeTouch(s, e);
     } else if (s.zone === 'active') {
       // ⚑ ONLY CLEAN — BUT EVERY CLEAN RUN, several a day included (his ruling, 4 Nov, reversing the
       // one-per-day rule of the first build). Maturing is where the days must be separate.
-      if (!e.clean) continue;
-      activeTouch(s, e);
+      runDay(s, e.day);
+      if (e.clean) activeTouch(s, e);
+    } else if (s.zone === 'sentback') {
+      // ⚑ THREE CLEAN RUNS ON THREE DAYS IN A ROW (26 Nov). A Send back starts them over; a day with no
+      // clean run between two clean days resets them to zero; several clean runs in one day are one day.
+      if (!e.clean) { s.sbCount = 0; s.sbLast = null; continue; }
+      if (s.sbLast === e.day) continue;
+      if (s.sbLast && diffDaysKeys(s.sbLast, e.day) > 1) s.sbCount = 0;
+      s.sbCount++;
+      s.sbLast = e.day;
+      if (s.sbCount >= SENT_BACK_DAYS) enterZone(s, 'maturing', e.day, e.ts, { climb: true });
     } else if (s.zone === 'maturing') {
-      const st = MATURE_STAGES[s.stage];
+      if (sendBack) { enterZone(s, 'sentback', e.day, e.ts); continue; }
+      const stages = stagesOf(s), st = stages[s.stage];
       const due = addDaysKey(s.last, st.gap);
       if (e.day < due) continue;           // early: a fine review, but not one of the scheduled touches
-      if (!e.clean) { s.stageCount = 0; s.last = e.day; continue; }   // stumbled when due → repeat the stage
+      if (!e.clean) { s.stageCount = 0; s.last = e.day; continue; }   // before 26 Nov: a Redo when due repeated the stage
       s.stageCount++;
       s.last = e.day;
       if (s.stageCount >= st.need) {
-        if (s.stage + 1 < MATURE_STAGES.length) { s.stage++; s.stageCount = 0; }
+        if (s.stage + 1 < stages.length) { s.stage++; s.stageCount = 0; }
         else enterZone(s, 'rotation', e.day, e.ts);
       }
+    } else if (s.zone === 'rotation') {
+      if (sendBack) enterZone(s, 'sentback', e.day, e.ts);   // it leaves the circuit; it rejoins at a later lap
     }
   }
   if (!s.zone) return null;
-  if (s.zone === 'learning') s.zone = comp != null && comp <= asOfTs && !(s.manualMem && comp < s.enterTs) ? 'active' : 'memorizing';
+  const asOfDay = keyForTs(asOfTs);
+  if (s.zone === 'learning') {
+    const onRuns = comp != null && comp <= asOfTs && !(s.manualMem && comp < s.enterTs);
+    s.zone = onRuns ? 'active' : 'memorizing';
+    if (onRuns && (s.actDay == null || s.actDay < compDay)) s.actDay = compDay;
+  }
+  if (s.zone === 'active') decay(s, asOfDay);
+  if (s.zone === 'sentback' && s.sbLast && diffDaysKeys(s.sbLast, asOfDay) > 1) s.sbCount = 0;
   const out = { book, ch, key: s.key, zone: s.zone, since: s.since, lastTouch: s.lastTouch || null };
   if (s.zone === 'memorizing') out.held = chapterHeld(book, ch);
-  if (s.zone === 'active') { out.count = s.count; out.need = ACTIVE_TOUCHES; out.touchedDays = [...s.days]; }
+  if (s.zone === 'active') {
+    out.count = s.count; out.need = ACTIVE_TOUCHES; out.touchedDays = [...s.days];
+    out.lastRunDay = s.actDay;
+    // ⚑ yesterday was missed and today has no run yet: if today ends the same way, one run goes
+    out.atRisk = s.count > 0 && s.actDay != null && missedDays(s.actDay, asOfDay) >= 1;
+  }
+  if (s.zone === 'sentback') {
+    out.count = s.sbCount; out.need = SENT_BACK_DAYS; out.lastRunDay = s.sbLast; out.sentDay = s.sentDay;
+    out.ranToday = s.sbLast === asOfDay;
+  }
   if (s.zone === 'maturing') {
-    const st = MATURE_STAGES[s.stage];
+    const stages = stagesOf(s), st = stages[s.stage];
+    out.climb = !!s.climb;
     out.stage = s.stage; out.stageCount = s.stageCount; out.stageNeed = st.need; out.stageLabel = st.label;
+    out.stages = stages.length;
     out.due = addDaysKey(s.last, st.gap);
     out.gradDay = s.gradDay;
-    // touches done across both stages, for the twelve-step trail
-    out.trailDone = s.stage * MATURE_STAGES[0].need + s.stageCount;
-    out.trailNeed = MATURE_STAGES.reduce((a, x) => a + x.need, 0);
+    out.weeks = s.climb ? 4 : 8;
+    // touches done across both stages, for the trail (twelve steps; six on the climb after a Send back)
+    out.trailDone = stages.slice(0, s.stage).reduce((a, x) => a + x.need, 0) + s.stageCount;
+    out.trailNeed = stages.reduce((a, x) => a + x.need, 0);
+    out.trailGap = stages[0].need;
   }
   if (s.zone === 'rotation') out.rotationSince = s.rotationSince;
   return out;
@@ -10629,8 +10712,12 @@ function activeItemChapters(newest, run, prevExists) {
 // he is part-way through — its memorized verses, every day), MATURING (one row per chapter: the ten
 // clean runs, then the twice- and once-a-week touches that are due), MAINTAINING (the circuit stop).
 // Each item: {key, kind, group, title, sub, book, chs, mins, done}.
-const UP_NEXT_GROUPS = [['memorizing', 'Memorizing'], ['maturing', 'Maturing'], ['maintaining', 'Maintaining']];
-const touchedAny = (book, ch, day) => roadStore().touches.some(t => t.book === book && t.ch === ch && t.day === day);
+const UP_NEXT_GROUPS = [['memorizing', 'Memorizing'], ['maturing', 'Maturing'], ['catchup', 'Catch-up'], ['maintaining', 'Maintaining']];
+// ⚑ MATURING UNDER THREE HEADINGS (26 Nov: "the 10x would be one heading, two per week, and once per
+// week … so that I can differentiate kind of where things are at"). A sent-back chapter (three days in a
+// row) is daily work, so it sits with the ten runs.
+const MATURING_STEPS = [['runs', '10 runs'], ['twice', 'Twice a week'], ['once', 'Once a week']];
+const touchedAny = (book, ch, day) => roadStore().touches.some(t => t.book === book && t.ch === ch && t.day === day && !t.undone);
 function upNextItems(today = todayKey(), nowTs = Date.now()) {
   const items = [];
   const chapters = allChapters(nowTs);
@@ -10651,21 +10738,54 @@ function upNextItems(today = todayKey(), nowTs = Date.now()) {
       mins: Math.max(1, Math.round(estimateMins(c.book, [c.ch]) * h.done / Math.max(1, h.total))),
       done: doneMarked(key, today) || touchedAny(c.book, c.ch, today) });
   });
+  // MATURING · sent back: three clean runs on three days in a row, due every day (26 Nov)
+  chapters.filter(c => c.zone === 'sentback').sort(byCanon).forEach(c => {
+    const key = 'b:' + c.key;
+    items.push({ key, kind: 'sentback', group: 'maturing', step: 'runs', book: c.book, chs: [c.ch], title: chLabel(c.book, c.ch),
+      sub: 'sent back · ' + c.count + ' of ' + SENT_BACK_DAYS + ' days in a row', mins: estimateMins(c.book, [c.ch]),
+      done: doneMarked(key, today) || touchedOn(c.book, c.ch, today) });
+  });
   // MATURING · the ten clean runs, one row per chapter
   chapters.filter(c => c.zone === 'active').sort(byCanon).forEach(c => {
     const key = 'a:' + c.key;
-    items.push({ key, kind: 'active', group: 'maturing', book: c.book, chs: [c.ch], title: chLabel(c.book, c.ch),
-      sub: c.count + ' of ' + ACTIVE_TOUCHES + ' clean runs', mins: estimateMins(c.book, [c.ch]),
+    items.push({ key, kind: 'active', group: 'maturing', step: 'runs', book: c.book, chs: [c.ch], title: chLabel(c.book, c.ch),
+      sub: c.count + ' of ' + ACTIVE_TOUCHES + ' clean runs' + (c.atRisk ? ' · missed yesterday' : ''), mins: estimateMins(c.book, [c.ch]),
       done: doneMarked(key, today) || touchedOn(c.book, c.ch, today) });
   });
   // MATURING · twice a week, then once a week, when due
   chapters.filter(c => c.zone === 'maturing' && c.due <= today).sort(byCanon).forEach(c => {
     const key = 'm:' + c.key;
-    const week = Math.min(8, Math.floor(diffDaysKeys(c.gradDay, today) / 7) + 1);
-    items.push({ key, kind: 'maturing', group: 'maturing', book: c.book, chs: [c.ch], title: chLabel(c.book, c.ch),
-      sub: c.stageLabel + ' · week ' + week, mins: estimateMins(c.book, [c.ch]),
+    const week = Math.min(c.weeks, Math.floor(diffDaysKeys(c.gradDay, today) / 7) + 1);
+    items.push({ key, kind: 'maturing', group: 'maturing', step: c.stage === 0 ? 'twice' : 'once', book: c.book, chs: [c.ch], title: chLabel(c.book, c.ch),
+      sub: 'week ' + week + (c.climb ? ' of ' + c.weeks + ' · after a send back' : ''), mins: estimateMins(c.book, [c.ch]),
       done: doneMarked(key, today) || touchedOn(c.book, c.ch, today) });
   });
+  // CATCH-UP · December (26 Nov): the book he is on, chapter by chapter; finished books weekly
+  const cu = catchup(nowTs);
+  if (cu && !cu.allDone) {
+    const b = cu.current;
+    const doneChs = b.chs.filter(ch => cleanOn(b.book, ch, today));
+    const chSubs = {};
+    b.chs.forEach((ch, i) => { chSubs[ch] = b.secs[i] != null ? 'last ' + fmtMin(b.secs[i]) : 'not timed yet'; });
+    // ⚑ 26 Nov: "it's not about a certain number of times through but about getting them under an hour" —
+    // so the note is time only: the book's total once every chapter has a time, the running total before.
+    const timeNote = !b.timed ? '' : b.timed === b.chs.length ? fmtMin(b.total) : fmtMin(b.total) + ' so far';
+    items.push({ key: 'c:' + b.id, kind: 'catchup', group: 'catchup', book: b.book, chs: b.chs.slice(), doneChs, chSubs, title: b.id,
+      sub: (timeNote ? timeNote + ' · ' : '') + b.pace, note: (timeNote ? timeNote + ' · ' : '') + b.pace, pace: b.pace, left: b.left,
+      mins: estimateMins(b.book, b.chs.filter(ch => !doneChs.includes(ch)).length ? b.chs.filter(ch => !doneChs.includes(ch)) : b.chs),
+      done: doneMarked('c:' + b.id, today) || (b.chs.length > 0 && doneChs.length === b.chs.length) });
+    cu.blocks.filter(x => x.finishedDay).forEach(x => {
+      const lastClean = ch => { let best = null; roadStore().touches.forEach(t => { if (t.book === x.book && t.ch === ch && t.clean && !t.undone && t.day < today && (!best || t.day > best)) best = t.day; }); return best; };
+      const due = x.chs.filter(ch => { const l = lastClean(ch); return !l || diffDaysKeys(l, today) >= CATCHUP.keepUpDays; });
+      if (!due.length) return;
+      const kd = due.filter(ch => cleanOn(x.book, ch, today));
+      const key = 'k:' + x.id;
+      items.push({ key, kind: 'keepup', group: 'maintaining', book: x.book, chs: due, doneChs: kd, title: x.id,
+        sub: 'weekly keep-up', note: x.id + ' · weekly', mins: estimateMins(x.book, due),
+        done: doneMarked(key, today) || kd.length === due.length });
+    });
+    return items;          // ⚑ the circuit waits while the plan runs; it carries on from where it was after
+  }
   // MAINTAINING · the rotation stop that was current when the day began
   const startOfDay = dayStartTs(today);
   const atDawn = circuit(startOfDay - 1);
@@ -10685,6 +10805,90 @@ function upNextItems(today = todayKey(), nowTs = Date.now()) {
   }
   return items;
 }
+
+
+// ---------------------------------------------------------------- the December catch-up (26 Nov 2026)
+// ⚑⚑ HIS PLAN. "All of December … finish the year being comfortable with all the books." One book (or
+// Hebrews chunk) at a time, in his order of need, worked CHAPTER BY CHAPTER: "It's not fair to say
+// First Peter, do it all in one sitting, and it takes me three hours … each individual chapter, and I
+// work on those chapters until cumulatively First Peter is less than an hour."
+//   · A chapter's TIME is its first timed run on the latest day it was run clean (from the plan's start
+//     on). The first run of a day is the cold one; a repeat straight after is still warm.
+//   · A book is FINISHED the first day every one of its chapters has such a time and they add up to
+//     under an hour. That moment sticks.
+//   · PACE: the days he gave each (26 Nov: "That day count looks good"), laid end to end from 1 Dec. A
+//     book that finishes early hands its days on; past a book's last day the count reads "behind".
+//   · While the plan is running, finished books get a WEEKLY keep-up (their chapters, once a week) in
+//     place of the circuit; the circuit carries on from where it was once every book is finished.
+// Fixed, like his other rules: constants, not settings.
+const CATCHUP = {
+  start: '2026-12-01',
+  limitSecs: 60 * 60,
+  keepUpDays: 7,
+  blocks: [
+    { id: '1 Timothy', book: '1 Timothy', from: 1, to: 6, days: 5 },
+    { id: '2 Timothy', book: '2 Timothy', from: 1, to: 4, days: 4 },
+    { id: 'Titus', book: 'Titus', from: 1, to: 3, days: 3 },
+    { id: '1 Peter', book: '1 Peter', from: 1, to: 5, days: 5 },
+    { id: 'Hebrews 1–4', book: 'Hebrews', from: 1, to: 4, days: 3 },
+    { id: 'Hebrews 5–9', book: 'Hebrews', from: 5, to: 9, days: 4 },
+    { id: 'Ephesians', book: 'Ephesians', from: 1, to: 6, days: 3 },
+    { id: 'James', book: 'James', from: 1, to: 5, days: 2 },
+  ],
+};
+const cleanOn = (book, ch, day) => roadStore().touches.some(t => t.book === book && t.ch === ch && t.day === day && t.clean && !t.undone);
+// The chapter's catch-up time in seconds as of a moment, or null.
+function catchupChapterSecs(book, ch, asOfTs = Date.now()) {
+  const fromTs = dayStartTs(CATCHUP.start);
+  const list = (((state.scripture || {}).reviewTimes || {})[book] || [])
+    .filter(e => e && e.scope && e.scope.kind === 'chapter' && e.scope.ch === ch && e.ts >= fromTs && e.ts <= asOfTs && e.secs > 0);
+  const byDay = {};
+  list.forEach(e => { const d = keyForTs(e.ts); if (!byDay[d] || e.ts < byDay[d].ts) byDay[d] = e; });
+  const days = Object.keys(byDay).sort().reverse();
+  for (const d of days) if (cleanOn(book, ch, d)) return byDay[d].secs;
+  return null;
+}
+// The chapters a block covers: those on the road and past Memorizing (a Hebrews chapter still being
+// learned joins its chunk when it is finished).
+function blockChapters(b, asOfTs) {
+  const out = [];
+  for (let ch = b.from; ch <= b.to; ch++) { const c = chapterState(b.book, ch, asOfTs); if (c && c.zone !== 'memorizing') out.push(ch); }
+  return out;
+}
+function blockMeasure(b, asOfTs, chs) {
+  const secs = chs.map(ch => catchupChapterSecs(b.book, ch, asOfTs));
+  const timed = secs.filter(x => x != null);
+  const total = timed.reduce((a, x) => a + x, 0);
+  return { chs, secs, timed: timed.length, total, under: chs.length > 0 && timed.length === chs.length && total < CATCHUP.limitSecs };
+}
+const paceText = left => left >= 1 ? left + (left === 1 ? ' day left' : ' days left') : (1 - left) + (1 - left === 1 ? ' day behind' : ' days behind');
+// The plan as of a moment: null before 1 Dec. Each block: its chapters, times, finished day, last day.
+function catchup(asOfTs = Date.now()) {
+  const today = keyForTs(asOfTs);
+  if (today < CATCHUP.start) return null;
+  let cum = 0, current = null;
+  const blocks = CATCHUP.blocks.map(b => {
+    cum += b.days;
+    const lastDay = addDaysKey(CATCHUP.start, cum - 1);
+    // finished: the first day, from the start, that ended with the block under the line (sticky)
+    const chs = blockChapters(b, asOfTs);
+    let finishedDay = null;
+    for (let d = CATCHUP.start; d <= today; d = addDaysKey(d, 1)) {
+      const at = d === today ? asOfTs : dayStartTs(addDaysKey(d, 1)) - 1;
+      if (blockMeasure(b, at, chs).under) { finishedDay = d; break; }
+    }
+    const m = blockMeasure(b, asOfTs, chs);
+    const out = { ...b, lastDay, finishedDay, ...m };
+    if (!finishedDay && !current) {
+      current = out;
+      out.left = diffDaysKeys(today, lastDay) + 1;
+      out.pace = paceText(out.left);
+    }
+    return out;
+  });
+  return { blocks, current, allDone: !current };
+}
+const fmtMin = secs => { const m = Math.round(secs / 60); return m < 60 ? m + ' min' : Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : ''); };
 
 // ---------------------------------------------------------------- the Road (memorization progress)
 function bookHeld(name) {
@@ -10872,7 +11076,7 @@ function mergeRoadEvidence(into, from) {
 }
 
 
-const RO = {ACTIVE_TOUCHES,CHUNKS,GOAL_START,LAP1_ORDER,MATURE_STAGES,NT_ORDER,SEED_DAY,SEED_HOURS,UP_NEXT_GROUPS,WEEK_GOAL,activeItemChapters,allChapters,bookHeld,byCanon,chKey,chLabel,chapterCompletion,chapterHeld,chapterState,circuit,currentBookName,currentBookNames,estimateMins,goalStatus,isTracked,itemVerseKeys,knownChapterKeys,markDone,mergeRoadEvidence,nextUnmemorized,ntProgress,planPortion,recordTouch,recordVerses,removeTouch,roadBooks,roadPlan,roadStore,setPlan,setZone,splitChKey,touchForSitting,unmarkDone,upNextItems,verseKey,verseMemorized,versesRecorded};
+const RO = {ACTIVE_TOUCHES,CATCHUP,CHUNKS,CLIMB_STAGES,GOAL_START,LAP1_ORDER,MATURE_STAGES,MATURING_STEPS,NT_ORDER,SEED_DAY,SEED_HOURS,SEND_BACK_FROM,SENT_BACK_DAYS,UP_NEXT_GROUPS,WEEK_GOAL,activeItemChapters,allChapters,bookHeld,byCanon,catchup,catchupChapterSecs,chKey,chLabel,chapterCompletion,chapterHeld,chapterState,circuit,currentBookName,currentBookNames,estimateMins,goalStatus,isTracked,itemVerseKeys,knownChapterKeys,markDone,mergeRoadEvidence,nextUnmemorized,ntProgress,planPortion,recordTouch,recordVerses,removeTouch,roadBooks,roadPlan,roadStore,setPlan,setZone,splitChKey,touchForSitting,unmarkDone,upNextItems,verseKey,verseMemorized,versesRecorded};
 // Strive — Up next and Todoist (4 Nov 2026).
 //
 // ⚑ WHAT IT DOES. Each of today's Up next items becomes a Todoist task (due today, label "strive").
@@ -10939,7 +11143,7 @@ function todoistEntries(items) {
   const out = [];
   items.forEach(it => {
     out.push(it);
-    if (it.kind !== 'rotation' || !Array.isArray(it.chs) || it.chs.length < 2) return;
+    if (!['rotation', 'catchup', 'keepup'].includes(it.kind) || !Array.isArray(it.chs) || it.chs.length < 2) return;
     const done = new Set(it.doneChs || []);
     it.chs.forEach(ch => out.push({ key: it.key + '#' + ch, kind: 'chapter', chapterOf: it, book: it.book, chs: [ch], ch,
       title: it.book + ' ' + ch, sub: '', mins: 0, done: it.done || done.has(ch) }));
@@ -10989,9 +11193,9 @@ async function syncTodoist({ force = false, today = todayKey(), fetchImpl = glob
         changed = true;
         continue;
       }
-      if (it.kind === 'rotation') stopsClosed.add(it.key);
+      if (['rotation', 'catchup', 'keepup'].includes(it.kind)) stopsClosed.add(it.key);
       if (tdTick) tdTick(it, 'todoist');
-      else if (it.kind === 'active' || it.kind === 'maturing') it.chs.forEach(ch => recordTouch(it.book, ch, true, 'todoist'));
+      else if (it.kind === 'active' || it.kind === 'sentback' || it.kind === 'maturing') it.chs.forEach(ch => recordTouch(it.book, ch, true, 'todoist'));
       markDone(key, today);
       changed = true;
     }
@@ -11821,7 +12025,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20261116-0559'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20261116-0559';
+const BUILD_ID = '20261126-1615'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20261126-1615';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -26808,7 +27012,8 @@ function enablePlusReorder(list) {
 // ⚑ UP NEXT TAKES NO SPACE WHEN IT IS EMPTY (his words: "that section gets smaller and can be
 // completely empty and taking no space when everything from that day has been completed").
 // ⚑ HIS RULINGS OF 4 NOV (afternoon, by voice): tapping an item STARTS it; a small circle on the LEFT
-// of each row marks it done and counts as Clean; the two answers are Clean and Redo ("Shaky" is gone);
+// of each row marks it done and counts as Clean; the two answers are Clean and Send back (26 Nov; it
+// was Redo from 4 Nov, and "Shaky" before that);
 // the traveler is small and walks the path itself.
 const ROAD_TRAVELER_PX = 30;         // on-screen height on a phone; he asked to compare 30 and 40
 var roadVisHooked = false;           // var, not let: the dashboard can draw before this line runs
@@ -26822,7 +27027,6 @@ function roadFmtMins(m) {
 }
 function roadBook(name) { return allBooks.find(b => b.name === name) || null; }
 
-const roadOpenStops = new Set();   // circuit stops opened into their chapters, kept across redraws
 function upNextCard() {
   let items;
   try { items = RO.upNextItems(); } catch (e) { console.warn('up next failed', e); return null; }
@@ -26836,16 +27040,40 @@ function upNextCard() {
       <button class="ru-main" data-a="go"><span class="ru-title">${esc(i.title)}</span><span class="ru-sub">${esc(i.sub)}</span></button>
       ${i.kind === 'rotation' ? '' : `<button class="ru-dots" data-a="dots" aria-label="${i.kind === 'new' ? 'Log verses in ' : 'Change '}${esc(i.title)}">⋯</button>`}
     </div>`;
+  // ⚑⚑ MAINTAINING IS CHAPTERS, NOT A BOOK (26 Nov, his words: "it needs to do 2 Timothy 1, 2 Timothy 2,
+  // 2 Timothy 3, 2 Timothy 4, individual chapters", "the time being taken cumulatively from all the
+  // chapters"). The stop stays one item underneath — the circuit, Todoist's task-with-subtasks and the
+  // stop's own key are unchanged — but it is drawn as one row per chapter not yet clean on this lap, each
+  // with its own circle, start and ⋯, under a header carrying the stop and the time left on it.
+  const chRow = (it, ch) => `<div class="ru-row ru-ch" data-k="${esc(it.key)}" data-ch="${ch}">
+      <button class="ru-check" data-a="chdone" aria-label="Mark ${esc(it.book + ' ' + ch)} clean"><span></span></button>
+      <button class="ru-main" data-a="chgo"><span class="ru-title">${esc(it.book + ' ' + ch)}</span><span class="ru-sub">${esc((it.chSubs && it.chSubs[ch]) || 'about ' + roadFmtMins(RO.estimateMins(it.book, [ch])))}</span></button>
+      <button class="ru-dots" data-a="chdots" aria-label="Change ${esc(it.book + ' ' + ch)}">⋯</button>
+    </div>`;
+  const stopChs = it => it.chs.filter(ch => !(it.doneChs || []).includes(ch));
+  // ⚑ CATCH-UP (December, 26 Nov): "you're working on 1 Timothy right now", its chapters underneath, and
+  // beside the book in lighter print the time so far and "5 days left" / "1 day behind".
+  const chapterBlock = (it, label, note) => `<div class="ru-group ru-gstop"><span>${esc(label)}</span><span class="ru-gnote">${esc(note)}</span></div>${stopChs(it).map(ch => chRow(it, ch)).join('')}`;
   const groups = RO.UP_NEXT_GROUPS.map(([g, label]) => {
     const rows = left.filter(i => i.group === g);
-    return rows.length ? `<div class="ru-group">${label}</div>${rows.map(row).join('')}` : '';
+    if (!rows.length) return '';
+    if (g === 'maturing') {
+      // ⚑ three headings under Maturing (26 Nov): 10 runs · Twice a week · Once a week
+      return `<div class="ru-group">${label}</div>` + RO.MATURING_STEPS.map(([k, l]) => {
+        const rs = rows.filter(i => i.step === k);
+        return rs.length ? `<div class="ru-step">${l}</div>${rs.map(row).join('')}` : '';
+      }).join('');
+    }
+    if (g === 'catchup') return rows.map(it => chapterBlock(it, label + ' · ' + it.title, it.note)).join('');
+    if (g === 'maintaining') return rows.map(it => chapterBlock(it, label, it.kind === 'keepup' ? it.note + ' · about ' + roadFmtMins(it.mins) : it.book + ' · about ' + roadFmtMins(it.mins))).join('');
+    return `<div class="ru-group">${label}</div>${rows.map(row).join('')}`;
   }).join('');
   const card = h(`<div class="card road-upnext" id="d-upnext">
       <div class="ru-head"><span class="ru-label">Up next</span><span class="ru-time">about ${roadFmtMins(mins)}</span></div>
       ${groups}
       <div class="ru-actions"><button class="btn secondary" id="ru-log">Log verses</button><button class="ru-road" id="ru-road">The Road ›</button></div>
     </div>`).firstElementChild;
-  card.querySelectorAll('.ru-row').forEach(r => {
+  card.querySelectorAll('.ru-row:not(.ru-ch)').forEach(r => {
     const it = left.find(i => i.key === r.dataset.k);
     if (!it) return;
     r.querySelector('[data-a=go]').onclick = () => roadStartSheet(it);
@@ -26862,33 +27090,19 @@ function upNextCard() {
       if (c) roadStageSheet(c);
     };
   });
-  // ⚑ A CIRCUIT STOP OPENS INTO ITS CHAPTERS (4 Nov): each with its own circle (a clean run of that
-  // chapter alone) and its own start. The stop's own circle still finishes every chapter left.
-  left.filter(i => i.kind === 'rotation' && i.chs.length > 1).forEach(it => {
-    const r = [...card.querySelectorAll('.ru-row')].find(x => x.dataset.k === it.key);
-    if (!r) return;
-    const open = roadOpenStops.has(it.key);
-    const more = h(`<button class="ru-more" data-a="more" aria-expanded="${open}" aria-label="${open ? 'Hide' : 'Show'} the chapters of ${esc(it.title)}">${it.chs.length} ch <span class="ru-caret${open ? ' open' : ''}">›</span></button>`).firstElementChild;
-    more.onclick = () => { if (roadOpenStops.has(it.key)) roadOpenStops.delete(it.key); else roadOpenStops.add(it.key); rerender(); };
-    r.append(more);
-    if (!open) return;
-    const done = new Set(it.doneChs || []);
-    const list = h(`<div class="ru-chs">${it.chs.map(ch => `<div class="ru-row ru-ch${done.has(ch) ? ' ru-done' : ''}" data-ch="${ch}">
-        <button class="ru-check" data-a="chdone" aria-label="${done.has(ch) ? esc(it.book + ' ' + ch) + ' is done' : 'Mark ' + esc(it.book + ' ' + ch) + ' clean'}"${done.has(ch) ? ' disabled' : ''}><span></span></button>
-        <button class="ru-main" data-a="chgo"><span class="ru-title">${esc(it.book + ' ' + ch)}</span><span class="ru-sub">${done.has(ch) ? 'clean this lap' : 'about ' + roadFmtMins(RO.estimateMins(it.book, [ch]))}</span></button>
-      </div>`).join('')}</div>`).firstElementChild;
-    list.querySelectorAll('.ru-ch').forEach(cr => {
-      const ch = Number(cr.dataset.ch);
-      cr.querySelector('[data-a=chgo]').onclick = () => roadStartSheet({ ...it, chs: [ch], key: it.key + '#' + ch, title: it.book + ' ' + ch });
-      if (done.has(ch)) return;
-      cr.querySelector('[data-a=chdone]').onclick = () => {
-        cr.classList.add('ru-done');
-        RO.recordTouch(it.book, ch, true, 'manual');
-        toast(it.book + ' ' + ch + ' — clean');
-        roadAfterChange();
-      };
-    });
-    r.parentNode.insertBefore(list, r.nextSibling || null);
+  // the circuit's chapter rows: start, circle (a clean run of that chapter alone) and ⋯ (Send it back lives there)
+  card.querySelectorAll('.ru-ch').forEach(cr => {
+    const it = left.find(i => i.key === cr.dataset.k);
+    if (!it) return;
+    const ch = Number(cr.dataset.ch);
+    cr.querySelector('[data-a=chgo]').onclick = () => roadStartSheet({ ...it, chs: [ch], key: it.key + '#' + ch, title: it.book + ' ' + ch, mins: RO.estimateMins(it.book, [ch]) });
+    cr.querySelector('[data-a=chdone]').onclick = () => {
+      cr.classList.add('ru-done');
+      RO.recordTouch(it.book, ch, true, 'manual');
+      toast(it.book + ' ' + ch + ' — clean');
+      roadAfterChange();
+    };
+    cr.querySelector('[data-a=chdots]').onclick = () => { const c = RO.chapterState(it.book, ch); if (c) roadStageSheet(c); };
   });
   card.querySelector('#ru-log').onclick = () => roadLogSheet();
   card.querySelector('#ru-road').onclick = () => switchTab('road');
@@ -26942,7 +27156,9 @@ function roadStageSheet(c0) {
       const cur = !c ? null : c.zone === 'maturing' ? 'm' + c.stage : c.zone;
       const held = RO.chapterHeld(book, ch);
       const where = !c ? 'Not on the road.' : c.zone === 'memorizing' ? `Memorizing · verses ${held.label || 'none yet'} · ${held.done} of ${held.total}`
-        : c.zone === 'active' ? `${c.count} of ${c.need} clean runs` : c.zone === 'maturing' ? `${c.stageLabel} · ${c.stageCount} of ${c.stageNeed} this stage · next ${c.due <= todayKey() ? 'today' : shortDate(c.due)}` : 'On the circuit';
+        : c.zone === 'active' ? `${c.count} of ${c.need} clean runs${c.atRisk ? ' · missed yesterday: run it today to keep them' : ''}`
+        : c.zone === 'sentback' ? `Sent back · ${c.count} of ${c.need} clean days in a row${c.ranToday ? ' · done today' : ''}`
+        : c.zone === 'maturing' ? `${c.stageLabel}${c.climb ? ' (after a send back)' : ''} · ${c.stageCount} of ${c.stageNeed} this stage · next ${c.due <= todayKey() ? 'today' : shortDate(c.due)}` : 'On the circuit';
       body.append(h(`<div class="muted" style="font-size:13px;margin:0 2px 10px">${esc(where)}</div>`));
       const st = h(`<div class="rs-stages">${ROAD_STAGES.map(([k, l]) => `<button class="pill${k === cur ? ' on' : ''}" data-z="${k}">${l}</button>`).join('')}</div>`).firstElementChild;
       st.querySelectorAll('[data-z]').forEach(b => b.onclick = () => {
@@ -26953,10 +27169,10 @@ function roadStageSheet(c0) {
         dirty(); draw();
       });
       body.append(st);
-      if (c && (c.zone === 'active' || c.zone === 'maturing')) {
-        const isA = c.zone === 'active';
-        const k = isA ? c.count : c.stageCount, need = isA ? c.need : c.stageNeed;
-        const step = h(`<div class="rs-step"><span class="rs-l">${isA ? 'Clean runs' : 'This stage'}</span>
+      if (c && (c.zone === 'active' || c.zone === 'sentback' || c.zone === 'maturing')) {
+        const isA = c.zone === 'active', isB = c.zone === 'sentback';
+        const k = isA || isB ? c.count : c.stageCount, need = isA || isB ? c.need : c.stageNeed;
+        const step = h(`<div class="rs-step"><span class="rs-l">${isA ? 'Clean runs' : isB ? 'Days in a row' : 'This stage'}</span>
             <button class="pill" data-d="-1" aria-label="One fewer"${k <= 0 ? ' disabled' : ''}>−</button>
             <span class="rs-n">${k} of ${need}</span>
             <button class="pill" data-d="1" aria-label="One more">+</button></div>`).firstElementChild;
@@ -26966,10 +27182,12 @@ function roadStageSheet(c0) {
           if (n >= need) {
             // one more than the stage needs moves it on, exactly as a counted run would
             if (isA) RO.setZone(book, ch, 'maturing', Date.now(), { manual: true, stage: 0, stageCount: 0 });
-            else if (c.stage + 1 < RO.MATURE_STAGES.length) RO.setZone(book, ch, 'maturing', Date.now(), { manual: true, stage: c.stage + 1, stageCount: 0 });
+            else if (isB) RO.setZone(book, ch, 'maturing', Date.now(), { manual: true, stage: 0, stageCount: 0, climb: true });
+            else if (c.stage + 1 < c.stages) RO.setZone(book, ch, 'maturing', Date.now(), { manual: true, stage: c.stage + 1, stageCount: 0, climb: c.climb });
             else RO.setZone(book, ch, 'rotation', Date.now(), { manual: true });
           } else if (isA) RO.setZone(book, ch, 'active', Date.now(), { manual: true, n });
-          else RO.setZone(book, ch, 'maturing', Date.now(), { manual: true, stage: c.stage, stageCount: n });
+          else if (isB) RO.setZone(book, ch, 'sentback', Date.now(), { manual: true, n });
+          else RO.setZone(book, ch, 'maturing', Date.now(), { manual: true, stage: c.stage, stageCount: n, climb: c.climb });
           dirty(); draw();
         });
         body.append(step);
@@ -26978,6 +27196,18 @@ function roadStageSheet(c0) {
         const run = h(`<button class="btn secondary">${c.zone === 'memorizing' ? 'Reviewed today' : 'Log a clean run now'}</button>`).firstChild;
         run.onclick = () => { RO.recordTouch(book, ch, true, 'manual'); toast(book + ' ' + ch + (c.zone === 'memorizing' ? ' — reviewed' : ' — clean run logged')); dirty(); draw(); };
         body.append(run);
+      }
+      // ⚑ SEND IT BACK BY HAND (26 Nov): for a run done away from Strive. Only where a Send back moves
+      // something — twice a week, once a week, the circuit, or the three days in a row.
+      if (c && (c.zone === 'maturing' || c.zone === 'rotation' || c.zone === 'sentback')) {
+        const sb = h(`<button class="btn secondary">Send it back</button>`).firstChild;
+        sb.onclick = () => {
+          if (!confirm(`Send ${book} ${ch} back? It needs three clean runs on three days in a row, then two weeks twice a week and two weeks once a week before the circuit.`)) return;
+          RO.recordTouch(book, ch, false, 'manual');
+          toast(book + ' ' + ch + ' — sent back');
+          dirty(); draw();
+        };
+        body.append(sb);
       }
       const lg = h(`<button class="btn secondary">Log verses in ${esc(book + ' ' + ch)}</button>`).firstChild;
       lg.onclick = () => { close(); roadLogSheet(book, ch); };
@@ -27094,6 +27324,10 @@ function roadAfterChange() {
 function roadCompleteItem(item, src = 'manual') {
   if (item.kind === 'new') {
     roadMarkVerses(item.book, item.keys || [], true);
+  } else if (item.kind === 'catchup' || item.kind === 'keepup') {
+    // the book's own tick (Todoist): a clean run of each chapter not yet run clean today
+    const have = new Set(item.doneChs || []);
+    item.chs.filter(ch => !have.has(ch)).forEach(ch => RO.recordTouch(item.book, ch, true, src));
   } else if (item.kind === 'rotation') {
     const c = RO.circuit();
     const live = (c.stops || []).find(s => s.book === item.book && s.chs.join() === item.chs.join());
@@ -27140,37 +27374,37 @@ function roadBegin(item, btn, mode = 'flash', order = 'inorder') {
   launchScopeMode(t, mode, 'whole', RV.TRAIN, btn || null, order);
 }
 
-// ⚑ THE END OF A SITTING ASKS, ONCE (his ruling): Clean or Redo for each chapter he went all the way
-// through, and for today's new verses if this sitting was them. Typing at or above his threshold
-// arrives already answered Clean; he can change it.
+// ⚑ THE END OF A SITTING ASKS, ONCE (his ruling): for each chapter he went all the way through, and for
+// today's new verses if this sitting was them. ⚑⚑ 26 Nov: JUST CLEAN — "I click clean if it was clean. If
+// not, I don't log it." One button per row that he taps on (and can tap off again). Typing at or above
+// his threshold, and a deck rated all 4s and 5s, arrive already on. Leaving it off records nothing;
+// sending a chapter back is done from its ⋯ (Send it back), never from here.
 function roadAskCard(ask) {
   const n = ask.chs.length + (ask.newItem ? 1 : 0);
   const card = h(`<div class="card road-ask"><h3>The Road</h3>
-      <div class="muted" style="font-size:11px;margin-bottom:6px">How did ${n === 1 ? 'it' : 'they'} go? Clean counts. Redo means it needs doing again${ask.newItem ? ' — new verses are marked memorized only when Clean' : ''}.</div>
+      <div class="muted" style="font-size:11px;margin-bottom:6px">Tap Clean for each one that ran clean. Leave it if it didn't — it simply isn't logged${ask.newItem ? '. New verses are marked memorized only when Clean' : ''}.</div>
     </div>`).firstElementChild;
   const pair = (label) => h(`<div class="ra-row"><span class="ra-ch">${esc(label)}</span>
-      <button class="pill" data-c="1">Clean</button><button class="pill" data-c="0">Redo</button></div>`).firstElementChild;
+      <button class="pill" data-c="1">Clean</button></div>`).firstElementChild;
   if (ask.newItem) {
     const it = ask.newItem;
     const row = pair('New: ' + it.title);
     const paint = () => {
       const a = roadNewAnswers[ask.sid];
-      row.querySelectorAll('[data-c]').forEach(b => b.classList.toggle('on', !!a && (b.dataset.c === '1') === (a.ans === 'clean')));
+      row.querySelector('[data-c]').classList.toggle('on', !!a && a.ans === 'clean');
     };
     row.querySelectorAll('[data-c]').forEach(b => b.onclick = () => {
       const prev = roadNewAnswers[ask.sid];
-      if (b.dataset.c === '1') {
-        if (!(prev && prev.ans === 'clean')) {
-          const marked = roadMarkVerses(it.book, it.keys || [], true);
-          RO.markDone(it.key);
-          roadNewAnswers[ask.sid] = { ans: 'clean', marked };
-        }
+      if (!(prev && prev.ans === 'clean')) {
+        const marked = roadMarkVerses(it.book, it.keys || [], true);
+        RO.markDone(it.key);
+        roadNewAnswers[ask.sid] = { ans: 'clean', marked };
       } else {
-        // ⚑ REDO MEANS NOT MEMORIZED — including verses the deck itself marked off a 5. Today's portion was
-        // worked out from verses he had NOT memorized, so taking all of them back off is exact.
+        // ⚑ TAPPING CLEAN OFF MEANS NOT MEMORIZED — including verses the deck itself marked off a 5. Today's
+        // portion was worked out from verses he had NOT memorized, so taking all of them back off is exact.
         roadMarkVerses(it.book, it.keys || [], false);
         RO.unmarkDone(it.key);
-        roadNewAnswers[ask.sid] = { ans: 'redo', marked: [] };
+        roadNewAnswers[ask.sid] = { ans: 'off', marked: [] };
       }
       paint();
       roadKickTodoist(true);
@@ -27182,10 +27416,12 @@ function roadAskCard(ask) {
     const row = pair(ask.book + ' ' + ch);
     const paint = () => {
       const t = RO.touchForSitting(ask.book, ch, ask.sid);
-      row.querySelectorAll('[data-c]').forEach(b => b.classList.toggle('on', !!t && (b.dataset.c === '1') === t.clean));
+      row.querySelector('[data-c]').classList.toggle('on', !!t && t.clean && !t.undone);
     };
     row.querySelectorAll('[data-c]').forEach(b => b.onclick = () => {
-      RO.recordTouch(ask.book, ch, b.dataset.c === '1', ask.src || 'flash', { sid: ask.sid });
+      const t = RO.touchForSitting(ask.book, ch, ask.sid);
+      // on → a clean run; off again → the run is withdrawn (kept as evidence, counted as nothing — never a Send back)
+      RO.recordTouch(ask.book, ch, true, ask.src || 'flash', { sid: ask.sid, undone: !!(t && t.clean && !t.undone) });
       paint();
       roadKickTodoist(true);
     });
@@ -27223,7 +27459,7 @@ function flashRoadAsk(d, session) {
   const chs = newItem ? [] : Object.keys(rated).map(Number).sort((a, b) => a - b).map(ci => ci + 1)
     .filter(ch => { const want = roadExpectedKeys(book, ch); return want.length && want.every(k => doneKeys.has(k)); });
   // ⚑ LIKE TYPING AT HIS THRESHOLD: a chapter where he rated every card 4 or 5 arrives already answered
-  // Clean (he can still switch it to Redo). His Hebrews 9 sitting of 7 Nov was all 5s and never counted,
+  // Clean (he can still tap it off). His Hebrews 9 sitting of 7 Nov was all 5s and never counted,
   // because the question was left unanswered.
   chs.forEach(ch => {
     const rs = rated[ch - 1] || [];
@@ -27647,13 +27883,21 @@ function circuitBody() {
   }
   wrap.append(lt);
 
-  const mat = RO.allChapters().filter(x => x.zone === 'maturing').sort(RO.byCanon);
+  const mat = RO.allChapters().filter(x => x.zone === 'maturing' || x.zone === 'sentback').sort(RO.byCanon);
   const mc = h(`<div class="road-camps"><div class="road-sec"><h3>Maturing</h3><span class="muted">eight weeks, then the circuit</span></div></div>`).firstElementChild;
   if (!mat.length) mc.append(h(`<div class="muted" style="padding:10px 0">No chapter is maturing yet. A chapter arrives here after ten clean runs.</div>`));
   mat.forEach(x => {
+    if (x.zone === 'sentback') {
+      // ⚑ 26 Nov: sent back — three pips, one per clean day in a row
+      const row = h(`<button class="road-camp"><span class="rc-name"><span>${esc(x.book + ' ' + x.ch)}</span><span class="muted"${x.ranToday ? '' : ' style="color:var(--gold)"'}>sent back · ${x.ranToday ? 'done today' : 'due today'}</span></span>
+          <span class="road-pips">${Array.from({ length: x.need }, (_, i) => `<span class="road-pip${i < x.count ? ' on' : ''}${i === x.count && !x.ranToday ? ' due' : ''}"></span>`).join('')}</span></button>`).firstElementChild;
+      row.onclick = () => roadStageSheet(x);
+      mc.append(row);
+      return;
+    }
     const due = x.due <= todayKey();
     const row = h(`<button class="road-camp"><span class="rc-name"><span>${esc(x.book + ' ' + x.ch)}</span><span class="muted"${due ? ' style="color:var(--gold)"' : ''}>${due ? 'due today' : 'next ' + shortDate(x.due)}</span></span>
-        <span class="road-pips">${Array.from({ length: x.trailNeed }, (_, i) => `<span class="road-pip${i < x.trailDone ? ' on' : ''}${i === x.trailDone && due ? ' due' : ''}${i === 8 ? ' gap' : ''}"></span>`).join('')}</span></button>`).firstElementChild;
+        <span class="road-pips">${Array.from({ length: x.trailNeed }, (_, i) => `<span class="road-pip${i < x.trailDone ? ' on' : ''}${i === x.trailDone && due ? ' due' : ''}${i === x.trailGap ? ' gap' : ''}"></span>`).join('')}</span></button>`).firstElementChild;
     row.onclick = () => roadStageSheet(x);
     mc.append(row);
   });
