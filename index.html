@@ -440,6 +440,11 @@ header.topbar .avatar {
 .list-item .grow { flex: 1 1 auto; min-width: 0; }
 .list-item .title { font-size: 15px; font-weight: 600; }
 .list-item .sub { font-size: 13px; color: var(--text-2); margin-top: 2px; }
+/* ⚑ THE PLAN DAY LIST IS ONE LINE PER ROW (26 Nov; his standing rule — mobile-first, single row, no
+   wrapping). A long title or subtitle ends in an ellipsis instead of folding into a narrow column, and
+   nothing beside the text (handle, circle, icon, mode pill, Skip) may be squeezed: only the text gives. */
+#day-drag .list-item > :not(.grow) { flex-shrink: 0; }
+#day-drag .list-item .title, #day-drag .list-item .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* ⚑ ANCHORED TO THE CARD EDGE (design review, 18 Sep). The chevron used to sit in the text
    flow, so it slid left and right with the title length — measured across ten consecutive
    Logbook rows it landed anywhere from x=256 to x=359 inside a card whose right edge is a
@@ -725,11 +730,9 @@ body.immersive .save-alarm { bottom: calc(12px + env(safe-area-inset-bottom, 0px
 .road-upnext .ru-more { flex: none; border: 0; background: none; color: var(--gold); font: inherit; font-size: 12px; white-space: nowrap; padding: 10px 0 9px 4px; cursor: pointer; }
 .road-upnext .ru-caret { display: inline-block; margin-left: 2px; transition: transform .15s; }
 .road-upnext .ru-caret.open { transform: rotate(90deg); }
-.road-upnext .ru-chs { padding-left: 26px; }
-.road-upnext .ru-ch .ru-title { font-size: 14px; font-weight: 500; }
-.road-upnext .ru-ch .ru-check span { width: 16px; height: 16px; }
+/* ⚑ 26 Nov: circuit and catch-up chapters are rows in their own right now (no longer tucked under a
+   book row), so they wear the same circle and title as every other row — one look for one kind of thing. */
 .road-upnext .ru-ch.ru-done .ru-title { color: var(--text-2); }
-.road-upnext .ru-ch .ru-check[disabled] { cursor: default; }
 .road-upnext .ru-actions { display: flex; gap: 10px; flex-wrap: nowrap; margin-top: 12px; }
 .road-upnext .ru-actions .btn { margin-top: 0; flex: 1; white-space: nowrap; }
 .road-upnext .ru-actions .btn:first-child { flex: 1.4; }
@@ -9946,10 +9949,11 @@ function paceNudges(dk, today = todayKey()) {
     const info = readPaceInfo(b, dk, today);
     if (info) out.push({ kind: 'pace', id: 'pace-rd-' + b.id, domain: 'Reading', title: b.title, unit: 'pages', info, readonly: true, goto: { t: 'book', id: b.id } });
   });
-  SC.currentItems().filter(it => it.due).forEach(it => {
-    const info = memPaceInfo(it, dk, today);
-    if (info) out.push({ kind: 'pace', id: 'pace-sc-' + it.id, domain: 'Memorize', title: it.ch == null ? it.book : it.book + ' ' + it.ch, unit: 'verses', info, readonly: true, goto: { t: 'mem', book: it.book, ch: it.ch } });
-  });
+  // ⚑ 26 NOV: NO MEMORIZE ROWS ON THE PLAN. Scripture memorization is driven by the Road's weekly plan
+  // and shown under Up next → Memorizing; a second row here ("Hebrews · Memorize · 7 verses/day · 44 days
+  // behind") paced the same book off a different rule and said something else. His call: take it off.
+  // The finish-by date and its pace readout stay where he set them — Study's Currently Memorizing card
+  // and the book screen (`memPaceInfo` is unchanged).
   CR.docs().forEach(d => {
     const info = creedPaceInfo(d.id, dk, today);
     if (info) out.push({ kind: 'pace', id: 'pace-cr-' + d.id, domain: 'Creeds', title: d.name, unit: 'sections', info, readonly: true, goto: { t: 'creed', id: d.id } });
@@ -10749,7 +10753,8 @@ function upNextItems(today = todayKey(), nowTs = Date.now()) {
   chapters.filter(c => c.zone === 'active').sort(byCanon).forEach(c => {
     const key = 'a:' + c.key;
     items.push({ key, kind: 'active', group: 'maturing', step: 'runs', book: c.book, chs: [c.ch], title: chLabel(c.book, c.ch),
-      sub: c.count + ' of ' + ACTIVE_TOUCHES + ' clean runs' + (c.atRisk ? ' · missed yesterday' : ''), mins: estimateMins(c.book, [c.ch]),
+      // (the warning takes the place of "clean runs" so the row still fits on one line)
+      sub: c.count + ' of ' + ACTIVE_TOUCHES + (c.atRisk ? ' · missed yesterday' : ' clean runs'), mins: estimateMins(c.book, [c.ch]),
       done: doneMarked(key, today) || touchedOn(c.book, c.ch, today) });
   });
   // MATURING · twice a week, then once a week, when due
@@ -10821,12 +10826,15 @@ function upNextItems(today = todayKey(), nowTs = Date.now()) {
 //   · While the plan is running, finished books get a WEEKLY keep-up (their chapters, once a week) in
 //     place of the circuit; the circuit carries on from where it was once every book is finished.
 // Fixed, like his other rules: constants, not settings.
+// ⚑ 26 Nov, evening: "Make the December review start tomorrow. Just add more days to 1 Timothy and then
+// if I get ahead it will only help." So it starts Fri 27 Nov and 1 Timothy has 9 days (to 5 Dec); every
+// later book keeps the last day it had.
 const CATCHUP = {
-  start: '2026-12-01',
+  start: '2026-11-27',
   limitSecs: 60 * 60,
   keepUpDays: 7,
   blocks: [
-    { id: '1 Timothy', book: '1 Timothy', from: 1, to: 6, days: 5 },
+    { id: '1 Timothy', book: '1 Timothy', from: 1, to: 6, days: 9 },
     { id: '2 Timothy', book: '2 Timothy', from: 1, to: 4, days: 4 },
     { id: 'Titus', book: 'Titus', from: 1, to: 3, days: 3 },
     { id: '1 Peter', book: '1 Peter', from: 1, to: 5, days: 5 },
@@ -12025,7 +12033,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20261126-1615'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20261126-1615';
+const BUILD_ID = '20261126-2041'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20261126-2041';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
