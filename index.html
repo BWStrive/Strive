@@ -10244,6 +10244,18 @@ const NT_ORDER = ['Matthew', 'Mark', 'Luke', 'John', 'Acts', 'Romans', '1 Corint
 // His ruling (3 Nov): the FIRST lap starts at 1 Timothy and Ephesians comes last. Later laps run in
 // canonical order from the first book in the loop.
 const LAP1_ORDER = ['1 Timothy', '2 Timothy', 'Titus', 'Hebrews', 'James', '1 Peter', '1 Corinthians', 'Ephesians'];
+// ⚑ 27 Nov: "start … in Hebrews 1 through 4, and then go 5 through 9, and then I'd like to just keep going
+// in the circuit from there, then do James … then 1 Peter, then it's Ephesians, then 1 Timothy, 2 Timothy,
+// Titus." Laps after the first run in canon order STARTING AT HEBREWS and wrapping round.
+const CIRCUIT_FROM = 'Hebrews';
+// ⚑⚑ THE TIME RULE (27 Nov), standing — for the catch-up and for every Maintaining lap after it:
+// "if they're four chapters or less, so like Hebrews 1 through 4 or the book of Titus … under 45 minutes,
+// and if they're five chapters or more … under an hour." And on the circuit: "say 1 Timothy in February
+// takes me an hour and five minutes, I have to repeat it, so it doesn't just go to the next book … it
+// should stay that way until I get under an hour." A chunk's size is its whole range (Hebrews 5–9 is five
+// chapters even while 9 is still maturing). Before `start` the circuit moved on without times, as it did.
+const TIME_RULE = { start: '2026-11-27', shortChs: 4, shortSecs: 45 * 60, longSecs: 60 * 60 };
+const limitFor = size => (size <= TIME_RULE.shortChs ? TIME_RULE.shortSecs : TIME_RULE.longSecs);
 const SEED_DAY = '2026-11-03';
 // His starting state, 3 Nov 2026. `n` = clean touches already earned (1 Corinthians 1 had three).
 const SEED_ROTATION_BOOKS = ['Ephesians', '1 Timothy', '2 Timothy', 'Titus', 'James', '1 Peter'];
@@ -10616,29 +10628,80 @@ function stopsFrom(chapters, lapIndex) {
   let order;
   if (lapIndex === 0) {
     order = LAP1_ORDER.filter(b => byBook[b]).concat(canon.filter(b => !LAP1_ORDER.includes(b)));
-  } else order = canon;
+  } else {
+    const from = NT_ORDER.indexOf(CIRCUIT_FROM);
+    const i0 = canon.findIndex(b => NT_ORDER.indexOf(b) >= from);
+    order = i0 > 0 ? canon.slice(i0).concat(canon.slice(0, i0)) : canon;
+  }
   const stops = [];
   order.forEach(book => {
     const chs = byBook[book].slice().sort((a, b) => a - b);
     const chunks = CHUNKS[book];
-    if (!chunks) { stops.push({ id: book, book, chs, label: book }); return; }
+    if (!chunks) {
+      const size = bookChapterCount(book) || chs.length;
+      stops.push({ id: book, book, chs, label: book, range: [1, size], size, limit: limitFor(size) });
+      return;
+    }
     chunks.forEach(([a, z]) => {
       const part = chs.filter(c => c >= a && c <= z);
       if (!part.length) return;
       const lo = part[0], hi = part[part.length - 1];
-      stops.push({ id: book + ' ' + a + '-' + z, book, chs: part, label: book + ' ' + (lo === hi ? lo : lo + '–' + hi) });
+      const size = z - a + 1;
+      stops.push({ id: book + ' ' + a + '-' + z, book, chs: part, label: book + ' ' + (lo === hi ? lo : lo + '–' + hi), range: [a, z], size, limit: limitFor(size) });
     });
   });
   return stops;
 }
-// first CLEAN run of each chapter at or after a moment — a Redo does not move the circuit (4 Nov)
-function firstTouchAfter(book, ch, fromTs, toTs) {
+const bookChapterCount = name => { const b = bookByName(name); return b ? b.verses.length : 0; };
+// The first timed run of a chapter on a day, inside [fromTs, toTs].
+function timeOnDay(book, ch, day, fromTs, toTs) {
   let best = null;
-  for (const t of roadStore().touches) {
-    if (t.book !== book || t.ch !== ch || !t.clean || t.ts < fromTs || t.ts > toTs) continue;
-    if (!best || t.ts < best.ts) best = t;
+  for (const e of (((state.scripture || {}).reviewTimes || {})[book] || [])) {
+    if (!e || !e.scope || e.scope.kind !== 'chapter' || e.scope.ch !== ch || !(e.secs > 0)) continue;
+    if (e.ts < fromTs || e.ts > toTs || keyForTs(e.ts) !== day) continue;
+    if (!best || e.ts < best.ts) best = e;
   }
   return best;
+}
+// A chapter's run on the lap: its first CLEAN run at or after a moment — a Redo does not move the circuit
+// (4 Nov). From the time rule's start (27 Nov) the run also needs a time that day; a clean run with no
+// time leaves the chapter on the list, marked `untimed`.
+function lapHit(book, ch, fromTs, toTs) {
+  const list = roadStore().touches.filter(t => t.book === book && t.ch === ch && t.clean && !t.undone && t.ts >= fromTs && t.ts <= toTs)
+    .sort((a, b) => a.ts - b.ts);
+  let untimed = false;
+  for (const t of list) {
+    const day = t.day || keyForTs(t.ts);
+    if (day < TIME_RULE.start) return { t, secs: null, endTs: t.ts };
+    const e = timeOnDay(book, ch, day, fromTs, toTs);
+    if (e) return { t, secs: e.secs, endTs: Math.max(t.ts, e.ts) };
+    untimed = true;
+  }
+  return untimed ? { untimed: true } : null;
+}
+// ⚑ A STOP ON A LAP, UNDER THE TIME RULE. Every chapter run clean (and timed); the chapters' times added
+// up must come in under the stop's limit, or the stop goes round again — the whole chunk, chapter by
+// chapter — and the circuit waits on it. `tries` are the attempts that came in over.
+function judgeStop(st, fromTs, asOfTs) {
+  const tries = [];
+  let seg = fromTs;
+  for (let guard = 0; guard < 200; guard++) {
+    const hits = st.chs.map(ch => lapHit(st.book, ch, seg, asOfTs));
+    const got = st.chs.map((ch, i) => (hits[i] && !hits[i].untimed ? hits[i] : null));
+    const doneChs = st.chs.filter((ch, i) => got[i]);
+    const untimed = st.chs.filter((ch, i) => hits[i] && hits[i].untimed);
+    const secs = {};
+    st.chs.forEach((ch, i) => { if (got[i] && got[i].secs != null) secs[ch] = got[i].secs; });
+    const total = Object.values(secs).reduce((a, x) => a + x, 0);
+    const base = { doneChs, untimed, secs, total, tries, tryStart: seg };
+    if (doneChs.length < st.chs.length) return { ...base, done: false, doneTs: null };
+    const doneTs = Math.max(...got.map(x => x.t.ts));
+    const endTs = Math.max(...got.map(x => x.endTs));
+    if (keyForTs(doneTs) < TIME_RULE.start || total < st.limit) return { ...base, done: true, doneTs };
+    tries.push({ total, from: seg, ts: endTs });
+    seg = endTs + 1;
+  }
+  return { doneChs: [], untimed: [], secs: {}, total: 0, tries, tryStart: seg, done: false, doneTs: null };
 }
 
 // Replay the laps up to `asOfTs`. A chapter joins the loop at the first lap that begins after it
@@ -10652,12 +10715,9 @@ function circuit(asOfTs = Date.now()) {
     if (!stops.length) return { laps, current: null, stops: [], lapStart, lapIndex: laps.length };
     let lapEnd = -Infinity, open = false;
     const detail = stops.map(st => {
-      const touched = st.chs.map(ch => firstTouchAfter(st.book, ch, lapStart, asOfTs));
-      const doneChs = st.chs.filter((ch, i) => touched[i]);
-      const done = doneChs.length === st.chs.length;
-      const doneTs = done ? Math.max(...touched.map(t => t.ts)) : null;
-      if (done) lapEnd = Math.max(lapEnd, doneTs); else open = true;
-      return { ...st, done, doneTs, doneChs };
+      const j = judgeStop(st, lapStart, asOfTs);
+      if (j.done) lapEnd = Math.max(lapEnd, j.doneTs); else open = true;
+      return { ...st, ...j };
     });
     if (open) {
       const current = detail.find(s => !s.done);
@@ -10775,8 +10835,11 @@ function upNextItems(today = todayKey(), nowTs = Date.now()) {
     // ⚑ 26 Nov: "it's not about a certain number of times through but about getting them under an hour" —
     // so the note is time only: the book's total once every chapter has a time, the running total before.
     const timeNote = !b.timed ? '' : b.timed === b.chs.length ? fmtMin(b.total) : fmtMin(b.total) + ' so far';
+    // ⚑ 27 Nov: the limit sits beside the time — 45 for four chapters or fewer, 60 for five or more
+    const cuNote = [timeNote, 'limit ' + Math.round(b.limit / 60), b.pace].filter(Boolean).join(' · ');
     items.push({ key: 'c:' + b.id, kind: 'catchup', group: 'catchup', book: b.book, chs: b.chs.slice(), doneChs, chSubs, title: b.id,
-      sub: (timeNote ? timeNote + ' · ' : '') + b.pace, note: (timeNote ? timeNote + ' · ' : '') + b.pace, pace: b.pace, left: b.left,
+      range: [b.from, b.to], limit: b.limit,
+      sub: cuNote, note: cuNote, pace: b.pace, left: b.left,
       mins: estimateMins(b.book, b.chs.filter(ch => !doneChs.includes(ch)).length ? b.chs.filter(ch => !doneChs.includes(ch)) : b.chs),
       done: doneMarked('c:' + b.id, today) || (b.chs.length > 0 && doneChs.length === b.chs.length) });
     cu.blocks.filter(x => x.finishedDay).forEach(x => {
@@ -10785,7 +10848,7 @@ function upNextItems(today = todayKey(), nowTs = Date.now()) {
       if (!due.length) return;
       const kd = due.filter(ch => cleanOn(x.book, ch, today));
       const key = 'k:' + x.id;
-      items.push({ key, kind: 'keepup', group: 'maintaining', book: x.book, chs: due, doneChs: kd, title: x.id,
+      items.push({ key, kind: 'keepup', group: 'maintaining', book: x.book, chs: due, doneChs: kd, title: x.id, range: [x.from, x.to], limit: x.limit,
         sub: 'weekly keep-up', note: x.id + ' · weekly', mins: estimateMins(x.book, due),
         done: doneMarked(key, today) || kd.length === due.length });
     });
@@ -10803,9 +10866,17 @@ function upNextItems(today = todayKey(), nowTs = Date.now()) {
     const remaining = stop.chs.filter(ch => !(live && live.doneChs.includes(ch)));
     // ⚑ EACH CHAPTER OF THE STOP CAN BE LOGGED ON ITS OWN (4 Nov): which are clean on this lap
     const doneList = now.lapIndex !== atDawn.lapIndex ? stop.chs.slice() : (live ? live.doneChs.slice() : []);
+    // ⚑ 27 Nov: over the limit → the stop again, and the header says so with the last total
+    const j = live && now.lapIndex === atDawn.lapIndex ? live : null;
+    const lastTry = j && j.tries.length ? j.tries[j.tries.length - 1] : null;
+    const rMins = estimateMins(stop.book, remaining.length ? remaining : stop.chs);
+    const chSubs = {};
+    if (j) j.untimed.forEach(ch => { chSubs[ch] = 'ran clean · ⋯ to log its time'; });
     items.push({ key, kind: 'rotation', group: 'maintaining', book: stop.book, chs: stop.chs, doneChs: doneList, title: stop.label,
-      sub: 'on the circuit · ' + doneChs + ' of ' + stop.chs.length + ' chapter' + (stop.chs.length === 1 ? '' : 's'),
-      mins: estimateMins(stop.book, remaining.length ? remaining : stop.chs),
+      range: stop.range, limit: stop.limit, chSubs, again: j ? j.tries.length : 0,
+      note: stop.label + ' · ' + (lastTry ? 'again · last ' + fmtMin(lastTry.total) : 'about ' + fmtMin(rMins * 60)) + ' · limit ' + Math.round(stop.limit / 60),
+      sub: 'on the circuit · ' + doneChs + ' of ' + stop.chs.length + ' chapter' + (stop.chs.length === 1 ? '' : 's') + (lastTry ? ' · again' : ''),
+      mins: rMins,
       done: doneMarked(key, today) || now.lapIndex !== atDawn.lapIndex || !!(live && live.done) });
   }
   return items;
@@ -10831,17 +10902,19 @@ function upNextItems(today = todayKey(), nowTs = Date.now()) {
 // later book keeps the last day it had.
 const CATCHUP = {
   start: '2026-11-27',
-  limitSecs: 60 * 60,
-  keepUpDays: 7,
+  keepUpDays: 7,          // (the flat hour became the time rule's 45 / 60 on 27 Nov: limitFor)
   blocks: [
-    { id: '1 Timothy', book: '1 Timothy', from: 1, to: 6, days: 9 },
+    // ⚑ 27 Nov, 10:14: the order is the circuit's own, from Hebrews round (see CIRCUIT_FROM). Each block
+    // kept the days it had. 10:32: "Give 1 of 1 Timothy's extra days to Hebrews 1-4, 1 to Hebrews 5-9, and 2
+    // to first Peter." Still 33 days, 27 Nov – 29 Dec.
+    { id: 'Hebrews 1–4', book: 'Hebrews', from: 1, to: 4, days: 4 },
+    { id: 'Hebrews 5–9', book: 'Hebrews', from: 5, to: 9, days: 5 },
+    { id: 'James', book: 'James', from: 1, to: 5, days: 2 },
+    { id: '1 Peter', book: '1 Peter', from: 1, to: 5, days: 7 },
+    { id: 'Ephesians', book: 'Ephesians', from: 1, to: 6, days: 3 },
+    { id: '1 Timothy', book: '1 Timothy', from: 1, to: 6, days: 5 },
     { id: '2 Timothy', book: '2 Timothy', from: 1, to: 4, days: 4 },
     { id: 'Titus', book: 'Titus', from: 1, to: 3, days: 3 },
-    { id: '1 Peter', book: '1 Peter', from: 1, to: 5, days: 5 },
-    { id: 'Hebrews 1–4', book: 'Hebrews', from: 1, to: 4, days: 3 },
-    { id: 'Hebrews 5–9', book: 'Hebrews', from: 5, to: 9, days: 4 },
-    { id: 'Ephesians', book: 'Ephesians', from: 1, to: 6, days: 3 },
-    { id: 'James', book: 'James', from: 1, to: 5, days: 2 },
   ],
 };
 const cleanOn = (book, ch, day) => roadStore().touches.some(t => t.book === book && t.ch === ch && t.day === day && t.clean && !t.undone);
@@ -10867,7 +10940,8 @@ function blockMeasure(b, asOfTs, chs) {
   const secs = chs.map(ch => catchupChapterSecs(b.book, ch, asOfTs));
   const timed = secs.filter(x => x != null);
   const total = timed.reduce((a, x) => a + x, 0);
-  return { chs, secs, timed: timed.length, total, under: chs.length > 0 && timed.length === chs.length && total < CATCHUP.limitSecs };
+  const limit = limitFor(b.to - b.from + 1);
+  return { chs, secs, timed: timed.length, total, limit, under: chs.length > 0 && timed.length === chs.length && total < limit };
 }
 const paceText = left => left >= 1 ? left + (left === 1 ? ' day left' : ' days left') : (1 - left) + (1 - left === 1 ? ' day behind' : ' days behind');
 // The plan as of a moment: null before 1 Dec. Each block: its chapters, times, finished day, last day.
@@ -10895,6 +10969,43 @@ function catchup(asOfTs = Date.now()) {
     return out;
   });
   return { blocks, current, allDone: !current };
+}
+// ⚑⚑ THE TIMES SHEET (27 Nov: "a better way to see the stats of chapters in their times. Something to
+// click on … for each individual chapter or for the whole book"). Every chapter of a range with its latest,
+// fastest and number of timed runs; and the range's TIMES THROUGH: one closes the moment every chapter
+// has a time since the last one closed, and is the sum of each chapter's first time inside it.
+function chunkOf(book, ch) {
+  const c = (CHUNKS[book] || []).find(([a, z]) => ch >= a && ch <= z);
+  return c ? c.slice() : [1, bookChapterCount(book) || ch];
+}
+const CHUNK_WINDOW_DAYS = 14;
+function chunkTimes(book, from, to) {
+  const all = ((((state.scripture || {}).reviewTimes || {})[book]) || [])
+    .filter(e => e && e.scope && e.scope.kind === 'chapter' && e.scope.ch >= from && e.scope.ch <= to && e.secs > 0)
+    .sort((a, b) => a.ts - b.ts);
+  const chapters = [];
+  for (let ch = from; ch <= to; ch++) {
+    const ts = all.filter(e => e.scope.ch === ch);
+    const last = ts[ts.length - 1];
+    chapters.push({ ch, n: ts.length, latest: last ? last.secs : null, latestTs: last ? last.ts : null,
+      fastest: ts.length ? Math.min(...ts.map(e => e.secs)) : null });
+  }
+  const size = to - from + 1, laps = [];
+  let cur = new Map(), start = null;
+  for (const e of all) {
+    // a time through is one go at the chunk: a chapter time more than two weeks old falls out of it
+    for (const [k, x] of cur) if (e.ts - x.ts > CHUNK_WINDOW_DAYS * 86400000) cur.delete(k);
+    start = cur.size ? Math.min(...[...cur.values()].map(x => x.ts)) : null;
+    if (!cur.has(e.scope.ch)) { cur.set(e.scope.ch, e); if (start == null) start = e.ts; }
+    if (cur.size === size) {
+      const es = [...cur.values()];
+      laps.push({ from: start, ts: e.ts, secs: es.reduce((a, x) => a + x.secs, 0), sittings: new Set(es.map(x => keyForTs(x.ts))).size });
+      cur = new Map(); start = null;
+    }
+  }
+  const timed = chapters.filter(c => c.latest != null);
+  return { book, from, to, size, limit: limitFor(size), chapters, laps,
+    latestTotal: timed.reduce((a, c) => a + c.latest, 0), timed: timed.length };
 }
 const fmtMin = secs => { const m = Math.round(secs / 60); return m < 60 ? m + ' min' : Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : ''); };
 
@@ -11084,7 +11195,7 @@ function mergeRoadEvidence(into, from) {
 }
 
 
-const RO = {ACTIVE_TOUCHES,CATCHUP,CHUNKS,CLIMB_STAGES,GOAL_START,LAP1_ORDER,MATURE_STAGES,MATURING_STEPS,NT_ORDER,SEED_DAY,SEED_HOURS,SEND_BACK_FROM,SENT_BACK_DAYS,UP_NEXT_GROUPS,WEEK_GOAL,activeItemChapters,allChapters,bookHeld,byCanon,catchup,catchupChapterSecs,chKey,chLabel,chapterCompletion,chapterHeld,chapterState,circuit,currentBookName,currentBookNames,estimateMins,goalStatus,isTracked,itemVerseKeys,knownChapterKeys,markDone,mergeRoadEvidence,nextUnmemorized,ntProgress,planPortion,recordTouch,recordVerses,removeTouch,roadBooks,roadPlan,roadStore,setPlan,setZone,splitChKey,touchForSitting,unmarkDone,upNextItems,verseKey,verseMemorized,versesRecorded};
+const RO = {ACTIVE_TOUCHES,CATCHUP,CHUNKS,CIRCUIT_FROM,CLIMB_STAGES,GOAL_START,LAP1_ORDER,MATURE_STAGES,MATURING_STEPS,NT_ORDER,SEED_DAY,SEED_HOURS,SEND_BACK_FROM,SENT_BACK_DAYS,TIME_RULE,UP_NEXT_GROUPS,WEEK_GOAL,activeItemChapters,allChapters,bookHeld,byCanon,catchup,catchupChapterSecs,chKey,chLabel,chapterCompletion,chapterHeld,chapterState,chunkOf,chunkTimes,circuit,currentBookName,currentBookNames,estimateMins,goalStatus,isTracked,itemVerseKeys,knownChapterKeys,limitFor,markDone,mergeRoadEvidence,nextUnmemorized,ntProgress,planPortion,recordTouch,recordVerses,removeTouch,roadBooks,roadPlan,roadStore,setPlan,setZone,splitChKey,touchForSitting,unmarkDone,upNextItems,verseKey,verseMemorized,versesRecorded};
 // Strive — Up next and Todoist (4 Nov 2026).
 //
 // ⚑ WHAT IT DOES. Each of today's Up next items becomes a Todoist task (due today, label "strive").
@@ -12033,7 +12144,7 @@ SC.ensureKeys();
 // source keeps the placeholder and correctly reports itself as 'dev'. Shown in You/Profile
 // so "is my phone actually on the build I just uploaded?" is answerable in one glance —
 // a build ran a day stale on device once (Aug 3 2026) and cost the better part of a session.
-const BUILD_ID = '20261126-2041'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20261126-2041';
+const BUILD_ID = '20261127-1033'.indexOf('__') === 0 ? 'dev (unbuilt source)' : '20261127-1033';
 
 // ---------- tiny view framework ----------
 const main = () => document.getElementById('main');
@@ -27061,7 +27172,8 @@ function upNextCard() {
   const stopChs = it => it.chs.filter(ch => !(it.doneChs || []).includes(ch));
   // ⚑ CATCH-UP (December, 26 Nov): "you're working on 1 Timothy right now", its chapters underneath, and
   // beside the book in lighter print the time so far and "5 days left" / "1 day behind".
-  const chapterBlock = (it, label, note) => `<div class="ru-group ru-gstop"><span>${esc(label)}</span><span class="ru-gnote">${esc(note)}</span></div>${stopChs(it).map(ch => chRow(it, ch)).join('')}`;
+  // ⚑ 27 Nov: the header opens the chunk's Times sheet ("something to click on … for each individual chapter or for the whole book")
+  const chapterBlock = (it, label, note) => `<div class="ru-group ru-gstop" data-k="${esc(it.key)}" role="button" style="cursor:pointer"><span>${esc(label)}</span><span class="ru-gnote">${esc(note)} ›</span></div>${stopChs(it).map(ch => chRow(it, ch)).join('')}`;
   const groups = RO.UP_NEXT_GROUPS.map(([g, label]) => {
     const rows = left.filter(i => i.group === g);
     if (!rows.length) return '';
@@ -27073,7 +27185,7 @@ function upNextCard() {
       }).join('');
     }
     if (g === 'catchup') return rows.map(it => chapterBlock(it, label + ' · ' + it.title, it.note)).join('');
-    if (g === 'maintaining') return rows.map(it => chapterBlock(it, label, it.kind === 'keepup' ? it.note + ' · about ' + roadFmtMins(it.mins) : it.book + ' · about ' + roadFmtMins(it.mins))).join('');
+    if (g === 'maintaining') return rows.map(it => chapterBlock(it, label, it.kind === 'keepup' ? it.note + ' · about ' + roadFmtMins(it.mins) : it.note || it.book + ' · about ' + roadFmtMins(it.mins))).join('');
     return `<div class="ru-group">${label}</div>${rows.map(row).join('')}`;
   }).join('');
   const card = h(`<div class="card road-upnext" id="d-upnext">
@@ -27112,9 +27224,88 @@ function upNextCard() {
     };
     cr.querySelector('[data-a=chdots]').onclick = () => { const c = RO.chapterState(it.book, ch); if (c) roadStageSheet(c); };
   });
+  card.querySelectorAll('.ru-gstop[data-k]').forEach(hd => {
+    const it = left.find(i => i.key === hd.dataset.k);
+    if (!it) return;
+    const [a, z] = it.range || RO.chunkOf(it.book, it.chs[0]);
+    hd.onclick = () => roadTimesSheet(it.book, a, z);
+  });
   card.querySelector('#ru-log').onclick = () => roadLogSheet();
   card.querySelector('#ru-road').onclick = () => switchTab('road');
   return card;
+}
+
+// ⚑⚑ THE TIMES SHEET (27 Nov). For a chunk (Hebrews 1–4) or a whole book: the times through it against
+// its limit (45 for four chapters or fewer, 60 for five or more), the graph of them, and every chapter's
+// latest, fastest and number of timed runs. A chapter opens its own graph; "Whole book" widens the view.
+function roadTimesSheet(book, from, to) {
+  const b = roadBook(book);
+  const nCh = b ? b.verses.length : to;
+  const whole = from === 1 && to === nCh;
+  const label = whole ? book : book + ' ' + (from === to ? from : from + '–' + to);
+  const t = RO.chunkTimes(book, from, to);
+  const fmt = secs => SC.fmtSecs(Math.round(secs));
+  openSheet(label + ' · times', (body, close) => {
+    const lim = Math.round(t.limit / 60);
+    const latest = t.timed === t.size ? t.latestTotal : null;
+    const best = t.laps.length ? Math.min(...t.laps.map(l => l.secs)) : null;
+    body.append(h(`<div class="statgrid three sc-stats">
+      <div class="stat"><div class="v">${latest != null ? fmt(latest) : t.timed ? fmt(t.latestTotal) : '—'}</div><div class="l">${latest != null ? 'Latest' : t.timed + ' of ' + t.size + ' timed'}</div></div>
+      <div class="stat"><div class="v">${best != null ? fmt(best) : '—'}</div><div class="l">Fastest</div></div>
+      <div class="stat"><div class="v">${lim}:00</div><div class="l">Limit</div></div>
+    </div>`).firstElementChild);
+    const verdict = latest == null ? `Each chapter needs a time before the total means anything — ${t.size - t.timed} to go.`
+      : latest < t.limit ? `Under the limit by ${fmt(t.limit - latest)}.` : `Over the limit by ${fmt(latest - t.limit)}.`;
+    body.append(h(`<div class="muted" style="font-size:12px;margin:8px 2px 0;color:${latest == null ? 'var(--text-2)' : latest < t.limit ? 'var(--forest)' : 'var(--danger)'}">${esc(verdict)} Latest total adds each chapter's most recent time.</div>`));
+    if (t.laps.length) {
+      const card = SC.scorecard(t.laps);
+      body.append(h(`<div class="card" style="margin-top:12px">${scoreGraph(t.laps, card)}</div>`).firstElementChild);
+    }
+    const tbl = h(`<div class="sc-units" style="margin-top:12px">
+      <div class="sc-urow sc-uhead"><span>Chapter</span><span>Latest</span><span>Fastest</span><span>Runs</span><span></span></div>
+    </div>`).firstElementChild;
+    t.chapters.forEach(c => {
+      const row = h(`<div class="sc-urow" style="${c.n ? 'cursor:pointer' : ''}">
+        <span class="sc-ulabel">${esc(book + ' ' + c.ch)}</span>
+        <span>${c.latest != null ? fmt(c.latest) : '—'}</span><span>${c.fastest != null ? fmt(c.fastest) : '—'}</span><span>${c.n || '—'}</span>
+        <span class="chev">${c.n ? '›' : ''}</span></div>`).firstElementChild;
+      if (c.n) row.onclick = () => { close(); render(() => timesScreen(book, 'ch:' + c.ch)); };
+      tbl.append(row);
+    });
+    body.append(tbl);
+    if (t.laps.length) {
+      body.append(h(`<div class="muted" style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin:14px 2px 4px">Times through · newest first</div>`));
+      const list = h(`<div class="sc-list"></div>`).firstElementChild;
+      t.laps.slice().reverse().forEach(l => list.append(h(`<div class="sc-trow">
+        <span class="sc-tsecs" style="color:${l.secs < t.limit ? 'var(--forest)' : 'var(--danger)'}">${fmt(l.secs)}</span>
+        <span class="sc-tmeta">${esc(scSpan(l))} · ${l.sittings} day${l.sittings === 1 ? '' : 's'}</span>
+        <span class="sc-tdelta">${l.secs < t.limit ? 'under' : 'over'}</span></div>`).firstElementChild));
+      body.append(list);
+    }
+    const btns = h(`<div class="row" style="gap:8px;margin-top:14px;flex-wrap:nowrap"></div>`).firstElementChild;
+    if (!whole) {
+      const wb = h(`<button class="btn secondary" style="flex:1">Whole book ›</button>`).firstChild;
+      wb.onclick = () => { close(); roadTimesSheet(book, 1, nCh); };
+      btns.append(wb);
+    } else if (RO.CHUNKS[book]) {
+      // a chunked book, seen whole: its chunks one tap away
+      RO.CHUNKS[book].forEach(([a, z]) => {
+        const cb = h(`<button class="btn secondary" style="flex:1">${a}–${z}</button>`).firstChild;
+        cb.onclick = () => { close(); roadTimesSheet(book, a, z); };
+        btns.append(cb);
+      });
+    }
+    const all = h(`<button class="btn secondary" style="flex:1">Every time ›</button>`).firstChild;
+    all.onclick = () => { close(); render(() => roadBookTimesScreen(book)); };
+    btns.append(all);
+    body.append(btns);
+  });
+}
+// The book's card from Review times, on a screen of its own: passes, and every chapter and range.
+function roadBookTimesScreen(name) {
+  setHeader(name + ' · times', { back: true });
+  const c = scorecardCard(name, { showTitle: false });
+  main().append(c || h(`<div class="empty">No times logged for ${esc(name)} yet.</div>`).firstElementChild);
 }
 
 // A sheet that redraws itself as he changes things, and redraws the screen behind it once, on close.
@@ -27200,6 +27391,20 @@ function roadStageSheet(c0) {
         });
         body.append(step);
       }
+      // ⚑ 27 Nov: the time rule needs times — a run done away from Strive gets its time here
+      if (c && c.zone !== 'memorizing') {
+        const lt = h(`<div class="rs-step"><span class="rs-l">Log a time</span>
+            <input data-a="dur" placeholder="mm:ss" inputmode="numeric" aria-label="Time for ${esc(book + ' ' + ch)}" style="width:76px;padding:8px;border-radius:3px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:13px;text-align:center">
+            <button class="pill" data-a="logt">Log</button></div>`).firstElementChild;
+        lt.querySelector('[data-a=logt]').onclick = () => {
+          const secs = SC.parseDuration(lt.querySelector('[data-a=dur]').value);
+          if (secs == null) { toast('Enter a time like 12:34'); return; }
+          SC.logReviewTime(book, secs, { scope: { kind: 'chapter', ch } });
+          toast(book + ' ' + ch + ' — ' + SC.fmtSecs(secs) + ' logged');
+          dirty(); draw();
+        };
+        body.append(lt);
+      }
       if (c) {
         const run = h(`<button class="btn secondary">${c.zone === 'memorizing' ? 'Reviewed today' : 'Log a clean run now'}</button>`).firstChild;
         run.onclick = () => { RO.recordTouch(book, ch, true, 'manual'); toast(book + ' ' + ch + (c.zone === 'memorizing' ? ' — reviewed' : ' — clean run logged')); dirty(); draw(); };
@@ -27220,6 +27425,11 @@ function roadStageSheet(c0) {
       const lg = h(`<button class="btn secondary">Log verses in ${esc(book + ' ' + ch)}</button>`).firstChild;
       lg.onclick = () => { close(); roadLogSheet(book, ch); };
       body.append(lg);
+      // ⚑ 27 Nov: the times, from here too
+      const [ta, tz] = RO.chunkOf(book, ch);
+      const tm = h(`<button class="btn secondary">Times · ${esc(book + (RO.CHUNKS[book] ? ' ' + ta + '–' + tz : ''))}</button>`).firstChild;
+      tm.onclick = () => { close(); roadTimesSheet(book, ta, tz); };
+      body.append(tm);
       if (c) {
         const off = h(`<button class="btn secondary" style="color:var(--danger)">Take it off the road</button>`).firstChild;
         off.onclick = () => {
@@ -27890,6 +28100,22 @@ function circuitBody() {
     c.laps.slice().reverse().forEach(l => lt.append(h(`<div class="road-lap"><span>Lap ${l.n}</span><span class="road-meter"><span style="width:${(l.days / most * 100).toFixed(1)}%"></span></span><span class="muted">${l.days} day${l.days === 1 ? '' : 's'}</span></div>`)));
   }
   wrap.append(lt);
+
+  // ⚑ 27 Nov: every stop with its latest total against its limit; a tap opens the Times sheet
+  if (stops.length) {
+    const tsec = h(`<div class="road-camps"><div class="road-sec"><h3>Times</h3><span class="muted">45 for 4 chapters or fewer · 60 for 5+</span></div></div>`).firstElementChild;
+    stops.forEach(st => {
+      const [a, z] = st.range || RO.chunkOf(st.book, st.chs[0]);
+      const t = RO.chunkTimes(st.book, a, z);
+      const all = t.timed === t.size;
+      const col = !all ? 'var(--text-2)' : t.latestTotal < t.limit ? 'var(--forest)' : 'var(--danger)';
+      const txt = (all ? SC.fmtSecs(Math.round(t.latestTotal)) : t.timed + ' of ' + t.size + ' timed') + ' · limit ' + Math.round(t.limit / 60) + (st.tries && st.tries.length ? ' · again' : '');
+      const row = h(`<button class="road-camp"><span class="rc-name"><span>${esc(st.label)}</span><span class="muted" style="color:${col}">${esc(txt)}</span></span><span class="chev">›</span></button>`).firstElementChild;
+      row.onclick = () => roadTimesSheet(st.book, a, z);
+      tsec.append(row);
+    });
+    wrap.append(tsec);
+  }
 
   const mat = RO.allChapters().filter(x => x.zone === 'maturing' || x.zone === 'sentback').sort(RO.byCanon);
   const mc = h(`<div class="road-camps"><div class="road-sec"><h3>Maturing</h3><span class="muted">eight weeks, then the circuit</span></div></div>`).firstElementChild;
